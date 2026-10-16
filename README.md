@@ -4,7 +4,7 @@ World of Warcraft Forever rotation profiles and shared UI.
 
 ## Current build
 
-Version **0.21.0**. The addon source is stored as individual files in `ActionLITE/`.
+Version **1.0.23**. The addon source is stored as individual files in `ActionLITE/`.
 
 ## Installation
 

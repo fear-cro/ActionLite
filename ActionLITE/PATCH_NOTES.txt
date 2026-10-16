@@ -1,4 +1,4 @@
-ActionLITE 0.21.0 - Release notes - October 15, 2026
+ActionLITE 1.0.23 - Release notes - October 15, 2026
 
 Rotation selection
 - Added Leveling Rotation as the default choice for every class, using the previously finalized leveling behavior.

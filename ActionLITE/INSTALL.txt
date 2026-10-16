@@ -1,4 +1,4 @@
-ActionLITE 0.21.0 - Full Build - October 15, 2026
+ActionLITE 1.0.23 - Full Build - October 15, 2026
 WoW Forever / Interface 16001
 
 Installation
