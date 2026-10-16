@@ -2,9 +2,10 @@
 
 World of Warcraft Forever rotation profiles and shared UI.
 
-## Current build
+## Builds
 
-Version **1.0.23**. The addon source is stored as individual files in `ActionLITE/`.
+- **Current beta: v0.24**, in [`older-versions/ActionLITEv0.24/ActionLITE/`](older-versions/ActionLITEv0.24/ActionLITE/). It uses the original beta leveling rotations.
+- **Level 60 build: 1.0.23**, in [`ActionLITE/`](ActionLITE/). This build is intended for release when leveling to 60 unlocks.
 
 ## Installation
 
@@ -12,14 +13,16 @@ Copy the `ActionLITE` folder into your game’s `Interface/AddOns/` directory, t
 
 ## Patch notes
 
-See the [version 1.0.23 patch notes](patch-notes/1.0.23.MD). All release notes are stored as Markdown files in [`patch-notes/`](patch-notes/).
+See the [beta v0.24 patch notes](older-versions/patch-notes/patchnotes-v0.24.MD) or the [level 60 version 1.0.23 patch notes](patch-notes/1.0.23.MD).
+
+Level 60 release notes are Markdown files in [`patch-notes/`](patch-notes/). Beta and archived-version notes are in [`older-versions/patch-notes/`](older-versions/patch-notes/).
 
 ## Older versions
 
-Archived builds are stored, decompressed and unchanged, in [`older-versions/`](older-versions/).
+Older and beta builds are stored, decompressed, in [`older-versions/`](older-versions/). The original v0.23 archive remains unchanged.
 
 ## Updates
 
-Commit source changes directly to this repository. Keep the addon folder named `ActionLITE`, including its capitalization. Store all future patch notes as Markdown files in the repository-root `patch-notes/` folder, outside the addon folder. Use Fear-Cro for first-party author credits.
+Commit source changes directly to this repository. Keep the addon folder named `ActionLITE`, including its capitalization. Store future patch notes as Markdown files outside addon folders: level 60 releases in `patch-notes/`, and beta/archived-version updates in `older-versions/patch-notes/`. Use Fear-Cro for first-party author credits.
 
 Automated checks have been completed for this build. Live verification in the game remains necessary.
