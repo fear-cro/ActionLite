@@ -1,0 +1,38 @@
+## Interface: 16001
+## Title: ActionLITE
+## Notes: WoW Forever rotation assistant
+## Author: Robin
+## Version: 0.20.0
+## SavedVariables: ActionLiteDB, ActionLiteLanguage
+
+Debug.lua
+Core.lua
+Localization.lua
+UI_Core.lua
+Themes.lua
+rotation\Warrior.lua
+rotation\Paladin.lua
+rotation\Hunter.lua
+rotation\Rogue.lua
+rotation\Priest.lua
+rotation\Shaman.lua
+rotation\Mage.lua
+rotation\Warlock.lua
+rotation\Druid.lua
+Class_UI.lua
+Warrior_UI.lua
+Paladin_UI.lua
+Hunter_UI.lua
+Rogue_UI.lua
+Priest_UI.lua
+Shaman_UI.lua
+Mage_UI.lua
+Warlock_UI.lua
+Druid_UI.lua
+Display.lua
+Glow.lua
+Swing.lua
+Trainer.lua
+Minimap.lua
+DebugUI.lua
+Menu.lua

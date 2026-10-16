@@ -1,0 +1,22 @@
+ActionLITE - Settings tab removed
+
+Installation
+1. Close the game, or return to the character selection screen.
+2. Extract the ActionLITE folder into Interface/AddOns, replacing the existing
+   ActionLITE files. If copying manually, copy the contents of this package's
+   ActionLITE folder into your existing Interface/AddOns/ActionLITE folder.
+3. Start the game or reload the interface with /reload.
+
+Changes
+- Removed the Settings tab and its profile import/export feature for all nine
+  classes: Warrior, Paladin, Hunter, Rogue, Priest, Shaman, Mage, Warlock, Druid.
+- Removed the feature's supporting code and translations.
+- Saved selections of the old Settings tab now open General.
+- General, the class page, and Spells remain available.
+
+This package contains all 33 supplied addon files. The changed files are
+Menu.lua, Localization.lua, ActionLITE.toc, and Share.lua. Share.lua contains
+only a removal notice and is no longer loaded; it is included to overwrite
+its old code when installing over an existing copy.
+
+The supplied class rotation and class-menu files are unchanged.
