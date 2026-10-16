@@ -110,7 +110,7 @@ local function BuildPaladinUI(page, ui)
 	Check(buildCard, "retribution", "Use Retribution (10/8/33)", "Seal of Command",
 		"Uses learned Retribution damage and execute priorities. Automatic seal mode prepares Command for learned Twist of Light when aura data is readable. Otherwise it keeps the weapon-based single-seal choice. Selecting this disables Shockadin and Tank. Talents and equipment are not changed.", true,
 		function() SelectBuild("retribution", "shockadin") end)
-	Check(buildCard, "shockadin", "Use Shockadin", "Holy Shock",
+	Check(buildCard, "shockadin", "Use Shockadin (23/0/28)", "Holy Shock",
 		"Uses learned Shockadin damage priorities and automatic Seal of Righteousness. Selecting this disables Retribution and Tank. Select Leveling Rotation to use the earlier DPS priority. Talents and equipment are not changed.", true,
 		function() SelectBuild("shockadin", "retribution") end)
 	Check(buildCard, "sealTwisting", "Use Twist of Light", "Seal of Command",
