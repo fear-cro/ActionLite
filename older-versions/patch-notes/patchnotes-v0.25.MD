@@ -13,6 +13,11 @@ Built from v0.24 with the Warrior hotfixes included. This beta continues to use 
 - Clarified the separate DPS and Protection sliders. Defensive Stance uses **Tank Heroic Strike threshold** and **Protection Cleave Rage**.
 - Retained the existing 80-Rage overflow protection in the DPS rotation.
 
+## Warlock
+
+- Fixed new Warlocks stopping before their first attack when Drain Soul has not been learned. Soul Shard upkeep now runs only when Drain Soul is learned and enabled.
+- The Shoot mana threshold and 10% wand protection now apply only while a wand is equipped. Without a wand, usable Shadow Bolt remains available.
+
 ## Paladin and Druid review
 
 - Verified Paladin's existing mana gates and Bear-form Druid resource checks. No additional rotation changes were needed for these Warrior-specific bugs.

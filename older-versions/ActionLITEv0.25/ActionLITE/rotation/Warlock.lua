@@ -257,7 +257,8 @@ end
 -- spell usability, casting state, or target health. A shard deficit is simply:
 -- detected bag count < configured minimum.
 local function SoulShardDeficit(s)
-	if not s.drainsoul then return false end
+	-- A new character cannot build shards before Drain Soul is learned.
+	if not s.drainsoul or not AL.Ok("Drain Soul") then return false end
 
 	local shards = SoulShardCount()
 	if shards == nil then return false end
@@ -513,6 +514,10 @@ end
 
 local function ShootState(s, manaPct)
 	local threshold, configured = ShootThreshold(s)
+	-- The wand reserve must not disable usable spells without a wand.
+	if not AL.WandEquipped() then
+		return false, manaPct, threshold, configured, "no wand equipped"
+	end
 	if type(manaPct) ~= "number" then return true, manaPct, threshold, configured, "mana unavailable" end
 	if manaPct <= HARD_SHOOT_MANA then
 		return true, manaPct, threshold, configured, "Shoot protection: mana <= " .. tostring(HARD_SHOOT_MANA) .. "%"
@@ -670,8 +675,8 @@ local function AfterCastingDot(casting, s, targetHp)
 		return nil, "Shadow Bolt blocked: " .. tostring(shootReason or "Shoot mode")
 	end
 
-	-- Shadow Bolt is legal only after ShootState positively establishes that
-	-- mana is above the configured threshold.
+	-- With a wand equipped, Shadow Bolt requires mana above its threshold.
+	-- Without one, native spell usability remains the authority.
 	if AL.Ok("Shadow Bolt") and AL.SpellUsable("Shadow Bolt") then
 		return "Shadow Bolt", "queued after " .. casting
 	end
@@ -867,6 +872,7 @@ function M.NextSpell(s, inCombat, hostile)
 	-- DoTs and Drain Soul are above this point. Once filler is reached, Shoot
 	-- completely replaces Shadow Bolt whenever mana is at/below the slider,
 	-- at/below the hard 10% floor, unreadable, or Shadow Bolt reports no mana.
+	-- This reserve applies only while a wand is equipped.
 	if forceShoot then
 		if AL.WandEquipped() and AL.Ok("Shoot") then
 			return "Shoot", shootReason or "Shoot mode"
