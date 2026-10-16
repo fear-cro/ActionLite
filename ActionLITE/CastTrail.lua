@@ -1,7 +1,7 @@
 local ADDON_NAME, AL = ...
 
 -- ActionLITE Cast Trail v0.1.0
--- Integrated from CastTrail 0.2.2-beta by Cro Olfson. Cast/outcome/channel
+-- Integrated from CastTrail 0.2.2-beta by Fear-Cro. Cast/outcome/channel
 -- tracking is retained; settings, anchoring and movement belong to ActionLITE.
 -- This frame is parented to UIParent, independently of the recommendation icon.
 
