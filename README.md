@@ -16,6 +16,6 @@ See the [Word patch notes](ActionLITE-Patch-Notes-2026-10-15.docx) in the reposi
 
 ## Updates
 
-Commit source changes directly to this repository. Keep the addon folder named `ActionLITE`, including its capitalization. Keep Word patch notes in the repository root, outside the addon folder. Use Fear-Cro for first-party author credits. See [the repository guidelines](AGENTS.md) for the structure required for future builds.
+Commit source changes directly to this repository. Keep the addon folder named `ActionLITE`, including its capitalization. Keep Word patch notes in the repository root, outside the addon folder. Use Fear-Cro for first-party author credits.
 
 Automated checks have been completed for this build. Live verification in the game remains necessary.
