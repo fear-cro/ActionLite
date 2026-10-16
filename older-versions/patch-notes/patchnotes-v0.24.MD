@@ -4,6 +4,11 @@ October 15, 2026
 
 This beta update is based on ActionLITE v0.23 and retains its original leveling rotations, class menus, and controls.
 
+## Warrior hotfix — October 16, 2026
+
+- Fixed the Protection rotation stopping on Auto Attack when combat hides who the enemy is attacking.
+- Unavailable target information now skips the optional taunt check while allowing the rest of the rotation to continue.
+
 ## Wand timing
 
 - Improved Shoot timing for Mage, Priest, and Warlock to prevent repeated recommendations while a wand command is pending or a shot is being cast.

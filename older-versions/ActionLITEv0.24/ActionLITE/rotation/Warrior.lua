@@ -1,7 +1,7 @@
 local ADDON, AL = ...
 
 -- WoW Forever Warrior DPS / Tank leveling 1-30
--- ActionLITE Warrior rotation v0.7.11
+-- ActionLITE Warrior rotation v0.7.12
 -- Cible : beta 1.60.1.69913
 -- Donnees : extraction client 1.60.1.69876, inchangee dans 69893/69913.
 -- Statut : LIKELY jusqu'a validation directe dans le client Forever cible.
@@ -972,16 +972,14 @@ local function ShieldEquipped()
 end
 
 local function TargetNeedsTaunt()
-	if not UnitExists or not UnitExists("targettarget") then return false end
-	if UnitIsUnit then
-		local okSelf, isSelf = pcall(UnitIsUnit, "targettarget", "player")
-		if okSelf and isSelf then return false end
-	end
-	if UnitIsFriend then
-		local okFriend, isFriend = pcall(UnitIsFriend, "player", "targettarget")
-		if okFriend and isFriend then return true end
-	end
-	return false
+	if not SafeUnitExists("targettarget")
+		or type(UnitIsUnit) ~= "function" or type(UnitIsFriend) ~= "function" then return false end
+	local okSelf, isSelf = pcall(UnitIsUnit, "targettarget", "player")
+	-- Protected relationship results cannot be tested as booleans. Unknown
+	-- aggro skips the optional taunt without interrupting the tank rotation.
+	if not okSelf or not SafeValue(isSelf) or type(isSelf) ~= "boolean" or isSelf then return false end
+	local okFriend, isFriend = pcall(UnitIsFriend, "player", "targettarget")
+	return okFriend and SafeValue(isFriend) and isFriend == true
 end
 
 local function TankSunderCap(s)
@@ -1785,7 +1783,7 @@ function M.DebugState()
 	local rendActive = RendActive()
 
 	return {
-		build = "0.7.11",
+		build = "0.7.12",
 		rage = rage,
 		rageReadable = type(rage) == "number",
 		rageOverflowAt = RAGE_OVERFLOW_DUMP,
