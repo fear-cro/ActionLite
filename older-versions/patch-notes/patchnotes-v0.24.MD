@@ -8,6 +8,10 @@ This beta update is based on ActionLITE v0.23 and retains its original leveling 
 
 - Fixed the Protection rotation stopping on Auto Attack when combat hides who the enemy is attacking.
 - Unavailable target information now skips the optional taunt check while allowing the rest of the rotation to continue.
+- Fixed Heroic Strike and other optional Rage spenders bypassing their sliders when Rage is protected. Being able to afford a spell no longer bypasses its configured reserve.
+- Keep the main icon, small icon, hotkey, and action-bar glow aligned with the selected Rage threshold. If the client cannot check a threshold, that optional spender waits while other attacks and defensive abilities continue.
+- Clarified the separate DPS and Protection sliders. Defensive Stance uses **Tank Heroic Strike threshold** and **Protection Cleave Rage**.
+- Retained the existing 80-Rage overflow protection in the DPS rotation.
 
 ## Wand timing
 
