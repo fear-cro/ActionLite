@@ -1,0 +1,46 @@
+## Interface: 16001
+## Title: ActionLITE TEST
+## Notes: WoW Forever rotation assistant
+## Author: Fear-Cro
+## Version: 1.0.25-TEST
+## SavedVariables: ActionLiteDB, ActionLiteLanguage
+
+Debug.lua
+Core.lua
+Localization.lua
+UI_Core.lua
+Themes.lua
+rotation\Warrior.lua
+rotation\Paladin.lua
+rotation\Hunter.lua
+rotation\Rogue.lua
+rotation\Priest.lua
+rotation\Shaman.lua
+rotation\Mage.lua
+rotation\Warlock.lua
+rotation\Druid.lua
+Class_UI.lua
+Class_Layout.lua
+Warrior_UI.lua
+Paladin_UI.lua
+Hunter_UI.lua
+Rogue_UI.lua
+Priest_UI.lua
+Shaman_UI.lua
+Mage_UI.lua
+Warlock_UI.lua
+Druid_UI.lua
+Display.lua
+CastTrail.lua
+Glow.lua
+Swing.lua
+Trainer.lua
+Minimap.lua
+DebugUI.lua
+ActionLiteDebug.lua
+ActionLiteDebug_Catalog.lua
+ActionLiteDebug_Probe.lua
+ActionLiteDebug_State.lua
+ActionLiteDebug_UI.lua
+Share.lua
+Menu.lua
