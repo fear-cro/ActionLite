@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 
--- ActionLITE Warrior v0.10.3: original Leveling plus optional talent builds.
+-- ActionLITE Warrior v0.10.4: original Leveling plus optional talent builds.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -45,7 +45,7 @@ do
 local ADDON, AL = ...
 
 -- WoW Forever Warrior DPS / Tank leveling 1-30
--- ActionLITE Warrior rotation v0.7.11
+-- ActionLITE Warrior rotation v0.7.13
 -- Cible : beta 1.60.1.69913
 -- Donnees : extraction client 1.60.1.69876, inchangee dans 69893/69913.
 -- Statut : LIKELY jusqu'a validation directe dans le client Forever cible.
@@ -1016,16 +1016,14 @@ local function ShieldEquipped()
 end
 
 local function TargetNeedsTaunt()
-	if not UnitExists or not UnitExists("targettarget") then return false end
-	if UnitIsUnit then
-		local okSelf, isSelf = pcall(UnitIsUnit, "targettarget", "player")
-		if okSelf and isSelf then return false end
-	end
-	if UnitIsFriend then
-		local okFriend, isFriend = pcall(UnitIsFriend, "player", "targettarget")
-		if okFriend and isFriend then return true end
-	end
-	return false
+	if not SafeUnitExists("targettarget")
+		or type(UnitIsUnit) ~= "function" or type(UnitIsFriend) ~= "function" then return false end
+	local okSelf, isSelf = pcall(UnitIsUnit, "targettarget", "player")
+	-- Protected relationship results cannot be tested as booleans. Unknown
+	-- aggro skips the optional taunt without interrupting the tank rotation.
+	if not okSelf or not SafeValue(isSelf) or type(isSelf) ~= "boolean" or isSelf then return false end
+	local okFriend, isFriend = pcall(UnitIsFriend, "player", "targettarget")
+	return okFriend and SafeValue(isFriend) and isFriend == true
 end
 
 local function TankSunderCap(s)
@@ -1171,20 +1169,98 @@ local function HeroicDumpAt(s)
 end
 
 
-local function DumpGate(rage, threshold, spell)
-	if type(rage) == "number" then
-		return rage >= threshold, "numeric"
-	end
+-- Optional spenders must honor their sliders even when the client protects
+-- Rage. The existing display can apply native color-curve alpha to the main
+-- icon, mini-icon, key and glow without comparing a protected value in Lua.
+local plannedDumpRage, collectingRageCuts, lastRageDecision
+local rageCurves, rageCurveFactory = {}, nil
+local rageCurveFailure, rageCurveCapability, rageCurveProbe
 
-	-- Forever protects Rage in combat. In that state we cannot honestly claim
-	-- a threshold was crossed, so use the game's own affordability/usability
-	-- result. This keeps spenders active and prevents Rage from being hoarded
-	-- behind an unreadable numeric check.
-	if spell and AL.SpellUsable(spell) then
-		return true, "spell usable fallback"
-	end
+local function RageCurveFailed()
+	rageCurveFailure = { reader = UnitPowerPercent,
+		factory = C_CurveUtil and C_CurveUtil.CreateColorCurve, at = GetTime() }
+	rageCurveCapability = nil
+end
 
-	return false, "rage unreadable"
+local function DumpGate(rage, threshold)
+	local readable = HamstringNumber(rage)
+	if readable ~= nil then return readable >= threshold, "numeric" end
+	if plannedDumpRage ~= nil then return plannedDumpRage >= threshold, "native Rage threshold" end
+	if collectingRageCuts then collectingRageCuts[threshold] = true end
+	-- Affording a 15-Rage spell is not evidence that a 65-Rage slider passed.
+	-- Essential attacks still use HasRage + real spell usability independently.
+	return false, "Rage threshold unavailable"
+end
+
+local function RageIntervalCurve(low, high)
+	local factory = C_CurveUtil.CreateColorCurve
+	if factory ~= rageCurveFactory then rageCurves, rageCurveFactory = {}, factory end
+	local key = tostring(low) .. ":" .. tostring(high)
+	if rageCurves[key] then return rageCurves[key] end
+	local curve = factory()
+	curve:SetType(Enum and Enum.LuaCurveType and Enum.LuaCurveType.Step or 1)
+	curve:AddPoint(0, CreateColor(1, 1, 1, low == 0 and 1 or 0))
+	if low > 0 and low <= 1 then curve:AddPoint(low, CreateColor(1, 1, 1, 1)) end
+	if high <= 1 then curve:AddPoint(high, CreateColor(1, 1, 1, 0)) end
+	if low ~= 1 and high ~= 1 then
+		curve:AddPoint(1, CreateColor(1, 1, 1, low <= 1 and high > 1 and 1 or 0))
+	end
+	rageCurves[key] = curve
+	return curve
+end
+
+local function RageVisualAlpha(mask)
+	local color = UnitPowerPercent("player", 1, false, RageIntervalCurve(mask.low, mask.high))
+	local _, _, _, alpha = color:GetRGBA()
+	if SafeValue(alpha) and HamstringNumber(alpha) == nil then error("Rage curve has no display alpha") end
+	return alpha
+end
+
+local function RageCurvesAvailable()
+	local reader = UnitPowerPercent
+	local factory = C_CurveUtil and C_CurveUtil.CreateColorCurve
+	if type(reader) ~= "function" or type(factory) ~= "function" or type(CreateColor) ~= "function" then return false end
+	if rageCurveFailure and rageCurveFailure.reader == reader and rageCurveFailure.factory == factory
+		and GetTime() - rageCurveFailure.at < 1 then return false end
+	if rageCurveCapability and rageCurveCapability.reader == reader and rageCurveCapability.factory == factory then return true end
+	local ok = pcall(function()
+		local alpha = RageVisualAlpha({ low = 0, high = 0.5 })
+		rageCurveProbe = rageCurveProbe or CreateFrame("Frame")
+		rageCurveProbe:Hide()
+		rageCurveProbe:SetAlpha(alpha)
+	end)
+	if not ok then
+		RageCurveFailed()
+		return false
+	end
+	rageCurveCapability = { reader = reader, factory = factory }
+	return true
+end
+
+local function RageMaximum()
+	if type(UnitPowerMax) ~= "function" then return nil end
+	local ok, value = pcall(UnitPowerMax, "player", 1)
+	local maximum = ok and HamstringNumber(value) or nil
+	if maximum == nil then
+		ok, value = pcall(UnitPowerMax, "player")
+		maximum = ok and HamstringNumber(value) or nil
+	end
+	return maximum and maximum > 0 and maximum or nil
+end
+
+local function WarriorRage()
+	local rage = HamstringNumber(AL.Power(1))
+	if rage ~= nil then return rage end
+	if type(UnitPowerPercent) ~= "function" then return nil end
+	local maximum = RageMaximum()
+	if not maximum then return nil end
+	local scale = CurveConstants and CurveConstants.ScaleTo100
+	local ok, value = pcall(UnitPowerPercent, "player", 1, false, scale)
+	local percent = ok and HamstringNumber(value) or nil
+	if percent == nil then return nil end
+	if not scale then percent = percent * 100 end
+	if percent < 0 or percent > 100 then return nil end
+	return percent / 100 * maximum
 end
 
 local function VerifiedMelee(inMelee)
@@ -1278,7 +1354,7 @@ local function ProtectionSwing(s, rage, multiTarget, inMelee)
 		threshold = SettingNumber(s, "tankHeroicDumpRage", 20, 20, 100)
 		cost = RageSpellCost(name, 15)
 	end
-	if ReadyRageSpell(name) and HasRage(rage, math.max(threshold, cost)) then
+	if ReadyRageSpell(name) and DumpGate(rage, math.max(threshold, cost)) then
 		return name, multiTarget and "protection 2+ engaged targets" or "protection single target"
 	end
 end
@@ -1299,7 +1375,7 @@ local function AoEDamage(s, rage, inMelee, tankMode)
 	local ok, active = pcall(AL.HasBuff, "player", "Sweeping Strikes")
 	local sweepingActive = ok and SafeValue(active) and active == true
 	if stance == 1 and not sweepingActive and ReadyRageSpell("Sweeping Strikes")
-		and HasRage(rage, math.max(RageSpellCost("Sweeping Strikes", 30),
+		and DumpGate(rage, math.max(RageSpellCost("Sweeping Strikes", 30),
 			SettingNumber(s, "sweepingReserveRage", SWEEPING_RESERVE_RAGE, 30, 100))) then
 		return "Sweeping Strikes", "AoE opener"
 	end
@@ -1310,14 +1386,14 @@ local function AoEDamage(s, rage, inMelee, tankMode)
 	local cleaveAt = tankMode and SettingNumber(s, "tankCleaveDumpRage", 20, 20, 100)
 		or SettingNumber(s, "cleaveDumpRage", CLEAVE_DUMP_RAGE, 20, 100)
 	if not StrikeQueued("Cleave") and not StrikeQueued("Heroic Strike")
-		and ReadyRageSpell("Cleave") and HasRage(rage, math.max(cleaveAt, RageSpellCost("Cleave", 20))) then
+		and ReadyRageSpell("Cleave") and DumpGate(rage, math.max(cleaveAt, RageSpellCost("Cleave", 20))) then
 		return "Cleave", "AoE queued melee attack"
 	end
 end
 
 
 local function RageOverflowing(rage)
-	return type(rage) == "number" and rage >= RAGE_OVERFLOW_DUMP
+	return DumpGate(rage, RAGE_OVERFLOW_DUMP)
 end
 
 local function MultiTargetConfirmed(enemyCount)
@@ -1452,7 +1528,7 @@ local function NextDPS(s, inCombat, hostile)
 		return "Charge", "in-combat Charge usable + verified range"
 	end
 
-	local rage = AL.Power(1)
+	local rage = WarriorRage()
 	local targetHp = AL.HealthPercent("target")
 	local myHp = AL.HealthPercent("player")
 	local inMelee = AL.TargetInMelee()
@@ -1532,12 +1608,12 @@ local function NextDPS(s, inCombat, hostile)
 		local cleaveUsable = AL.SpellUsable("Cleave")
 
 		if cleaveUsable then
-			local allowed, rageSource = DumpGate(rage, cleaveAt, "Cleave")
+			local allowed, rageSource = DumpGate(rage, cleaveAt)
 			if allowed then
 				return "Cleave",
 					rageSource == "numeric"
 						and ("2+ enemies within 7 yd - rage " .. tostring(cleaveAt) .. "+")
-						or "2+ enemies within 7 yd - Rage protected, Cleave usable"
+						or ("2+ enemies within 7 yd - native Rage threshold " .. tostring(cleaveAt) .. "+")
 			end
 		end
 
@@ -1560,7 +1636,7 @@ local function NextDPS(s, inCombat, hostile)
 	-- to ready + usable + stationary instead of disabling Slam forever.
 	if not aoeActive and s.slam and inMelee and not PlayerMoving() and ReadyUsable("Slam") then
 		local slamAt = SettingNumber(s, "slamReserveRage", SLAM_RESERVE_RAGE, 15, 100)
-		local allowed, rageSource = DumpGate(rage, slamAt, "Slam")
+		local allowed, rageSource = DumpGate(rage, slamAt)
 
 		if allowed then
 			local timing, timingSource = SlamTimingState()
@@ -1573,7 +1649,7 @@ local function NextDPS(s, inCombat, hostile)
 				return "Slam",
 					rageSource == "numeric"
 						and ("Slam ready " .. tostring(slamAt) .. "+ | swing timing unavailable")
-						or "Rage protected - Slam usable | swing timing unavailable"
+						or ("Slam ready " .. tostring(slamAt) .. "+ | protected resource display")
 			end
 		end
 	end
@@ -1583,12 +1659,12 @@ local function NextDPS(s, inCombat, hostile)
 	-- sits earlier in the rotation.
 	if not aoeActive and s.heroic and Ok("Heroic Strike") and AL.SpellUsable("Heroic Strike") then
 		local dumpAt = HeroicDumpAt(s)
-		local allowed, rageSource = DumpGate(rage, dumpAt, "Heroic Strike")
+		local allowed, rageSource = DumpGate(rage, dumpAt)
 		if allowed then
 			return "Heroic Strike",
 				rageSource == "numeric"
 					and ("rage dump " .. tostring(dumpAt) .. "+")
-					or "Rage protected - Heroic Strike usable"
+					or ("Heroic Strike " .. tostring(dumpAt) .. "+ | protected resource display")
 		end
 	end
 
@@ -1631,7 +1707,7 @@ local function NextTank(s, inCombat, hostile)
 		return "Charge", "in-combat tank Charge usable + verified range"
 	end
 
-	local rage = AL.Power(1)
+	local rage = WarriorRage()
 	local targetHp = AL.HealthPercent("target")
 	local myHp = AL.HealthPercent("player")
 	local inMelee = AL.TargetInMelee()
@@ -1752,12 +1828,79 @@ local function NextTank(s, inCombat, hostile)
 	return AL.known["Attack"] and "Attack" or nil, "tank melee / pool rage"
 end
 
-function M.NextSpell(s, inCombat, hostile)
-	M.InitializeProtectionSettings(s)
+local function ChooseSpell(s, inCombat, hostile)
 	if WarriorRole(s) == "TANK" then
 		return NextTank(s, inCombat, hostile)
 	end
 	return NextDPS(s, inCombat, hostile)
+end
+
+function M.NextSpell(s, inCombat, hostile)
+	M.InitializeProtectionSettings(s)
+	plannedDumpRage, lastRageDecision = nil, nil
+	local cuts = {}
+	collectingRageCuts = cuts
+	local spell, reason = ChooseSpell(s, inCombat, hostile)
+	collectingRageCuts = nil
+	if next(cuts) then
+		lastRageDecision = { at = GetTime(), settings = s, inCombat = inCombat, hostile = hostile,
+			cuts = cuts, baseSpell = spell, baseReason = reason }
+	end
+	return spell, reason
+end
+
+function M.SecretVisualPlan(spell, reason)
+	local d = lastRageDecision
+	if not d or GetTime() - d.at > 0.3 or spell ~= d.baseSpell or reason ~= d.baseReason then return nil end
+	if d.visualPlan ~= nil then return d.visualPlan or nil end
+	local maximum = RageMaximum()
+	if not maximum or not RageCurvesAvailable() then d.visualPlan = false; return nil end
+	local cuts, seen = { 0, 2 }, { [0] = true, [2] = true }
+	for threshold in pairs(d.cuts) do
+		local cut = threshold / maximum
+		if cut > 0 and cut < 2 and not seen[cut] then cuts[#cuts + 1], seen[cut] = cut, true end
+	end
+	table.sort(cuts)
+	local plan = { rows = {}, masks = {}, spells = {}, baseSpell = spell, baseReason = reason }
+	local differs = false
+	for i = 1, #cuts - 1 do
+		local low, high = cuts[i], cuts[i + 1]
+		-- These samples are public interval boundaries from the user's settings,
+		-- not estimates or reads of protected Rage. Native alpha selects the row.
+		plannedDumpRage = (low + high) / 2 * maximum
+		local ok, candidate, why = pcall(ChooseSpell, d.settings, d.inCombat, d.hostile)
+		plannedDumpRage = nil
+		if not ok then d.visualPlan = false; return nil end
+		local key = "playerRage:" .. tostring(low) .. ":" .. tostring(high)
+		local mask = { key = key, kind = "power", unit = "player", powerType = 1, low = low, high = high }
+		plan.masks[key] = mask
+		plan.rows[#plan.rows + 1] = { spell = candidate, reason = why, masks = { mask } }
+		if candidate then plan.spells[candidate] = true end
+		if candidate ~= spell then differs = true end
+	end
+	if not differs then d.visualPlan = false; return nil end
+	d.visualPlan = plan
+	return plan
+end
+
+function M.EvaluateVisualMasks(plan)
+	local values = {}
+	for key, mask in pairs(plan.masks) do
+		local ok, value = pcall(RageVisualAlpha, mask)
+		if not ok then
+			RageCurveFailed()
+			return nil
+		end
+		values[key] = value
+	end
+	return values
+end
+
+function M.ApplyVisualRow(nodes, row, values)
+	for i, node in ipairs(nodes) do
+		local mask = row.masks[i]
+		if mask then node:SetAlpha(values[mask.key]) else node:SetAlpha(1) end
+	end
 end
 
 -- One setter serves the menu and the macro; redraws never print status.
@@ -1796,7 +1939,7 @@ function M.GetUIState()
 	M.InitializeProtectionSettings(profile)
 	return {
 		level = PlayerLevel(),
-		rage = AL.Power(1),
+		rage = WarriorRage(),
 		heroicDumpAt = HeroicDumpAt(profile),
 		cleaveDumpRage = SettingNumber(profile, "cleaveDumpRage", CLEAVE_DUMP_RAGE, 20, 100),
 		slamReserveRage = SettingNumber(profile, "slamReserveRage", SLAM_RESERVE_RAGE, 15, 100),
@@ -1819,7 +1962,7 @@ end
 
 function M.DebugState()
 	local s = AL.S()
-	local rage = AL.Power(1)
+	local rage = WarriorRage()
 	local enemyCount = EnemyCountMelee(5)
 	local chargeRange, chargeRangeSource = SpellRangeState("Charge")
 	local targetHp = AL.HealthPercent("target")
@@ -1829,13 +1972,13 @@ function M.DebugState()
 	local rendActive = RendActive()
 
 	return {
-		build = "0.7.11",
+		build = "0.7.13",
 		rage = rage,
 		rageReadable = type(rage) == "number",
 		rageOverflowAt = RAGE_OVERFLOW_DUMP,
 		ragePolicy = type(rage) == "number"
 			and "numeric thresholds"
-			or "protected Rage -> opener / spender usability fallback",
+			or "protected Rage -> native display thresholds; core attacks use usability",
 		combatAge = ElapsedSince(combatStartedAt),
 
 		bloodrageRecommended = bloodrageRecommended,
@@ -1894,7 +2037,7 @@ AL.RegisterRotation("WARRIOR", M)
 local ADDON, AL = ...
 
 -- WoW Forever Warrior DPS / Tank leveling 1-60
--- ActionLITE Warrior rotation v0.10.3 - Protection 0/20/31, Arms 39/10/2 and Fury 18/31/2
+-- ActionLITE Warrior rotation v0.10.4 - Protection 0/20/31, Arms 39/10/2 and Fury 18/31/2
 -- Reference: MythicSim Forever b1137248e6b4 (1.60.1.70338).
 -- Validate learned spells and combat behavior in the live Forever client.
 
@@ -4012,7 +4155,7 @@ local function NextFury(s, inCombat, hostile)
 		if stance == 1 then
 			local active = AL.HasBuff("player", "Sweeping Strikes")
 			if not (SafeValue(active) and active == true) then FuryOffer("Sweeping Strikes", "AoE opener", rage, 30, {
-				FuryRageGate(rage, SettingNumber(s, "sweepingReserveRage", 50, 30, 100), false, false, true) }) end
+				FuryRageGate(rage, SettingNumber(s, "sweepingReserveRage", 50, 30, 100), false, false, false) }) end
 			FuryOffer("Thunder Clap", "AoE damage + attack-speed slow", rage, 20)
 		end
 	end
@@ -4037,7 +4180,7 @@ local function NextFury(s, inCombat, hostile)
 
 	if aoeActive then
 		if not StrikeQueued("Cleave") and not StrikeQueued("Heroic Strike") then FuryOffer("Cleave", "Fury AoE queued attack", rage, 20, {
-			FuryRageGate(rage, SettingNumber(s, "furyCleaveDumpRage", 40, 20, 100), false, false, true) }) end
+			FuryRageGate(rage, SettingNumber(s, "furyCleaveDumpRage", 40, 20, 100), false, false, false) }) end
 	else
 		if s.heroic and not StrikeQueued("Heroic Strike") and not StrikeQueued("Cleave") then
 			-- Keep the confirmed full-Rage safety dump while allowing the normal
@@ -4050,10 +4193,10 @@ local function NextFury(s, inCombat, hostile)
 		if useSlam and not PlayerMoving() and FuryPrimaryRemaining(s) > 1.5 then
 			local timing = SlamTimingState()
 			if timing ~= false then FuryOffer("Slam", "Fury filler between primary strikes", rage, 15, {
-				FuryRageGate(rage, SettingNumber(s, "slamReserveRage", 30, 15, 100), false, false, true) }) end
+				FuryRageGate(rage, SettingNumber(s, "slamReserveRage", 30, 15, 100), false, false, false) }) end
 		end
 		if s.heroic and not StrikeQueued("Heroic Strike") and not StrikeQueued("Cleave") then FuryOffer("Heroic Strike", "Fury queued rage dump", rage, 15, {
-			FuryRageGate(rage, HeroicDumpAt(s), false, false, true) }) end
+			FuryRageGate(rage, HeroicDumpAt(s), false, false, false) }) end
 	end
 	if s.demo and not DemoActive() then FuryOffer("Demoralizing Shout", "mitigation", rage, 10) end
 	if s.bloodrage then
@@ -4435,7 +4578,7 @@ function M.DebugState()
 	local rendActive = RendActive()
 
 	return {
-		build = "0.10.3",
+		build = "0.10.4",
 		rage = rage,
 		rageReadable = type(rage) == "number",
 		rageOverflowAt = RAGE_OVERFLOW_DUMP,

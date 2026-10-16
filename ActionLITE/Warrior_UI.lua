@@ -1,9 +1,9 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.10.3"
+local UI_VERSION = "0.10.4"
 local L = AL.L
 
 -- ============================================================================
--- ActionLITE - Warrior_UI.lua - v0.10.3
+-- ActionLITE - Warrior_UI.lua - v0.10.4
 -- ----------------------------------------------------------------------------
 -- Page d'options du Guerrier, disposition dense a deux colonnes.
 -- Aucune regle de combat ici : toutes les valeurs affichees proviennent de
@@ -19,6 +19,8 @@ local L = AL.L
 -- ============================================================================
 
 local function BuildWarriorUI(page, ui)
+	local thresholdHelp = "Requires the selected Rage amount, even when Forever hides the number. "
+		.. "If the threshold cannot be checked, this optional spell waits while other abilities continue."
 	local rotation = AL.rotations and AL.rotations.WARRIOR
 	if rotation and rotation.NormalizeBuild then rotation.NormalizeBuild(ui.Profile()) end
 	if rotation and rotation.InitializeProtectionSettings then
@@ -243,7 +245,7 @@ local function BuildWarriorUI(page, ui)
 		min = 15, max = 100, step = 5, suffix = " rage",
 		get = function()local p=ui.Profile();return p.arms==true and (tonumber(p.armsSlamReserveRage) or 15) or (tonumber(p.slamReserveRage) or 30) end,
 		set = function(v)local p=ui.Profile();if p.arms==true then p.armsSlamReserveRage=v else p.slamReserveRage=v end end,
-		tooltip = { L("SLAM_RESERVE"), L("SLAM_RESERVE_HELP"), L("RAGE_FALLBACK") },
+		tooltip = { L("SLAM_RESERVE"), L("SLAM_RESERVE_HELP"), thresholdHelp },
 	})
 
 	-- ------------------------------------------------------ procs & finishers
@@ -272,7 +274,7 @@ local function BuildWarriorUI(page, ui)
 		tooltip = { "Heroic Strike", L("HEROIC_HELP") },
 	})
 	ui.Slider(rage, {
-		label = L("HEROIC_THRESHOLD"),
+		label = L("HEROIC_THRESHOLD") .. " (DPS)",
 		min = 15, max = 100, step = 5, suffix = " rage",
 		get = function()
 			if ui.Profile().arms==true then return tonumber(ui.Profile().armsHeroicDumpRage) or 80 end
@@ -284,12 +286,13 @@ local function BuildWarriorUI(page, ui)
 		set = function(v)local p=ui.Profile();if p.arms==true then p.armsHeroicDumpRage=v else p.heroicDumpRage=v end end,
 		tooltip = {
 			L("HEROIC_THRESHOLD_TITLE"), L("HEROIC_THRESHOLD_HELP"),
-			L("HEROIC_AUTO"), L("RAGE_FALLBACK"),
+			L("HEROIC_AUTO"), thresholdHelp,
 		},
 	})
 
 	-- ------------------------------------------------------------ profil Tank
 	local tank = ui.Card(stack, L("TANK_ROTATION"), L("TANK_PROFILE_HELP"))
+	ui.Info(tank, "Protection and the Defensive Stance leveling rotation use the Tank Heroic Strike and Protection Cleave Rage thresholds below. DPS reserves are separate.")
 	ui.Info(tank,"Standard 0/20/31: Shield Slam and usable Revenge lead the damage rotation. Shield Block, emergency defenses and interrupts take priority. Rend, Heroic Strike and Sunder retain their existing checkboxes. Thunder Clap and Cleave require AoE On and the configured number of confirmed engaged melee enemies.")
 	ui.SettingCheck(tank,"tankShieldSlam",{
 		label="Use Shield Slam",icon=SpellIcon("Shield Slam"),half=true,
@@ -423,7 +426,7 @@ local function BuildWarriorUI(page, ui)
 		tooltip = { L("MIN_ENEMIES"), L("MIN_ENEMIES_HELP"), L("ENEMY_FALLBACK") },
 	})
 	ui.Slider(aoe, {
-		label = L("CLEAVE_THRESHOLD"), half = true,
+		label = L("CLEAVE_THRESHOLD") .. " (DPS)", half = true,
 		min = 20, max = 100, step = 5, suffix = " rage",
 		get = function()
 			local p = ui.Profile()
@@ -435,14 +438,14 @@ local function BuildWarriorUI(page, ui)
 			if p.arms==true then p.armsCleaveDumpRage=v
 			elseif p.fury == true then p.furyCleaveDumpRage = v else p.cleaveDumpRage = v end
 		end,
-		tooltip = { L("CLEAVE_THRESHOLD"), L("CLEAVE_THRESHOLD_HELP"), L("RAGE_FALLBACK") },
+		tooltip = { L("CLEAVE_THRESHOLD"), L("CLEAVE_THRESHOLD_HELP"), thresholdHelp },
 	})
 	ui.Slider(aoe, {
 		label = L("SWEEPING_RESERVE"),
 		min = 30, max = 100, step = 5, suffix = " rage",
 		get = function() return tonumber(ui.Profile().sweepingReserveRage) or 50 end,
 		set = function(v) ui.Profile().sweepingReserveRage = v end,
-		tooltip = { L("SWEEPING_RESERVE_TITLE"), L("SWEEPING_RESERVE_HELP"), L("RAGE_FALLBACK") },
+		tooltip = { L("SWEEPING_RESERVE_TITLE"), L("SWEEPING_RESERVE_HELP"), thresholdHelp },
 	})
 
 	-- --------------------------------------------------- defensif / utilitaire

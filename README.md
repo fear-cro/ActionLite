@@ -4,8 +4,8 @@ World of Warcraft Forever rotation profiles and shared UI.
 
 ## Builds
 
-- **Current beta: v0.24**, in [`older-versions/ActionLITEv0.24/ActionLITE/`](older-versions/ActionLITEv0.24/ActionLITE/). It uses the original beta leveling rotations.
-- **Level 60 build: 1.0.23**, in [`ActionLITE/`](ActionLITE/). This build is intended for release when leveling to 60 unlocks.
+- **Current beta: v0.25**, in [`older-versions/ActionLITEv0.25/ActionLITE/`](older-versions/ActionLITEv0.25/ActionLITE/). It uses the original beta leveling rotations with the Warrior hotfixes.
+- **Level 60 build: 1.0.25**, in [`ActionLITE/`](ActionLITE/). This build is intended for release when leveling to 60 unlocks.
 
 ## Installation
 
@@ -13,7 +13,7 @@ Copy the `ActionLITE` folder into your game’s `Interface/AddOns/` directory, t
 
 ## Patch notes
 
-See the [beta v0.24 patch notes](older-versions/patch-notes/patchnotes-v0.24.MD) or the [level 60 version 1.0.23 patch notes](patch-notes/1.0.23.MD).
+See the [beta v0.25 patch notes](older-versions/patch-notes/patchnotes-v0.25.MD) or the [level 60 version 1.0.25 patch notes](patch-notes/1.0.25.MD).
 
 Level 60 release notes are Markdown files in [`patch-notes/`](patch-notes/). Beta and archived-version notes are in [`older-versions/patch-notes/`](older-versions/patch-notes/).
 
