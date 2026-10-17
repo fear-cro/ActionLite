@@ -28,3 +28,7 @@ Built from v0.24 with the Warrior hotfixes included. This beta continues to use 
 Copy the `ActionLITE` folder from `older-versions/ActionLITEv0.25/` into `Interface/AddOns/`, replacing the installed addon, then reload the UI. Saved settings are retained.
 
 For the wand timing, Priest, Shaman, and spell-menu fixes included from v0.24, see [patchnotes-v0.24.MD](patchnotes-v0.24.MD).
+
+## Display
+
+- Improved small corner icon visibility during low-health warning flashes, keeping rotation signals readable.

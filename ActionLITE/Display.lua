@@ -326,6 +326,9 @@ AL.UpdateRoleText()
 -- dimensionnee en pixels physiques pour rester nette a toute echelle
 local MINI_PX, MINI_X, MINI_Y = 18, 19, 7
 local mini = CreateFrame("Frame", "ActionLiteMiniFrame", UIParent)
+-- Keep the corner signal above full-screen low-health warning effects.
+mini:SetFrameStrata("TOOLTIP")
+mini:SetFrameLevel(100)
 local miniTex = mini:CreateTexture(nil, "OVERLAY")
 miniTex:SetAllPoints(mini)
 miniTex:Hide()
