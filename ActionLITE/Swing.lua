@@ -3,7 +3,7 @@ local ADDON, AL = ...
 -- ============================================================================
 -- ActionLITE - Swing.lua
 -- ----------------------------------------------------------------------------
--- Barre de swing dans la marge basse de l'icone : melee et Auto Shot / Shoot.
+-- Swing bar in the icon's lower margin: melee and Auto Shot / Shoot.
 -- ============================================================================
 
 local W, H = 44, 3
@@ -92,7 +92,9 @@ local function OnCombatLog()
 end
 
 local events = CreateFrame("Frame")
-pcall(events.RegisterEvent, events, "COMBAT_LOG_EVENT_UNFILTERED")
+if type(CombatLogGetCurrentEventInfo) == "function" then
+	pcall(events.RegisterEvent, events, "COMBAT_LOG_EVENT_UNFILTERED")
+end
 events:SetScript("OnEvent", function()
 	if CombatLogGetCurrentEventInfo then pcall(OnCombatLog) end
 end)

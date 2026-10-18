@@ -524,16 +524,6 @@ function M.NextSpell(s, inCombat, hostile)
                 Heal(hp, RULES.healRest)
                 Offer("Healing Touch", "heal up", { HealthGate("player", hp, RULES.healRest, true) }, 0)
             end
-            if s.drink then
-                local manaPercent = Percent((SafeCall(AL.ManaPercent)))
-                local gate
-                if manaPercent ~= nil then gate = manaPercent <= RULES.drinkMana
-                else
-                    local maximum = PowerMaximum(0)
-                    gate = maximum and PowerGate(0, Power(0), maximum * RULES.drinkMana / 100, true) or false
-                end
-                AddAction(nil, "Drink", { gate })
-            end
         elseif s.heal then
             Heal(hp, RULES.healRest, true)
             Offer("Healing Touch", "heal up (shift out)", {
@@ -1330,7 +1320,7 @@ local function CatGUID(v)return SafeValue(v) and type(v)=='string' and v:find('^
 local catTracker=CreateFrame('Frame')
 for _,event in ipairs({'UNIT_SPELLCAST_SENT','UNIT_SPELLCAST_SUCCEEDED','UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_FAILED_QUIET',
  'UNIT_SPELLCAST_INTERRUPTED','PLAYER_TARGET_CHANGED','PLAYER_ENTERING_WORLD','PLAYER_DEAD','UNIT_AURA',
- 'PLAYER_REGEN_ENABLED','SPELLS_CHANGED','PLAYER_TALENT_UPDATE','COMBAT_LOG_EVENT_UNFILTERED'})do pcall(catTracker.RegisterEvent,catTracker,event)end
+ 'PLAYER_REGEN_ENABLED','SPELLS_CHANGED','PLAYER_TALENT_UPDATE','COMBAT_LOG_EVENT_UNFILTERED'})do if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(catTracker.RegisterEvent,catTracker,event) end end
 catTracker:SetScript('OnEvent',function(_,event,unit,a2,a3,a4)
  if AL.playerClass~='DRUID' then return end
  if event=='PLAYER_TARGET_CHANGED' then catEpoch=catEpoch+1;catCombo,catComboAt=0,-math.huge;catDots={};catAuraCache.target=nil;catAuraBlocked.target=nil;return end
@@ -1510,7 +1500,6 @@ local function CatBuildRotation(s,inCombat,hostile)
     if not CatBuff('Rejuvenation')then CatOffer('Rejuvenation','heal', {HealthGate('player',hp,RULES.healRest,true)},0,nil,form~='caster')end
     CatOffer('Healing Touch','heal up',{HealthGate('player',hp,RULES.healRest,true)},0,nil,form~='caster')
    end
-   if s.drink and form=='caster'then AddAction(nil,'Drink',{CatPercentGate(0,RULES.drinkMana,true)})end
   elseif s.heal then
    local threshold=form=='caster'and RULES.healCaster or RULES.healEmergency
    if not CatBuff('Rejuvenation')then CatOffer('Rejuvenation','emergency heal',{HealthGate('player',hp,threshold,true)},0,nil,form~='caster')end
@@ -1797,7 +1786,7 @@ local balanceTracker=CreateFrame('Frame')
 for _,event in ipairs({'UNIT_SPELLCAST_SENT','UNIT_SPELLCAST_SUCCEEDED','UNIT_SPELLCAST_FAILED',
  'UNIT_SPELLCAST_FAILED_QUIET','UNIT_SPELLCAST_INTERRUPTED','UNIT_AURA','PLAYER_TARGET_CHANGED',
  'PLAYER_ENTERING_WORLD','PLAYER_DEAD','SPELLS_CHANGED','PLAYER_TALENT_UPDATE','PLAYER_REGEN_ENABLED',
- 'UPDATE_SHAPESHIFT_FORM','COMBAT_LOG_EVENT_UNFILTERED'})do pcall(balanceTracker.RegisterEvent,balanceTracker,event)end
+ 'UPDATE_SHAPESHIFT_FORM','COMBAT_LOG_EVENT_UNFILTERED'})do if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(balanceTracker.RegisterEvent,balanceTracker,event) end end
 balanceTracker:SetScript('OnEvent',function(_,event,unit,a2,a3,a4)
  if AL.playerClass~='DRUID'then return end
  if event=='PLAYER_TARGET_CHANGED'then
@@ -1899,7 +1888,6 @@ local function BalanceBuildRotation(s,inCombat,hostile)
     if not moving then BalanceOffer('Healing Touch','heal up',{
      HealthGate('player',hp,RULES.healRest,true)},moonkin or form~='caster')end
    end
-   if s.drink and form=='caster'then AddAction(nil,'Drink',{CatPercentGate(0,RULES.drinkMana,true)})end
   elseif s.heal and not CatBuff('Rejuvenation')then
    BalanceOffer('Rejuvenation','emergency heal',{HealthGate('player',hp,
     (moonkin or form~='caster')and RULES.healEmergency or RULES.healCaster,true)},moonkin or form~='caster')
@@ -2183,7 +2171,7 @@ local bearTracker=CreateFrame('Frame')
 for _,event in ipairs({'UNIT_SPELLCAST_SENT','UNIT_SPELLCAST_SUCCEEDED','UNIT_SPELLCAST_FAILED',
  'UNIT_SPELLCAST_FAILED_QUIET','UNIT_SPELLCAST_INTERRUPTED','PLAYER_TARGET_CHANGED','PLAYER_ENTERING_WORLD',
  'PLAYER_DEAD','SPELLS_CHANGED','PLAYER_TALENT_UPDATE','PLAYER_REGEN_ENABLED','COMBAT_LOG_EVENT_UNFILTERED'})do
- pcall(bearTracker.RegisterEvent,bearTracker,event)
+ if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(bearTracker.RegisterEvent,bearTracker,event) end
 end
 bearTracker:SetScript('OnEvent',function(_,event,unit,a2,a3,a4)
  if AL.playerClass~='DRUID'then return end
@@ -2381,16 +2369,6 @@ local function NextLeveling(s, inCombat, hostile)
             if s.heal then
                 Heal(hp, RULES.healRest)
                 Offer("Healing Touch", "heal up", { HealthGate("player", hp, RULES.healRest, true) }, 0)
-            end
-            if s.drink then
-                local manaPercent = Percent((SafeCall(AL.ManaPercent)))
-                local gate
-                if manaPercent ~= nil then gate = manaPercent <= RULES.drinkMana
-                else
-                    local maximum = PowerMaximum(0)
-                    gate = maximum and PowerGate(0, Power(0), maximum * RULES.drinkMana / 100, true) or false
-                end
-                AddAction(nil, "Drink", { gate })
             end
         elseif s.heal then
             Heal(hp, RULES.healRest, true)

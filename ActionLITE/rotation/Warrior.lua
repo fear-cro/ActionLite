@@ -46,9 +46,9 @@ local ADDON, AL = ...
 
 -- WoW Forever Warrior DPS / Tank leveling 1-30
 -- ActionLITE Warrior rotation v0.7.13
--- Cible : beta 1.60.1.69913
--- Donnees : extraction client 1.60.1.69876, inchangee dans 69893/69913.
--- Statut : LIKELY jusqu'a validation directe dans le client Forever cible.
+-- Target: beta 1.60.1.69913.
+-- Data: client extraction 1.60.1.69876, unchanged in 69893/69913.
+-- Status: LIKELY until validated directly in the target Forever client.
 
 local A = _G.Action
 
@@ -102,7 +102,7 @@ end
 -- DATA
 -- ==========================================================================
 
--- IDs de rang 1 utilises pour identifier et afficher les sorts.
+-- Rank-one IDs used to identify and display spells.
 M.spells = {
 	{ 6673, "Battle Shout" },
 	{ 2457, "Battle Stance" },
@@ -127,16 +127,16 @@ M.spells = {
 	{ 72, "Shield Bash" },
 	{ 2565, "Shield Block" },
 	{ 871, "Shield Wall" },
-	{ 1240193, "Slam" },            -- Forever Rank 1, niveau 20
+	{ 1240193, "Slam" },            -- Forever rank one, level 20
 	{ 7386, "Sunder Armor" },
 	{ 355, "Taunt" },
 	{ 6343, "Thunder Clap" },
-	{ 402927, "Victory Rush" },     -- Forever, niveau 20
-	{ 1310222, "Spearing Strike" }, -- Talent Arms, rang 4
-	{ 12292, "Sweeping Strikes" },  -- Talent Arms, rang 5
+	{ 402927, "Victory Rush" },     -- Forever, level 20
+	{ 1310222, "Spearing Strike" }, -- Arms talent, rank 4
+	{ 12292, "Sweeping Strikes" },  -- Arms talent, rank 5
 }
 
--- Le spellbook Forever peut exposer des sorts avant leur apprentissage reel.
+-- Forever's spellbook can expose spells before they are actually learned.
 local MINLEVEL = {
 	["Heroic Strike"] = 1,
 	["Battle Shout"] = 1,
@@ -162,7 +162,7 @@ local MINLEVEL = {
 	["Slam"] = 20,
 	["Intimidating Shout"] = 22,
 	["Execute"] = 24,
-	["Spearing Strike"] = 25, -- premier acces theorique a la rangee 4 Arms
+	["Spearing Strike"] = 25, -- Earliest theoretical access to Arms row 4.
 	["Challenging Shout"] = 26,
 	["Shield Wall"] = 28,
 	["Berserker Stance"] = 30,
@@ -210,11 +210,11 @@ local LOCAL_COOLDOWNS = {
 }
 
 -- ==========================================================================
--- TRACKERS LEGERS
+-- LIGHTWEIGHT TRACKERS
 -- ==========================================================================
 
--- ActionLITE doit rester autonome. Ces trackers ne servent que lorsque les
--- lectures d'aura/cooldown deviennent secretes en combat sur le client 1.60.
+-- ActionLITE must remain standalone. These trackers are used only when
+-- aura/cooldown reads become secret in combat on the 1.60 client.
 local localCooldowns = {}
 local localCastAt = {}
 local lastSwingAt = 0
@@ -301,7 +301,9 @@ for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_DEAD", "PLAYER_TARGET_
 	"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_AURA" }) do
 	pcall(hamstringTracker.RegisterEvent, hamstringTracker, event)
 end
-pcall(hamstringTracker.RegisterEvent, hamstringTracker, "COMBAT_LOG_EVENT_UNFILTERED")
+if type(CombatLogGetCurrentEventInfo) == "function" then
+	pcall(hamstringTracker.RegisterEvent, hamstringTracker, "COMBAT_LOG_EVENT_UNFILTERED")
+end
 hamstringTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if AL.playerClass ~= "WARRIOR" then return end
 	if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_DEAD" then
@@ -542,7 +544,9 @@ tracker:RegisterEvent("PLAYER_TARGET_CHANGED")
 tracker:RegisterEvent("PLAYER_REGEN_DISABLED")
 tracker:RegisterEvent("PLAYER_REGEN_ENABLED")
 tracker:RegisterEvent("PLAYER_DEAD")
-pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
+if type(CombatLogGetCurrentEventInfo) == "function" then
+	pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
+end
 for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED",
 	"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED" }) do
 	if not pcall(tracker.RegisterUnitEvent, tracker, event, "player") then
@@ -708,9 +712,9 @@ end)
 -- ==========================================================================
 
 local function HasRage(rage, amount)
-	-- Forever masque parfois la rage en combat. nil signifie "inconnue", pas
-	-- "zero" : dans ce cas SpellUsable et l'ordre de priorite gardent la
-	-- rotation active au lieu de bloquer tous les sorts consommateurs.
+	-- Forever sometimes hides Rage in combat. nil means "unknown", not
+	-- "zero": SpellUsable and the priority order keep the
+	-- rotation active instead of blocking every resource-consuming spell.
 	return rage == nil or (type(rage) == "number" and rage >= amount)
 end
 
@@ -999,7 +1003,7 @@ local function ChargeAvailable()
 	return true
 end
 
--- true = bouclier confirme, false = absence confirmee, nil = API illisible.
+-- true = shield confirmed, false = confirmed absent, nil = unreadable API.
 local function ShieldEquipped()
 	if not GetInventoryItemID then return nil end
 	local okID, itemID = pcall(GetInventoryItemID, "player", 17)
@@ -1128,7 +1132,7 @@ local function SunderStacks()
 		lastCoreSunderExpires = 0
 	end
 
-	-- Reprend le compteur du framework Action lorsqu'il est disponible.
+	-- Use the Action framework's counter when available.
 	if A and A.Unit then
 		local okUnit, unit = pcall(A.Unit, "target")
 		if okUnit and unit and unit.HasDeBuffsStacks then
@@ -1139,7 +1143,7 @@ local function SunderStacks()
 		end
 	end
 
-	-- Fallback ActionLITE : chaque expiration differente correspond a un cast reussi.
+	-- ActionLITE fallback: each distinct expiration represents a successful cast.
 	local coreDebuff = AL.targetDebuffs and AL.targetDebuffs["Sunder Armor"]
 	if coreDebuff and type(coreDebuff.expires) == "number"
 		and coreDebuff.expires > lastCoreSunderExpires + 0.01 then
@@ -1481,9 +1485,9 @@ end
 
 local function SunderStackCap(s)
 	local configured = tonumber(s and s.sunderMaxStacks)
-	-- Les profils crees avant la 0.6.3 n'ont pas encore cette cle. Le repli a
-	-- 2 garantit que la valeur affichee dans l'UI est aussi la valeur appliquee,
-	-- meme avant que le joueur touche le curseur.
+	-- Profiles created before 0.6.3 do not yet have this key. Falling back to
+	-- 2 ensures the value displayed in the UI is also the value applied,
+	-- even before the player touches the slider.
 	if configured == nil then configured = 2 end
 	configured = math.floor(configured + 0.5)
 	if configured < 0 then return 0 end
@@ -1539,7 +1543,7 @@ local function NextDPS(s, inCombat, hostile)
 	local multiTarget = MultiTargetConfirmed(enemyCount)
 	local aoeActive = AoEModeActive(s, enemyCount, aoeMinEnemies)
 
-	-- Procs courts et survie.
+	-- Short-lived procs and survival.
 	if s.victory and myHp and myHp <= 65 and ReadyUsable("Victory Rush") then
 		return "Victory Rush", "heal + free damage"
 	end
@@ -1556,7 +1560,7 @@ local function NextDPS(s, inCombat, hostile)
 	local slowSpell, slowReason = MaintainHamstring(s, rage, inMelee)
 	if slowSpell then return slowSpell, slowReason end
 
-	-- Execute reste un finisher prioritaire : SpellUsable filtre la phase <=20%.
+	-- Execute remains a priority finisher: SpellUsable gates the <=20% phase.
 	if s.execute and Ok("Execute")
 		and (targetHp == nil or targetHp <= 20)
 		and AL.SpellUsable("Execute") then
@@ -1589,7 +1593,7 @@ local function NextDPS(s, inCombat, hostile)
 		return "Bloodrage", bloodrageReason
 	end
 
-	-- Maintenance personnelle.
+	-- Personal buff maintenance.
 	if s.shout and Ok("Battle Shout")
 		and not BattleShoutActive()
 		and HasRage(rage, 10)
@@ -1597,7 +1601,7 @@ local function NextDPS(s, inCombat, hostile)
 		return "Battle Shout", "3 min buff"
 	end
 
-	-- Cooldowns raciaux uniquement sur une cible qui devrait survivre.
+	-- Racial cooldowns only for a target expected to survive.
 	if AL.burst and (not targetHp or targetHp > 35) and (not ttd or ttd >= 10) then
 		if OkReady("Blood Fury") then return "Blood Fury", "burst" end
 		if OkReady("Berserking") then return "Berserking", "burst" end
@@ -1625,7 +1629,7 @@ local function NextDPS(s, inCombat, hostile)
 				or "2+ enemies - pool rage for Cleave"
 	end
 
-	-- Spearing Strike est rentable en priorite sur ses cibles specialisees.
+	-- Spearing Strike is prioritized against its specialized targets.
 	if not aoeActive and s.spear and SpearingTarget() and ReadyUsable("Spearing Strike")
 		and HasRage(rage, 15) and inMelee then
 		return "Spearing Strike", "giant / dragonkin bonus"
@@ -1688,7 +1692,7 @@ local function NextDPS(s, inCombat, hostile)
 end
 
 -- ========================================================================
--- TANK : donjons / leveling 1-30
+-- TANK: dungeons / leveling 1-30
 -- ========================================================================
 local function NextTank(s, inCombat, hostile)
 	if not inCombat then
@@ -1719,21 +1723,21 @@ local function NextTank(s, inCombat, hostile)
 	local multiTarget = MultiTargetConfirmed(enemyCount)
 	local aoeActive = AoEModeActive(s, enemyCount, aoeMinEnemies)
 
-	-- Survie gratuite avant toute depense de rage.
+	-- Free survival before any Rage spending.
 	if s.victory and myHp and myHp <= 65 and ReadyUsable("Victory Rush") then
 		return "Victory Rush", "tank self-heal"
 	end
 
-	-- La posture defensive est la base du profil Tank. Si la posture devient
-	-- protegee/illisible, ne jamais la proposer en boucle.
+	-- Defensive Stance is the Tank profile's foundation. If the stance becomes
+	-- protected/unreadable, never suggest it repeatedly.
 	if s.tankAutoStance and Known("Defensive Stance")
 		and type(stance) == "number" and stance ~= 2
 		and Ok("Defensive Stance") and AL.SpellUsable("Defensive Stance") then
 		return "Defensive Stance", "tank stance"
 	end
 
-	-- Reprendre une cible qui attaque un membre amical. Mocking Blow reste un
-	-- repli seulement lorsqu'il est directement utilisable dans la posture.
+	-- Recover a target attacking a friendly unit. Mocking Blow remains a
+	-- fallback only when directly usable in the current stance.
 	if s.tankTaunt and needsTaunt then
 		if ReadyUsable("Taunt") then return "Taunt", "recover aggro" end
 		if ReadyUsable("Mocking Blow") then return "Mocking Blow", "taunt fallback" end
@@ -1745,20 +1749,20 @@ local function NextTank(s, inCombat, hostile)
 		end
 	end
 
-	-- Defensive d'urgence. SpellUsable gere lui-meme l'exigence du bouclier.
+	-- Emergency defense. SpellUsable handles the shield requirement itself.
 	if s.tankShieldWall and myHp and myHp <= SettingNumber(s, "tankShieldWallHP", 35, 10, 80)
 		and ReadyUsable("Shield Wall") then
 		return "Shield Wall", "emergency defensive"
 	end
 
-	-- Interruption prioritaire lorsque la cible incante et qu'un bouclier est
-	-- equipe (ou que l'etat d'equipement est masque par le client).
+	-- Priority interrupt when the target is casting and a shield is
+	-- equipped (or the client hides equipment state).
 	if s.tankInterrupt and shield ~= false and AL.TargetCasting
 		and AL.TargetCasting() and ReadyUsable("Shield Bash") then
 		return "Shield Bash", "interrupt"
 	end
 
-	-- Revenge est le meilleur bouton de menace reactif du profil.
+	-- Revenge is this profile's best reactive threat ability.
 	if s.revenge and ReadyUsable("Revenge") then
 		return "Revenge", "reactive threat"
 	end
@@ -1766,7 +1770,7 @@ local function NextTank(s, inCombat, hostile)
 	local slowSpell, slowReason = MaintainHamstring(s, rage, inMelee)
 	if slowSpell then return slowSpell, slowReason end
 
-	-- Shield Block prepare Revenge et lisse les coups recus.
+	-- Shield Block prepares Revenge and smooths incoming hits.
 	if s.tankShieldBlock and shield ~= false and inMelee
 		and HasRage(rage, 10) and ReadyUsable("Shield Block") then
 		return "Shield Block", "block + revenge setup"
@@ -1802,8 +1806,8 @@ local function NextTank(s, inCombat, hostile)
 		return "Demoralizing Shout", "mitigation + aoe threat"
 	end
 
-	-- Sunder est la source de menace mono-cible stable. En Tank, le plafond est
-	-- independant du reglage DPS et n'est pas coupe par le TTD de la cible.
+	-- Sunder is the reliable single-target threat source. In Tank mode, its cap
+	-- is independent of the DPS setting and is not limited by the target's TTD.
 	if s.sunder and TankSunderCap(s) > 0 and Ok("Sunder Armor")
 		and HasRage(rage, 15) and AL.SpellUsable("Sunder Armor") then
 		local stacks = SunderStacks()
@@ -1927,8 +1931,8 @@ SlashCmdList.ACTIONLITEHAMSTRING = function(message)
 	print("Usage: /alhamstring [on|off|toggle]")
 end
 
--- Etat public minimal consomme par Warrior_UI.lua. La logique et les seuils
--- restent ici afin que le fichier d'interface ne duplique aucune regle combat.
+-- Minimal public state consumed by Warrior_UI.lua. Logic and thresholds
+-- stay here so the interface file duplicates no combat rules.
 function M.GetUIState()
 	local knownCount = 0
 	for _, entry in ipairs(M.spells) do
@@ -2121,7 +2125,7 @@ local M = {
 -- DATA
 -- ==========================================================================
 
--- IDs de rang 1 utilises pour identifier et afficher les sorts.
+-- Rank-one IDs used to identify and display spells.
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
@@ -2215,17 +2219,17 @@ M.spells = {
 	{ 2565, "Shield Block" },
 	{ 23922, "Shield Slam" },
 	{ 871, "Shield Wall" },
-	{ 1240193, "Slam" },            -- Forever Rank 1, niveau 20
+	{ 1240193, "Slam" },            -- Forever rank one, level 20
 	{ 7386, "Sunder Armor" },
 	{ 355, "Taunt" },
 	{ 6343, "Thunder Clap" },
-	{ 402927, "Victory Rush" },     -- Forever, niveau 20
+	{ 402927, "Victory Rush" },     -- Forever, level 20
 	{ 1680, "Whirlwind" },
-	{ 1310222, "Spearing Strike" }, -- Talent Arms, rang 4
-	{ 12292, "Sweeping Strikes" },  -- Talent Arms, rang 5
+	{ 1310222, "Spearing Strike" }, -- Arms talent, rank 4
+	{ 12292, "Sweeping Strikes" },  -- Arms talent, rank 5
 }
 
--- Le spellbook Forever peut exposer des sorts avant leur apprentissage reel.
+-- Forever's spellbook can expose spells before they are actually learned.
 local MINLEVEL = {
 	["Heroic Strike"] = 1,
 	["Battle Shout"] = 1,
@@ -2251,7 +2255,7 @@ local MINLEVEL = {
 	["Slam"] = 20,
 	["Intimidating Shout"] = 22,
 	["Execute"] = 24,
-	["Spearing Strike"] = 25, -- premier acces theorique a la rangee 4 Arms
+	["Spearing Strike"] = 25, -- Earliest theoretical access to Arms row 4.
 	["Challenging Shout"] = 26,
 	["Shield Wall"] = 28,
 	["Berserker Stance"] = 30,
@@ -2330,11 +2334,11 @@ local LOCAL_COOLDOWNS = {
 }
 
 -- ==========================================================================
--- TRACKERS LEGERS
+-- LIGHTWEIGHT TRACKERS
 -- ==========================================================================
 
--- ActionLITE doit rester autonome. Ces trackers ne servent que lorsque les
--- lectures d'aura/cooldown deviennent secretes en combat sur le client 1.60.
+-- ActionLITE must remain standalone. These trackers are used only when
+-- aura/cooldown reads become secret in combat on the 1.60 client.
 local localCooldowns = {}
 local localCastAt = {}
 local tankCooldownDurations = {}
@@ -2523,7 +2527,9 @@ for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_DEAD", "PLAYER_TARGET_
 	"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_AURA" }) do
 	pcall(hamstringTracker.RegisterEvent, hamstringTracker, event)
 end
-pcall(hamstringTracker.RegisterEvent, hamstringTracker, "COMBAT_LOG_EVENT_UNFILTERED")
+if type(CombatLogGetCurrentEventInfo) == "function" then
+	pcall(hamstringTracker.RegisterEvent, hamstringTracker, "COMBAT_LOG_EVENT_UNFILTERED")
+end
 hamstringTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if AL.playerClass ~= "WARRIOR" then return end
 	if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_DEAD" then
@@ -2835,7 +2841,9 @@ tracker:RegisterEvent("PLAYER_TARGET_CHANGED")
 tracker:RegisterEvent("PLAYER_REGEN_DISABLED")
 tracker:RegisterEvent("PLAYER_REGEN_ENABLED")
 tracker:RegisterEvent("PLAYER_DEAD")
-pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
+if type(CombatLogGetCurrentEventInfo) == "function" then
+	pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
+end
 for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED",
 	"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED" }) do
 	if not pcall(tracker.RegisterUnitEvent, tracker, event, "player") then
@@ -3007,9 +3015,9 @@ end)
 -- ==========================================================================
 
 local function HasRage(rage, amount)
-	-- Forever masque parfois la rage en combat. nil signifie "inconnue", pas
-	-- "zero" : dans ce cas SpellUsable et l'ordre de priorite gardent la
-	-- rotation active au lieu de bloquer tous les sorts consommateurs.
+	-- Forever sometimes hides Rage in combat. nil means "unknown", not
+	-- "zero": SpellUsable and the priority order keep the
+	-- rotation active instead of blocking every resource-consuming spell.
 	return rage == nil or (type(rage) == "number" and rage >= amount)
 end
 
@@ -3343,7 +3351,7 @@ local function ChargeAvailable()
 	return true
 end
 
--- true = bouclier confirme, false = absence confirmee, nil = API illisible.
+-- true = shield confirmed, false = confirmed absent, nil = unreadable API.
 local function ShieldEquipped()
 	if type(GetInventoryItemID)~="function" then return nil end
 	local okID,itemID=pcall(GetInventoryItemID,"player",17)
@@ -3499,7 +3507,7 @@ local function SunderStacks()
 		lastCoreSunderExpires = 0
 	end
 
-	-- Reprend le compteur du framework Action lorsqu'il est disponible.
+	-- Use the Action framework's counter when available.
 	if A and A.Unit then
 		local okUnit, unit = pcall(A.Unit, "target")
 		if okUnit and unit and unit.HasDeBuffsStacks then
@@ -3511,7 +3519,7 @@ local function SunderStacks()
 		end
 	end
 
-	-- Fallback ActionLITE : chaque expiration differente correspond a un cast reussi.
+	-- ActionLITE fallback: each distinct expiration represents a successful cast.
 	local coreDebuff = AL.targetDebuffs and AL.targetDebuffs["Sunder Armor"]
 	if type(coreDebuff)=="table" and HamstringNumber(coreDebuff.expires)
 		and (not M.ArmsSelected(AL.Profile("WARRIOR")) and WarriorRole(AL.Profile("WARRIOR"))~="TANK" or coreDebuff.expires>GetTime())
@@ -3777,9 +3785,9 @@ end
 local function SunderStackCap(s)
 	if M.ArmsSelected(s) then return SettingNumber(s,"armsSunderMaxStacks",1,0,SUNDER_MAX_STACKS) end
 	local configured = tonumber(s and s.sunderMaxStacks)
-	-- Les profils crees avant la 0.6.3 n'ont pas encore cette cle. Le repli a
-	-- 2 garantit que la valeur affichee dans l'UI est aussi la valeur appliquee,
-	-- meme avant que le joueur touche le curseur.
+	-- Profiles created before 0.6.3 do not yet have this key. Falling back to
+	-- 2 ensures the value displayed in the UI is also the value applied,
+	-- even before the player touches the slider.
 	if configured == nil then configured = 2 end
 	configured = math.floor(configured + 0.5)
 	if configured < 0 then return 0 end
@@ -3835,7 +3843,7 @@ local function NextDPS(s, inCombat, hostile)
 	local multiTarget = s.aoe and MultiTargetConfirmed(enemyCount)
 	local aoeActive = AoEModeActive(s, enemyCount, aoeMinEnemies)
 
-	-- Procs courts et survie.
+	-- Short-lived procs and survival.
 	if s.victory and myHp and myHp <= 65 and ReadyUsable("Victory Rush") then
 		return "Victory Rush", "heal + free damage"
 	end
@@ -3852,7 +3860,7 @@ local function NextDPS(s, inCombat, hostile)
 	local slowSpell, slowReason = MaintainHamstring(s, rage, inMelee)
 	if slowSpell then return slowSpell, slowReason end
 
-	-- Execute reste un finisher prioritaire : SpellUsable filtre la phase <=20%.
+	-- Execute remains a priority finisher: SpellUsable gates the <=20% phase.
 	if s.execute and Ok("Execute")
 		and (targetHp == nil or targetHp <= 20)
 		and AL.SpellUsable("Execute") then
@@ -3885,7 +3893,7 @@ local function NextDPS(s, inCombat, hostile)
 		return "Bloodrage", bloodrageReason
 	end
 
-	-- Maintenance personnelle.
+	-- Personal buff maintenance.
 	if s.shout and Ok("Battle Shout")
 		and not BattleShoutActive()
 		and HasRage(rage, 10)
@@ -3893,7 +3901,7 @@ local function NextDPS(s, inCombat, hostile)
 		return "Battle Shout", "3 min buff"
 	end
 
-	-- Cooldowns raciaux uniquement sur une cible qui devrait survivre.
+	-- Racial cooldowns only for a target expected to survive.
 	if AL.burst and (not targetHp or targetHp > 35) and (not ttd or ttd >= 10) then
 		if OkReady("Blood Fury") then return "Blood Fury", "burst" end
 		if OkReady("Berserking") then return "Berserking", "burst" end
@@ -3921,7 +3929,7 @@ local function NextDPS(s, inCombat, hostile)
 				or "2+ enemies - pool rage for Cleave"
 	end
 
-	-- Spearing Strike est rentable en priorite sur ses cibles specialisees.
+	-- Spearing Strike is prioritized against its specialized targets.
 	if not aoeActive and s.spear and SpearingTarget() and ReadyUsable("Spearing Strike")
 		and HasRage(rage, 15) and inMelee then
 		return "Spearing Strike", "giant / dragonkin bonus"
@@ -4206,9 +4214,11 @@ local function NextFury(s, inCombat, hostile)
 			FuryGate("health", "player", hp, 75, false, false, hp == nil) })
 	end
 	if s.furyBerserkerRage and stance == 3 then FuryOffer("Berserker Rage", "damage-taken rage + fear immunity", rage, 0) end
-	if AL.burst and (targetHP == nil or targetHP > 35) and (ttd == nil or ttd >= 10) then
-		if OkReady("Blood Fury") then FuryAdd("Blood Fury", "burst") end
-		if OkReady("Berserking") then FuryAdd("Berserking", "burst") end
+	if AL.burst and (ttd == nil or ttd >= 10) then
+		local minimum = M.FuryBurstMinimum(s)
+		local gate = minimum <= 0 or FuryGate("health", "target", targetHP, minimum, false, false, false)
+		if OkReady("Blood Fury") then FuryAdd("Blood Fury", "burst", { gate }) end
+		if OkReady("Berserking") then FuryAdd("Berserking", "burst", { gate }) end
 	end
 	FuryAdd(AL.known["Attack"] and "Attack" or nil, "melee / pool rage")
 	local base = furyDecision.actions[#furyDecision.actions]
@@ -4383,7 +4393,7 @@ local function NextArms(s,inCombat,hostile)
 end
 
 -- ========================================================================
--- TANK : donjons / leveling 1-60
+-- TANK: dungeons / leveling 1-60
 -- ========================================================================
 local function TankProcAvailable(name)
 	if C_Spell and type(C_Spell.IsSpellUsable)=="function" or type(IsUsableSpell)=="function" then
@@ -4527,8 +4537,8 @@ SlashCmdList.ACTIONLITEHAMSTRING = function(message)
 	print("Usage: /alhamstring [on|off|toggle]")
 end
 
--- Etat public minimal consomme par Warrior_UI.lua. La logique et les seuils
--- restent ici afin que le fichier d'interface ne duplique aucune regle combat.
+-- Minimal public state consumed by Warrior_UI.lua. Logic and thresholds
+-- stay here so the interface file duplicates no combat rules.
 function M.GetUIState()
 	local knownCount = 0
 	for _, entry in ipairs(M.spells) do

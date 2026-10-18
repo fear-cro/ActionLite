@@ -45,10 +45,10 @@ do
 local ADDON, AL = ...
 
 -- WoW Forever Mage leveling 1-30 - v0.15.6
--- Cible : beta 1.60.1.69913.
--- Les IDs et niveaux classiques servent uniquement de reperes LIKELY ; le
--- grimoire du client reste l'autorite. La portee exacte du rang appris pilote
--- la couleur rouge/normale ; elle ne remplace pas le nuke par une attaque melee.
+-- Target: beta 1.60.1.69913.
+-- Classic IDs and levels are only LIKELY references;
+-- the client's spellbook remains authoritative. The learned rank's exact range controls
+-- red/normal coloring; it does not replace the damage spell with a melee attack.
 
 local A = _G.Action
 
@@ -82,9 +82,9 @@ local M = {
 	},
 }
 
--- IDs de rang 1 classiques utilises pour l'identification et les icones.
--- Ice Lance est conserve uniquement si Forever le place reellement dans le
--- grimoire ; son ID TBC n'est pas considere comme une preuve Forever.
+-- Classic rank-one IDs used for identification and icons.
+-- Ice Lance is retained only if Forever actually lists it in the
+-- spellbook; its TBC ID is not treated as evidence of Forever support.
 M.spells = {
 	{ 1008, "Amplify Magic" },
 	{ 1449, "Arcane Explosion" },
@@ -129,8 +129,8 @@ for _, name in ipairs({
 	AL.selfCastSpells[name] = true
 end
 
--- Niveaux d'apprentissage classiques. Les talents et sorts non confirmes sur
--- Forever sont volontairement absents de cette table et gates par le livre.
+-- Classic learning levels. Talents and spells not confirmed on
+-- Forever are deliberately absent from this table and gated by the book.
 local MINLEVEL = {
 	["Arcane Intellect"] = 1,
 	["Fireball"] = 1,
@@ -163,8 +163,8 @@ local MINLEVEL = {
 local Ok = select(1, AL.LevelGates(MINLEVEL))
 M.minLevels = MINLEVEL
 
--- Objets conjures classiques, du rang le plus bas au plus eleve. Un compteur
--- de sacs protege renvoie nil et ne provoque jamais une conjuration en boucle.
+-- Classic conjured items, from lowest to highest rank. A protected
+-- bag count returns nil and never causes a repeated-conjuring loop.
 local WATER_IDS = { 5350, 2288, 2136, 3772, 8077, 8078, 8079 }
 local FOOD_IDS = { 5349, 1113, 1114, 1487, 8075, 8076 }
 local GEM_IDS = { 5514 }
@@ -659,7 +659,7 @@ local function SpellReady(name)
     return Bool((SafeCall(AL.IsReady, name))) == true, recovery
 end
 
-local WAND_HANDOFF_SPELLS = { ["Fire Blast"]=true, ["Frost Nova"]=true }
+local WAND_HANDOFF_SPELLS = { ["Fire Blast"]=true, ["Frost Nova"]=true, ["Frostbolt"]=true, ["Fireball"]=true, ["Scorch"]=true }
 
 local function Offer(name, reason, gates, preparation, showRange)
     if not Ok(name) then return false end
@@ -675,12 +675,15 @@ local function Offer(name, reason, gates, preparation, showRange)
     conditions[#conditions + 1] = affordable
     if WAND_HANDOFF_SPELLS[name] then
         if LiveWandActive() and Ok("Shoot") then
-            if GetTime() < wandStopPendingUntil then return AddAction(nil, "Stopping wand", conditions) end
+            local canStop = type(AL.WandReady) ~= "function" or AL.WandReady(true)
+            if not canStop or GetTime() < wandStopPendingUntil then return AddAction(nil, "Stopping wand", conditions) end
             return AddAction("Shoot", "Stop wand for " .. name, conditions)
         end
         -- Shoot recovery may be absent from the spell's cooldown data. Use a
         -- 1.5 s fallback after an accepted shot before offering an instant.
-        if recovery or GetTime() < wandRecoveryUntil then return AddAction(nil, "Global cooldown", conditions) end
+        local shotRecovery = type(AL.WandRecoveryRemaining) == "function" and AL.WandRecoveryRemaining() > 0
+            or type(AL.WandRecoveryRemaining) ~= "function" and GetTime() < wandRecoveryUntil
+        if recovery or shotRecovery then return AddAction(nil, "Global cooldown", conditions) end
     end
     return AddAction(name, reason, conditions)
 end
@@ -716,10 +719,12 @@ local function PlayerIsCastingOrChanneling()
         if not SafeValue(name) or name ~= nil then return true end
     end
     local name = SafeCall(AL.CastingSpell)
+    if name == "Shoot" and type(AL.WandCasting) == "function" then return AL.WandCasting() end
     return SafeValue(name) and type(name) == "string"
 end
 
 LiveWandActive = function()
+    if type(AL.WandAutoRepeatActive) == "function" then return AL.WandAutoRepeatActive() end
     local id = LearnedID("Shoot") or 5019
     local active = Bool((SafeCall(IsAutoRepeatSpell, id)))
     if active == nil then active = Bool((SafeCall(C_Spell and C_Spell.IsAutoRepeatSpell, id))) end
@@ -740,6 +745,7 @@ LiveWandActive = function()
 end
 
 local function PlayerIsWanding()
+    if type(AL.WandReady) == "function" then return not AL.WandReady() end
     if GetTime() < wandPendingUntil then return true end
     return LiveWandActive()
 end
@@ -773,8 +779,24 @@ end
 
 local function Wand(s, reason, gates, moving)
     if not WandEligible(s) then return false end
+    if reason == "Out of mana" then
+        for _, name in ipairs({ "Frostbolt", "Fireball", "Scorch" }) do
+            if Ok(name) then
+                local usable, shortage = SpellUsability(name)
+                if shortage == false then
+                    local conditions = {}
+                    for _, gate in ipairs(gates or {}) do conditions[#conditions + 1] = gate end
+                    conditions[#conditions + 1] = Affordable(name, usable, shortage)
+                    if AddAction(nil, "Waiting for spell readiness", conditions) then return true end
+                end
+            end
+        end
+    end
     if moving then return AddAction(nil, "Stop moving to wand", gates) end
-    if PlayerIsWanding() then return AddAction(nil, "Wand active", gates) end
+    if type(AL.WandReady) == "function" then
+        local ready, wait = AL.WandReady()
+        if not ready then return AddAction(nil, wait, gates) end
+    elseif PlayerIsWanding() then return AddAction(nil, "Wand active", gates) end
     if Bool((SafeCall(AL.InRange, "Shoot"))) == false then return AddAction(nil, "Wand out of range", gates) end
     local _, _, _, recovery = CooldownState("Shoot")
     if recovery then return AddAction(nil, "Global cooldown", gates) end
@@ -896,9 +918,6 @@ end
 local function RecoverMana(s, mana, moving, inCombat, hostile)
     if Enabled(s, "evocation") and not moving and (not inCombat or not hostile or UnitWithin("target", 10) == false) then
         Offer("Evocation", "Restore mana", { ManaGate(mana, SettingNumber(s, "evocationMana", 15, 0, 60), true) })
-    end
-    if not inCombat and Enabled(s, "drink") then
-        AddAction(nil, "Drink", { ManaGate(mana, SettingNumber(s, "drinkMana", 35, 0, 80), true) })
     end
 end
 
@@ -1208,9 +1227,9 @@ local ADDON, AL = ...
 
 -- WoW Forever Mage leveling 1-60 - v0.20.4 (Frost, Fire, Arcane, Frostfire)
 -- Live MythicSim tier preset, Forever engine 944a791060db (1.60.1.70338).
--- Les IDs et niveaux classiques servent uniquement de reperes LIKELY ; le
--- grimoire du client reste l'autorite. La portee exacte du rang appris pilote
--- la couleur rouge/normale ; elle ne remplace pas le nuke par une attaque melee.
+-- Classic IDs and levels are only LIKELY references;
+-- the client's spellbook remains authoritative. The learned rank's exact range controls
+-- red/normal coloring; it does not replace the damage spell with a melee attack.
 
 local A = _G.Action
 
@@ -1277,7 +1296,7 @@ local M = {
 	},
 }
 
--- IDs de rang 1 classiques utilises pour l'identification et les icones.
+-- Classic rank-one IDs used for identification and icons.
 -- Only the live spellbook grants learned status; Ice Lance uses Forever's
 -- rank-one identity. Older IDs remain accepted for cast-event compatibility.
 -- Exactly one rotation stays selected. Leveling is the default and the
@@ -1376,8 +1395,8 @@ for _, name in ipairs({
 	AL.selfCastSpells[name] = true
 end
 
--- Niveaux d'apprentissage classiques. Les talents et sorts non confirmes sur
--- Forever sont volontairement absents de cette table et gates par le livre.
+-- Classic learning levels. Talents and spells not confirmed on
+-- Forever are deliberately absent from this table and gated by the book.
 local MINLEVEL = {
 	["Frostfire Bolt"] = 40,
 	["Arcane Blast"] = 20,
@@ -1416,8 +1435,8 @@ local MINLEVEL = {
 local Ok = select(1, AL.LevelGates(MINLEVEL))
 M.minLevels = MINLEVEL
 
--- Objets conjures classiques, du rang le plus bas au plus eleve. Un compteur
--- de sacs protege renvoie nil et ne provoque jamais une conjuration en boucle.
+-- Classic conjured items, from lowest to highest rank. A protected
+-- bag count returns nil and never causes a repeated-conjuring loop.
 local WATER_IDS = { 5350, 2288, 2136, 3772, 8077, 8078, 8079 }
 local FOOD_IDS = { 5349, 1113, 1114, 1487, 8075, 8076 }
 local GEM_IDS = { 5514 }
@@ -2305,7 +2324,7 @@ local function SpellReady(name)
     return Bool((SafeCall(AL.IsReady, name))) == true, recovery
 end
 
-local WAND_HANDOFF_SPELLS = { ["Fire Blast"]=true, ["Frost Nova"]=true }
+local WAND_HANDOFF_SPELLS = { ["Fire Blast"]=true, ["Frost Nova"]=true, ["Frostbolt"]=true, ["Fireball"]=true, ["Scorch"]=true }
 local function ArcaneHandoff(name)
     return (Enabled(AL.S(),"arcane") or Enabled(AL.S(),"frostfire") or Enabled(AL.S(),"fire") or Enabled(AL.S(),"frost"))
         and (ARCANE_DAMAGE[name] or ARCANE_COOLDOWNS[name] or FROST_COOLDOWNS[name] or name=="Combustion")
@@ -2326,12 +2345,15 @@ local function Offer(name, reason, gates, preparation, showRange)
     if WAND_HANDOFF_SPELLS[name] or ArcaneHandoff(name)
         or not Enabled(AL.S(),"arcane") and not Enabled(AL.S(),"frostfire") and not Enabled(AL.S(),"fire") and not Enabled(AL.S(),"frost") and AL.DPS60 and AL.DPS60.Active() and (name == "Ice Lance" or name == "Pyroblast") then
         if LiveWandActive() and Ok("Shoot") then
-            if GetTime() < wandStopPendingUntil then return AddAction(nil, "Stopping wand", conditions) end
+            local canStop = type(AL.WandReady) ~= "function" or AL.WandReady(true)
+            if not canStop or GetTime() < wandStopPendingUntil then return AddAction(nil, "Stopping wand", conditions) end
             return AddAction("Shoot", "Stop wand for " .. name, conditions)
         end
         -- Shoot recovery may be absent from the spell's cooldown data. Use a
         -- 1.5 s fallback after an accepted shot before offering an instant.
-        if recovery or GetTime() < wandRecoveryUntil then return AddAction(nil, "Global cooldown", conditions) end
+        local shotRecovery = type(AL.WandRecoveryRemaining) == "function" and AL.WandRecoveryRemaining() > 0
+            or type(AL.WandRecoveryRemaining) ~= "function" and GetTime() < wandRecoveryUntil
+        if recovery or shotRecovery then return AddAction(nil, "Global cooldown", conditions) end
     end
     return AddAction(name, reason, conditions)
 end
@@ -2367,10 +2389,12 @@ local function PlayerIsCastingOrChanneling()
         if not SafeValue(name) or name ~= nil then return true end
     end
     local name = SafeCall(AL.CastingSpell)
+    if name == "Shoot" and type(AL.WandCasting) == "function" then return AL.WandCasting() end
     return SafeValue(name) and type(name) == "string"
 end
 
 LiveWandActive = function()
+    if type(AL.WandAutoRepeatActive) == "function" then return AL.WandAutoRepeatActive() end
     local id = LearnedID("Shoot") or 5019
     local active = Bool((SafeCall(IsAutoRepeatSpell, id)))
     if active == nil then active = Bool((SafeCall(C_Spell and C_Spell.IsAutoRepeatSpell, id))) end
@@ -2391,6 +2415,7 @@ LiveWandActive = function()
 end
 
 local function PlayerIsWanding()
+    if type(AL.WandReady) == "function" then return not AL.WandReady() end
     if GetTime() < wandPendingUntil then return true end
     return LiveWandActive()
 end
@@ -2424,8 +2449,24 @@ end
 
 local function Wand(s, reason, gates, moving)
     if not WandEligible(s) then return false end
+    if reason == "Out of mana" then
+        for _, name in ipairs({ "Frostbolt", "Fireball", "Scorch" }) do
+            if Ok(name) then
+                local usable, shortage = SpellUsability(name)
+                if shortage == false then
+                    local conditions = {}
+                    for _, gate in ipairs(gates or {}) do conditions[#conditions + 1] = gate end
+                    conditions[#conditions + 1] = Affordable(name, usable, shortage)
+                    if AddAction(nil, "Waiting for spell readiness", conditions) then return true end
+                end
+            end
+        end
+    end
     if moving then return AddAction(nil, "Stop moving to wand", gates) end
-    if PlayerIsWanding() then return AddAction(nil, "Wand active", gates) end
+    if type(AL.WandReady) == "function" then
+        local ready, wait = AL.WandReady()
+        if not ready then return AddAction(nil, wait, gates) end
+    elseif PlayerIsWanding() then return AddAction(nil, "Wand active", gates) end
     if Bool((SafeCall(AL.InRange, "Shoot"))) == false then return AddAction(nil, "Wand out of range", gates) end
     local _, _, _, recovery = CooldownState("Shoot")
     if recovery then return AddAction(nil, "Global cooldown", gates) end
@@ -2579,9 +2620,6 @@ end
 local function RecoverMana(s, mana, moving, inCombat, hostile)
     if Enabled(s, "evocation") and not moving and (not inCombat or not hostile or UnitWithin("target", 10) == false) then
         Offer("Evocation", "Restore mana", { ManaGate(mana, SettingNumber(s, "evocationMana", 15, 0, 60), true) })
-    end
-    if not inCombat and Enabled(s, "drink") then
-        AddAction(nil, "Drink", { ManaGate(mana, SettingNumber(s, "drinkMana", 35, 0, 80), true) })
     end
 end
 
@@ -3266,7 +3304,7 @@ for _,event in ipairs({"UNIT_SPELLCAST_SENT","UNIT_SPELLCAST_SUCCEEDED","UNIT_SP
     "UNIT_SPELLCAST_FAILED_QUIET","UNIT_SPELLCAST_INTERRUPTED","UNIT_AURA","SPELLS_CHANGED",
     "PLAYER_LOGIN","PLAYER_DEAD","PLAYER_ENTERING_WORLD","PLAYER_REGEN_ENABLED",
     "PLAYER_TALENT_UPDATE","ACTIVE_TALENT_GROUP_CHANGED","COMBAT_LOG_EVENT_UNFILTERED"}) do
-    pcall(frostfireTracker.RegisterEvent,frostfireTracker,event)
+    if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(frostfireTracker.RegisterEvent,frostfireTracker,event) end
 end
 frostfireTracker:SetScript("OnEvent",function(_,event,unit,arg2,arg3,arg4)
     if AL.playerClass~="MAGE" then return end

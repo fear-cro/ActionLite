@@ -3,8 +3,8 @@ local ADDON, AL = ...
 -- ============================================================================
 -- ActionLITE - Localization.lua - v0.7.3
 -- ----------------------------------------------------------------------------
--- Textes d'interface uniquement. Les noms internes de sorts, les cles de
--- profil et les tokens de classe ne passent jamais par cette couche.
+-- UI text only. Internal spell names, profile keys and
+-- class tokens never pass through this layer.
 -- ============================================================================
 
 local T = {
@@ -59,8 +59,6 @@ local T = {
 		SHOW_BAR_GLOW = "Highlight on action bars",
 		BAR_GLOW_HELP = "Lights up the button on your action bars that holds the suggested spell.",
 		BAR_GLOW_PULSE = "Pulse the highlight",
-		TRAIN_REMINDER = "New spell reminders",
-		TRAIN_REMINDER_HELP = "When you level up, lists the spells and ranks you can learn at your class trainer.",
 		TRAIN_NEW = "New at your trainer: %s",
 		TRAIN_RANKS = "New ranks at your trainer: %s",
 		TRAIN_NONE = "Nothing new to learn at your trainer right now.",
@@ -203,7 +201,7 @@ local T = {
 		DEBUG_SEC_COMBAT = "COMBAT", DEBUG_SEC_RESOURCES = "RESOURCES", DEBUG_SEC_ROTATION = "ROTATION",
 		DEBUG_SEC_AURAS = "AURAS", DEBUG_SEC_COOLDOWNS = "INFERRED COOLDOWNS", DEBUG_SEC_SPELLBOOK = "SPELLBOOK",
 		DEBUG_FOOTER = "%d log entries · %d errors this session · session %d",
-		DEBUG_NEW_ERROR = "caught an error: %s  (type /al log to inspect it)", DEBUG_ERRORS_BADGE = "%d new errors",
+		DEBUG_NEW_ERROR = "caught an error: %s  (open Bug report > Results to copy it)", DEBUG_ERRORS_BADGE = "%d new errors",
 	},
 	fr = {
 		BUG_REPORT = "Rapport de bug",
@@ -254,8 +252,6 @@ local T = {
 		SHOW_BAR_GLOW = "Surbrillance sur les barres d'action",
 		BAR_GLOW_HELP = "Illumine le bouton de vos barres d'action qui contient le sort suggéré.",
 		BAR_GLOW_PULSE = "Faire pulser la surbrillance",
-		TRAIN_REMINDER = "Rappel des nouveaux sorts",
-		TRAIN_REMINDER_HELP = "À chaque niveau, liste les sorts et rangs que vous pouvez apprendre auprès de votre maître de classe.",
 		TRAIN_NEW = "Nouveau chez votre maître : %s",
 		TRAIN_RANKS = "Nouveaux rangs chez votre maître : %s",
 		TRAIN_NONE = "Rien de nouveau à apprendre chez votre maître pour l'instant.",
@@ -394,7 +390,7 @@ local T = {
 		DEBUG_SEC_PERF = "PERFORMANCES", DEBUG_SEC_COMBAT = "COMBAT", DEBUG_SEC_RESOURCES = "RESSOURCES",
 		DEBUG_SEC_ROTATION = "ROTATION", DEBUG_SEC_AURAS = "AURAS", DEBUG_SEC_COOLDOWNS = "TEMPS DE RECHARGE DÉDUITS",
 		DEBUG_SEC_SPELLBOOK = "GRIMOIRE", DEBUG_FOOTER = "%d entrées · %d erreurs cette session · session %d",
-		DEBUG_NEW_ERROR = "erreur interceptée : %s  (tape /al log pour l'examiner)",
+		DEBUG_NEW_ERROR = "erreur interceptée : %s  (ouvrez Rapport de bug > Results pour la copier)",
 		DEBUG_ERRORS_BADGE = "%d nouvelles erreurs",
 	},
 	pt = {
@@ -448,8 +444,6 @@ local T = {
 		SHOW_BAR_GLOW = "Destaque nas barras de ação",
 		BAR_GLOW_HELP = "Ilumina o botão das suas barras de ação que contém o feitiço sugerido.",
 		BAR_GLOW_PULSE = "Pulsar o destaque",
-		TRAIN_REMINDER = "Lembrete de novos feitiços",
-		TRAIN_REMINDER_HELP = "Ao subir de nível, lista os feitiços e graus que você pode aprender com seu instrutor de classe.",
 		TRAIN_NEW = "Novo no seu instrutor: %s",
 		TRAIN_RANKS = "Novos graus no seu instrutor: %s",
 		TRAIN_NONE = "Nada novo para aprender com seu instrutor agora.",
@@ -595,7 +589,7 @@ local T = {
 		DEBUG_SEC_PERF = "DESEMPENHO", DEBUG_SEC_COMBAT = "COMBATE", DEBUG_SEC_RESOURCES = "RECURSOS",
 		DEBUG_SEC_ROTATION = "ROTAÇÃO", DEBUG_SEC_AURAS = "AURAS", DEBUG_SEC_COOLDOWNS = "RECARGAS DEDUZIDAS",
 		DEBUG_SEC_SPELLBOOK = "GRIMÓRIO", DEBUG_FOOTER = "%d entradas no log · %d erros nesta sessão · sessão %d",
-		DEBUG_NEW_ERROR = "capturou um erro: %s  (digite /al log para inspecioná-lo)",
+		DEBUG_NEW_ERROR = "capturou um erro: %s  (abra Relatório de bug > Results para copiar)",
 		DEBUG_ERRORS_BADGE = "%d novos erros",
 	},
 	es = {
@@ -649,8 +643,6 @@ local T = {
 		SHOW_BAR_GLOW = "Resaltar en las barras de acción",
 		BAR_GLOW_HELP = "Ilumina el botón de tus barras de acción que tiene el hechizo sugerido.",
 		BAR_GLOW_PULSE = "Pulso en el resaltado",
-		TRAIN_REMINDER = "Aviso de hechizos nuevos",
-		TRAIN_REMINDER_HELP = "Al subir de nivel, muestra los hechizos y rangos que puedes aprender con tu instructor de clase.",
 		TRAIN_NEW = "Nuevo en tu instructor: %s",
 		TRAIN_RANKS = "Rangos nuevos en tu instructor: %s",
 		TRAIN_NONE = "Nada nuevo que aprender con tu instructor por ahora.",
@@ -799,7 +791,7 @@ local T = {
 		DEBUG_SEC_ROTATION = "ROTACIÓN", DEBUG_SEC_AURAS = "AURAS", DEBUG_SEC_COOLDOWNS = "REUTILIZACIONES DEDUCIDAS",
 		DEBUG_SEC_SPELLBOOK = "LIBRO DE HECHIZOS",
 		DEBUG_FOOTER = "%d entradas · %d errores en esta sesión · sesión %d",
-		DEBUG_NEW_ERROR = "capturó un error: %s  (escribe /al log para revisarlo)",
+		DEBUG_NEW_ERROR = "capturó un error: %s  (abre Informe de errores > Results para copiarlo)",
 		DEBUG_ERRORS_BADGE = "%d errores nuevos",
 	},
 	de = {
@@ -853,8 +845,6 @@ local T = {
 		SHOW_BAR_GLOW = "Auf Aktionsleisten hervorheben",
 		BAR_GLOW_HELP = "Lässt die Taste auf deinen Aktionsleisten leuchten, die den vorgeschlagenen Zauber enthält.",
 		BAR_GLOW_PULSE = "Hervorhebung pulsieren lassen",
-		TRAIN_REMINDER = "Erinnerung an neue Zauber",
-		TRAIN_REMINDER_HELP = "Zeigt beim Stufenaufstieg die Zauber und Ränge, die du beim Klassenlehrer lernen kannst.",
 		TRAIN_NEW = "Neu beim Lehrer: %s",
 		TRAIN_RANKS = "Neue Ränge beim Lehrer: %s",
 		TRAIN_NONE = "Beim Lehrer gibt es gerade nichts Neues zu lernen.",
@@ -1001,7 +991,7 @@ local T = {
 		DEBUG_SEC_ROTATION = "ROTATION", DEBUG_SEC_AURAS = "AUREN", DEBUG_SEC_COOLDOWNS = "ERMITTELTE ABKLINGZEITEN",
 		DEBUG_SEC_SPELLBOOK = "ZAUBERBUCH",
 		DEBUG_FOOTER = "%d Protokolleinträge · %d Fehler in dieser Sitzung · Sitzung %d",
-		DEBUG_NEW_ERROR = "hat einen Fehler abgefangen: %s  (tippe /al log, um ihn anzusehen)",
+		DEBUG_NEW_ERROR = "hat einen Fehler abgefangen: %s  (zum Kopieren Bug report > Results öffnen)",
 		DEBUG_ERRORS_BADGE = "%d neue Fehler",
 	},
 	zh = {
@@ -1055,8 +1045,6 @@ local T = {
 		SHOW_BAR_GLOW = "在动作条上高亮",
 		BAR_GLOW_HELP = "点亮动作条上放有建议法术的按钮。",
 		BAR_GLOW_PULSE = "高亮脉动",
-		TRAIN_REMINDER = "新法术提醒",
-		TRAIN_REMINDER_HELP = "升级时列出你可以在职业训练师处学习的法术和等级。",
 		TRAIN_NEW = "训练师处的新法术：%s",
 		TRAIN_RANKS = "训练师处的新等级：%s",
 		TRAIN_NONE = "目前训练师处没有新的可学内容。",
@@ -1190,7 +1178,7 @@ local T = {
 		DEBUG_STATUS_nil = "空", DEBUG_STATUS_missing = "缺失", DEBUG_SEC_SESSION = "会话", DEBUG_SEC_PERF = "性能",
 		DEBUG_SEC_COMBAT = "战斗", DEBUG_SEC_RESOURCES = "资源", DEBUG_SEC_ROTATION = "循环", DEBUG_SEC_AURAS = "光环",
 		DEBUG_SEC_COOLDOWNS = "推断冷却", DEBUG_SEC_SPELLBOOK = "法术书", DEBUG_FOOTER = "%d 条日志 · 本次会话 %d 个错误 · 第 %d 次会话",
-		DEBUG_NEW_ERROR = "捕获到错误：%s（输入 /al log 查看）", DEBUG_ERRORS_BADGE = "%d 个新错误",
+		DEBUG_NEW_ERROR = "捕获到错误：%s（打开 Bug report > Results 复制报告）", DEBUG_ERRORS_BADGE = "%d 个新错误",
 	},
 }
 
@@ -1200,9 +1188,9 @@ local CLASS_KEYS = {
 	MAGE = "CLASS_MAGE", WARLOCK = "CLASS_WARLOCK", DRUID = "CLASS_DRUID",
 }
 
--- Le choix courant reste actif immediatement, sans attendre un /reload.
--- L'anglais est utilise par defaut sur une nouvelle installation. Un choix
--- deja enregistre reste prioritaire et n'est jamais ecrase.
+-- The current choice takes effect immediately, without waiting for /reload.
+-- English is the default on a new installation. A saved
+-- choice takes priority and is never overwritten.
 local runtimeLanguage
 local DEFAULT_LANGUAGE = "en"
 
@@ -1242,8 +1230,8 @@ function AL.SetUILanguage(language)
 	ActionLiteLanguage = language
 	ActionLiteDB = ActionLiteDB or {}
 	ActionLiteDB.uiLanguage = language
-	-- Copie redondante dans la table de profils, qui est deja connue pour etre
-	-- correctement conservee par Forever (seuils, sorts et options de classe).
+	-- Redundant copy in the profiles table, which Forever is already known
+	-- to preserve correctly (thresholds, spells and class options).
 	ActionLiteDB.profiles = ActionLiteDB.profiles or {}
 	ActionLiteDB.profiles.__ACTIONLITE_UI =
 		ActionLiteDB.profiles.__ACTIONLITE_UI or {}

@@ -21,6 +21,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 	cards = {
         {
             title = "LEVELING ROTATION",
+            id="leveling-rotation", build="leveling", group="damage",
             controls = {
                 { key="leveling", label="Leveling Rotation", spell="Wrath", half=false,
                   tooltip={"Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected."} },
@@ -28,6 +29,7 @@ AL.RegisterSimpleClassUI("DRUID", {
         },
         {
             title = "TANK BUILD - FERAL BEAR 0/41/10",
+            id="tank-build-feral-bear-0-41-10", build="feralBear", group="damage",
             controls = {
                 BuildCheck("feralBear", "Tank - Feral Bear (0/41/10)", "Dire Bear Form"),
                 { type="info", text="Selects learned Bear tank priorities through level 60 and unchecks Cat/Balance. Turning Tank off automatically selects Leveling Rotation. Talents, gear and saved icons are not changed. Select Leveling Rotation for the previous form-based profile." },
@@ -47,6 +49,7 @@ AL.RegisterSimpleClassUI("DRUID", {
         },
         {
             title = "BEAR DEFENSES & THREAT",
+            id="bear-defenses-threat", build="feralBear", group="survival",
             controls = {
                 { key="bearBarkskin",label="Use Barkskin",spell="Barkskin" },
                 { type="slider",key="bearBarkskinHP",label="Barkskin at or below health",min=0,max=100,step=5,default=45,suffix=" %" },
@@ -64,11 +67,17 @@ AL.RegisterSimpleClassUI("DRUID", {
             },
         },
         {
-            title = "BEAR AREA DAMAGE & BURST",
+            title = "BEAR AREA DAMAGE",
+            id="bear-area-damage-burst", build="feralBear", group="aoe",
             controls = {
                 { key="bearSwipe",label="Tank AoE: use Swipe",spell="Swipe" },
                 { type="slider",key="bearAoeMinEnemies",label="Tank AoE minimum enemies",min=2,max=5,step=1,default=3 },
                 { type="info",text="Uses the shared AoE mode checkbox or spell-icon AoE button. Swipe requires AoE On, enough confirmed engaged enemies in melee and its actual Rage cost. Unknown or distant enemies do not enable tank area damage." },
+            },
+        },
+        {
+            title="BEAR BURST", id="bear-burst", build="feralBear", group="burst",
+            controls={
                 { key="bearBerserk",label="Burst + AoE: use Berserk",spell="Berserk" },
                 { key="bearElunesLight",label="Tank Burst: learned Elune's Light",spell="Elune's Light" },
                 { key="bearBerserking",label="Tank Burst: learned Berserking",spell="Berserking" },
@@ -80,6 +89,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 
 		{
 			title = "BALANCE BUILD - 41/0/10",
+			id="balance-build-41-0-10", build="balance", group="damage",
 			controls = {
 				BuildCheck("balance", "Use Balance (41/0/10)", "Moonkin Form"),
 				{ type = "info", text = "Uses learned Balance spells through level 60. Selecting Balance unchecks Feral Cat and Tank while keeping their saved settings and icons. Talents and equipment are not changed. Select Leveling Rotation for the previous form-based leveling rotation." },
@@ -95,16 +105,27 @@ AL.RegisterSimpleClassUI("DRUID", {
 			},
 		},
 		{
-			title = "BALANCE MANA, BURST & AREA DAMAGE",
+			title = "BALANCE MANA",
+			id="balance-mana-burst-area-damage", build="balance", group="resources",
 			controls = {
 				{ key = "balanceInnervate", label = "Balance: Innervate on self", spell = "Innervate", half = false },
 				{ type = "slider", key = "balanceInnervateMana", label = "Balance Innervate at or below mana", min = 0, max = 100, step = 5, default = 10, suffix = " %" },
 				{ type = "info", text = "Mana recovery requires combat, low mana, its learned spell and no active Innervate. A confirmed target lifetime of twenty seconds or less skips it. Innervate works in Moonkin Form and does not require Burst On." },
+            },
+        },
+        {
+            title="BALANCE BURST", id="balance-burst", build="balance", group="burst",
+            controls={
 				{ key = "balanceElunesLight", label = "Burst: learned Elune's Light", spell = "Elune's Light" },
 				{ key = "balanceBerserking", label = "Burst: learned Berserking", spell = "Berserking" },
 				{ type = "slider", key = "balanceBurstMinMana", label = "Balance Burst minimum mana", min = 0, max = 100, step = 5, default = 20, suffix = " %" },
 				{ type = "slider", key = "balanceBurstMinTargetHP", label = "Balance Burst minimum target health", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 				{ type = "info", text = "Offensive racials require Burst On, combat, their checkbox and an eligible affordable damage spell. Only learned racial abilities are used. The Night Elf reference uses Elune's Light; no Balance damage cooldown is assumed from the build checkbox." },
+            },
+        },
+        {
+            title="BALANCE AREA DAMAGE", id="balance-area-damage", build="balance", group="aoe",
+            controls={
 				{ key = "balanceHurricane", label = "Balance: use Hurricane in AoE", spell = "Hurricane", half = false },
 				{ type = "slider", key = "balanceAoeMinEnemies", label = "Balance Hurricane minimum enemies", min = 2, max = 5, step = 1, default = 3 },
 				{ type = "slider", key = "balanceAoeMinMana", label = "Balance Hurricane minimum mana", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
@@ -113,6 +134,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 		},
 		{
 			title = "FERAL CAT BUILD - 9/34/8",
+			id="feral-cat-build-9-34-8", build="feralCat", group="damage",
 			controls = {
 				BuildCheck("feralCat", "Use Feral Cat (9/34/8)", "Cat Form"),
 				{ type = "info", text = "Selects learned Feral Cat priorities through level 60 using the live MythicSim 9/34/8 reference. Selecting Cat unchecks Balance and Tank while keeping their saved settings. Select Leveling Rotation for the previous form-based profile. Talents and gear are not changed." },
@@ -129,11 +151,17 @@ AL.RegisterSimpleClassUI("DRUID", {
 			},
 		},
 		{
-			title = "FERAL CAT RESOURCES & BURST",
+			title = "FERAL CAT RESOURCES",
+			id="feral-cat-resources-burst", build="feralCat", group="resources",
 			controls = {
 				{ key = "catInnervate", label = "Use Innervate on self", spell = "Innervate", half = false },
 				{ type = "slider", key = "catInnervateMana", label = "Innervate at or below mana", min = 0, max = 100, step = 5, default = 10, suffix = " %" },
 				{ type = "info", text = "Innervate is mana recovery, requires combat, low mana and at most 30 energy, and may leave Cat Form. A readable lifetime under 20 seconds skips it. The profile returns to Cat when ready." },
+            },
+        },
+        {
+            title="FERAL CAT BURST", id="feral-cat-burst", build="feralCat", group="burst",
+            controls={
 				{ key = "catBerserk", label = "Use Berserk", spell = "Berserk" },
 				{ key = "catElunesLight", label = "Use Elune's Light", spell = "Elune's Light" },
 				{ type = "slider", key = "catBurstMinTargetHP", label = "Cat Burst minimum target health", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
@@ -143,6 +171,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 		},
 		{
 			title = "FERAL CAT AREA DAMAGE",
+			id="feral-cat-area-damage", build="feralCat", group="aoe",
 			controls = {
 				{ key = "catHurricane", label = "Use Hurricane (shift out, optional)", spell = "Hurricane", half = false },
 				{ type = "slider", key = "catAoeMinEnemies", label = "Cat AoE minimum enemies", min = 2, max = 5, step = 1, default = 3 },
@@ -152,6 +181,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 		},
 		{
 			title = { en = "PREPARATION & SURVIVAL", fr = "PREPARATION ET SURVIE", pt = "PREPARAÇÃO E SOBREVIVÊNCIA", es = "PREPARACIÓN Y SUPERVIVENCIA", de = "VORBEREITUNG & ÜBERLEBEN", zh = "准备与生存" },
+			id="preparation-survival", group="preparation",
 			controls = {
 				{ key = "buffs", label = { en = "Mark of the Wild upkeep", fr = "Maintenir Mark of the Wild", pt = "Manter Mark of the Wild", es = "Mantener Mark of the Wild", de = "Mark of the Wild halten", zh = "保持Mark of the Wild" }, spell = "Mark of the Wild" },
 				{ key = "thorns", label = { en = "Thorns upkeep", fr = "Maintenir Thorns", pt = "Manter Thorns", es = "Mantener Thorns", de = "Thorns halten", zh = "保持Thorns" }, spell = "Thorns" },
@@ -162,6 +192,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 		},
 		{
 			title = { en = "CAT FORM", fr = "FORME DE FELIN", pt = "FORMA DE FELINO", es = "FORMA FELINA", de = "KATZENGESTALT", zh = "猎豹形态" },
+			id="cat-form", build={"feralCat","leveling"}, group="damage",
 			controls = {
 				{ key = "rake", label = "Rake", spell = "Rake" },
 				{ key = "rip", label = { en = "Rip on durable targets", fr = "Rip sur les cibles durables", pt = "Rip em alvos resistentes", es = "Rip en objetivos duraderos", de = "Rip auf zähe Ziele", zh = "对耐久目标Rip" }, spell = "Rip" },
@@ -171,9 +202,15 @@ AL.RegisterSimpleClassUI("DRUID", {
 		},
 		{
 			title = { en = "BEAR FORM", fr = "FORME D'OURS", pt = "FORMA DE URSO", es = "FORMA DE OSO", de = "BÄRENGESTALT", zh = "熊形态" },
+			id="bear-form", build={"feralBear","leveling"}, group="damage",
 			controls = {
 				{ key = "enrage", label = { en = "Enrage and Demoralizing Roar", fr = "Enrage et Demoralizing Roar", pt = "Enrage e Demoralizing Roar", es = "Enrage y Demoralizing Roar", de = "Enrage und Demoralizing Roar", zh = "Enrage和Demoralizing Roar" }, spell = "Enrage" },
 				{ key = "bash", label = { en = "Bash interrupt", fr = "Interruption Bash", pt = "Interrupção Bash", es = "Interrupción Bash", de = "Bash-Unterbrechung", zh = "Bash打断" }, spell = "Bash" },
+            },
+        },
+        {
+            title="AREA DAMAGE MODE", id="area-damage-mode", group="aoe",
+            controls={
 				{ key = "aoe", label = { en = "Enable AoE Mode", fr = "Activer le mode AoE", pt = "Ativar modo AoE", es = "Activar modo AoE", de = "AoE-Modus aktivieren", zh = "启用AoE模式" }, spell = "Swipe" },
 				{ type = "info", text = { en = "The shared AoE mode also enables the selected Cat or Balance build's area-damage rules. In the older form-based profile, Swipe requires at least two confirmed enemies in melee range. Bear attacks wait for enough rage; Bash takes priority when a target is casting." } },
 			},

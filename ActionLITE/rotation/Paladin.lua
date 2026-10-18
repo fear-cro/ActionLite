@@ -46,9 +46,9 @@ local ADDON, AL = ...
 
 -- WoW Forever Paladin Retribution / Protection leveling 1-30
 -- ActionLITE Paladin v0.11.3
--- Cible : beta 1.60.1.69913
--- Statut : LIKELY jusqu'a validation directe des couts, rangs et talents.
--- Les valeurs protegees ne sont jamais assimilees a zero.
+-- Target: beta 1.60.1.69913.
+-- Status: LIKELY until costs, ranks and talents are directly validated.
+-- Protected values are never treated as zero.
 
 local A = _G.Action
 
@@ -95,9 +95,9 @@ local M = {
 	},
 }
 
--- IDs de rang 1 classiques utilises uniquement comme repli d'icone. Holy
--- Strike est un sort Forever sans identifiant confirme : aucun ID 0 n'est
--- cree ou transmis au framework.
+-- Classic rank-one IDs used only as icon fallbacks. Holy
+-- Strike is a Forever spell without a confirmed identifier: no ID 0 is
+-- created or passed to the framework.
 M.spells = {
 	{ 1044, "Blessing of Freedom" },
 	{ 19740, "Blessing of Might" },
@@ -133,9 +133,9 @@ AL.IconOverrides["Holy Strike"] = function()
 	if AL.S().hsicon then return HOLY_STRIKE_ICON end
 end
 
--- Niveaux de sorts de classe classiques servant de garde-fous. Les talents
--- (Consecration, Seal of Command) et Holy Strike restent gates uniquement par
--- le spellbook Forever afin de ne pas inventer leur niveau d'acquisition.
+-- Classic class-spell levels used as safeguards. Talents
+-- (Consecration, Seal of Command) and Holy Strike remain gated only by
+-- Forever's spellbook, avoiding invented learning levels.
 local MINLEVEL = {
 	["Seal of Righteousness"] = 1,
 	["Devotion Aura"] = 1,
@@ -732,7 +732,7 @@ end
 
 local tracker = CreateFrame("Frame")
 for _, event in ipairs({ "COMBAT_LOG_EVENT_UNFILTERED", "PLAYER_REGEN_ENABLED", "PLAYER_DEAD", "PLAYER_ENTERING_WORLD", "UNIT_INVENTORY_CHANGED" }) do
-    pcall(tracker.RegisterEvent, tracker, event)
+    if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(tracker.RegisterEvent, tracker, event) end
 end
 tracker:SetScript("OnEvent", function(_, event, unit)
     if event == "UNIT_INVENTORY_CHANGED" then
@@ -865,7 +865,6 @@ function M.NextSpell(s, inCombat, hostile)
             ManaGate(mana, SettingNumber(s, "healMinMana", 10, 0, 100), false) }) end
         local prePull = hostile and Ready("Judgement") and UnitWithin("target", 10) == true
         ApplyPreparation(s, role, prePull)
-        if s.drink then AddAction(nil, "Drink", { ManaGate(mana, SettingNumber(s, "drinkMana", 30, 0, 80), true) }) end
         if prePull then Judgement(s, mana, targetHP, "pull") end
         if hostile then AddAction(AL.Ok("Attack") and "Attack" or nil, role == "TANK" and "tank opener" or "opener") end
     else
@@ -1021,8 +1020,8 @@ local ADDON, AL = ...
 -- WoW Forever Paladin Retribution / Protection leveling 1-60
 -- ActionLITE Paladin v0.14.4 - Protection (8/33/10), Retribution and Shockadin
 -- Reference: Forever 1.60.1.70338 / MythicSim b1137248e6b4.
--- Statut : LIKELY jusqu'a validation directe des couts, rangs et talents.
--- Les valeurs protegees ne sont jamais assimilees a zero.
+-- Status: LIKELY until costs, ranks and talents are directly validated.
+-- Protected values are never treated as zero.
 
 local A = _G.Action
 
@@ -1196,9 +1195,9 @@ AL.IconOverrides["Holy Strike"] = function()
 	if AL.S().hsicon then return HOLY_STRIKE_ICON end
 end
 
--- Niveaux de sorts de classe classiques servant de garde-fous. Les talents
--- (Seal of Command) restent gates par le spellbook Forever. Holy Strike et
--- les attaques de haut niveau utilisent les niveaux du client courant.
+-- Classic class-spell levels used as safeguards. Talents
+-- (Seal of Command) remain gated by Forever's spellbook. Holy Strike and
+-- higher-level attacks use levels from the current client.
 local MINLEVEL = {
 	["Seal of Righteousness"] = 1,
 	["Devotion Aura"] = 1,
@@ -2062,7 +2061,7 @@ end
 
 local tracker = CreateFrame("Frame")
 for _, event in ipairs({ "COMBAT_LOG_EVENT_UNFILTERED", "PLAYER_REGEN_ENABLED", "PLAYER_DEAD", "PLAYER_ENTERING_WORLD", "UNIT_INVENTORY_CHANGED" }) do
-    pcall(tracker.RegisterEvent, tracker, event)
+    if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(tracker.RegisterEvent, tracker, event) end
 end
 tracker:SetScript("OnEvent", function(_, event, unit)
     if event == "UNIT_INVENTORY_CHANGED" then
@@ -2296,7 +2295,6 @@ function M.NextSpell(s, inCombat, hostile)
         local prePull = hostile and Ready("Judgement") and UnitWithin("target", 10) == true
         ApplyPreparation(s, role, prePull)
         TankHolyShield(s, role, mana, prePull)
-        if s.drink then AddAction(nil, "Drink", { ManaGate(mana, SettingNumber(s, "drinkMana", 30, 0, 80), true) }) end
         if prePull then Judgement(s, mana, targetHP, "pull") end
         if hostile then AddAction(AL.Ok("Attack") and "Attack" or nil, role == "TANK" and "tank opener" or "opener") end
     else

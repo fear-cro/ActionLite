@@ -3,10 +3,11 @@ local ns = AL.ActionLiteDebug
 local S, UI = ns.Scanner, {}
 ns.UI = UI
 local theme = {
-    background = {0, 0, 0, 1}, panel = {0, 0, 0, 1},
-    accent = {1, 0.843, 0, 1}, text = {1, 0.843, 0, 1},
-    hover = {0.14, 0.11, 0.015, 1}, selected = {0.20, 0.16, 0.03, 1},
-    green = {0.16, 0.85, 0.36, 1}, yellow = {0.96, 0.78, 0.20, 1}, red = {0.94, 0.16, 0.20, 1},
+    background = {0.02, 0.025, 0.04, 0.98}, panel = {0.035, 0.045, 0.065, 0.92},
+    accent = {0.25, 0.55, 0.90, 1}, text = {0.88, 0.91, 0.96, 1},
+    hover = {0.055, 0.07, 0.10, 1}, selected = {0.16, 0.34, 0.52, 1},
+    green = {0.20, 0.92, 0.32, 1}, yellow = {1, 0.78, 0.16, 1}, red = {1, 0.20, 0.20, 1},
+    resultsText = {1, 0.9, 0.65, 1}, resultsSelection = {0.08, 0.18, 0.32, 0.95},
 }
 local unpack = unpack or table.unpack
 local circle = "Interface\\AddOns\\ActionLITE\\Media\\ActionLiteDebug_Circle"
@@ -200,14 +201,17 @@ local function BuildResults()
     scroll:SetPoint("TOPLEFT", 14, -66)
     scroll:SetPoint("BOTTOMRIGHT", -32, 54)
     scroll:EnableMouseWheel(true)
-    local textBackground = Texture(results, "BACKGROUND", theme.panel)
+    local textBackground = Texture(results, "BACKGROUND", {0.01, 0.015, 0.025, 1})
     textBackground:SetPoint("TOPLEFT", scroll, "TOPLEFT", -3, 3)
     textBackground:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", 3, -3)
     edit = CreateFrame("EditBox", nil, scroll)
     edit:SetMultiLine(true)
     edit:SetAutoFocus(false)
     edit:SetFont("Fonts\\ARIALN.TTF", 13, "")
-    edit:SetTextColor(unpack(theme.text))
+    edit:SetTextColor(unpack(theme.resultsText))
+    if type(edit.SetHighlightColor) == "function" then
+        pcall(edit.SetHighlightColor, edit, unpack(theme.resultsSelection))
+    end
     edit:SetMaxLetters(0)
     if type(edit.SetMaxBytes) == "function" then edit:SetMaxBytes(0) end
     edit:SetTextInsets(5, 5, 4, 4)
@@ -283,6 +287,18 @@ local function BuildResults()
         if UI.returnToMain then main:Show() end
         UI.returnToMain = false
     end)
+    local refreshElapsed = 0
+    results:HookScript("OnUpdate", function(_, elapsed)
+        if not UI.resultsDirty then return end
+        refreshElapsed = refreshElapsed + elapsed
+        if refreshElapsed < 0.5 then return end
+        refreshElapsed, UI.resultsDirty = 0, false
+        local ok, text = pcall(S.Results)
+        if not ok then return end
+        resultsText = text
+        settingText = true; edit:SetText(resultsText); settingText = false
+        UI.SelectAll()
+    end)
 
     UI.resultsReady = true
 end
@@ -315,6 +331,7 @@ end
 function UI.OpenResults()
     UI.Initialize()
     local text = S.Results()
+    UI.resultsDirty = false
     EnsureResults()
     resultsText = text
     main:Hide()
@@ -325,6 +342,8 @@ function UI.OpenResults()
     UI.SelectAll()
     UI.Refresh()
 end
+
+function UI.MarkResultsDirty() UI.resultsDirty = true end
 
 function UI.Toggle()
     UI.Initialize()

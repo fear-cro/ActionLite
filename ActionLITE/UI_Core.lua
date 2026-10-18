@@ -3,32 +3,32 @@ local ADDON, AL = ...
 -- ============================================================================
 -- ActionLITE - UI_Core.lua - v0.6.11
 -- ----------------------------------------------------------------------------
--- Bibliotheque de composants visuels partages par Menu.lua et les fichiers
--- <Class>_UI.lua. Aucune logique de combat ici.
+-- Visual component library shared by Menu.lua and the
+-- <Class>_UI.lua files. No combat logic here.
 --
--- Principes :
---   * aucun template autre que ceux deja valides sur WoW Forever ;
---   * aucun backdrop : tout est construit avec des textures simples, ce qui
---     fonctionne sur tous les clients et evite BackdropTemplate ;
---   * mise en page par pile verticale (Stack) : plus aucune coordonnee en dur
---     dans les pages de classe ;
---   * chaque composant expose Paint() et s'enregistre dans le registre de
---     rafraichissement, de sorte qu'aucune interface n'est reconstruite.
+-- Principles:
+--     * use only templates already validated on WoW Forever;
+--     * no backdrops: everything uses simple textures, which
+--         work on all clients and avoid BackdropTemplate;
+--     * vertical Stack layout removes hard-coded coordinates
+--         from class pages;
+--     * each component exposes Paint() and registers for
+--         refreshes, so the interface never needs to be rebuilt.
 --
--- API resumee (voir Menu.lua pour la table "ui" passee aux classes) :
---   UI.Stack(frame, opts)          -> pile verticale
---   UI.Card(host, titre, soustitre)-> carte (elle-meme une pile)
---   UI.Toggle(host, opts)          -> interrupteur moderne
---   UI.Slider(host, opts)          -> curseur avec valeur, unite, min et max
---   UI.Button(parent, opts)        -> bouton (neutre / primaire / destructif)
---   UI.ButtonRow(host, liste)      -> rangee de boutons alignes
---   UI.Dropdown(parent, opts)      -> liste deroulante
---   UI.Badge(parent, opts)         -> pastille d'etat
---   UI.Info(host, texte)           -> ligne de texte discrete
---   UI.Divider(host)               -> separateur
---   UI.ScrollArea(parent, opts)    -> zone defilable + pile
---   UI.Tooltip(frame, titre, lignes)
---   UI.Confirm(opts)               -> fenetre modale de confirmation
+-- API overview (see Menu.lua for the "ui" table passed to classes):
+--     UI.Stack(frame, opts)            -> vertical stack
+--     UI.Card(host, title, subtitle)   -> card (itself a stack)
+--     UI.Toggle(host, opts)            -> modern toggle
+--     UI.Slider(host, opts)            -> slider with value, unit, min and max
+--     UI.Button(parent, opts)          -> button (neutral / primary / destructive)
+--     UI.ButtonRow(host, list)         -> aligned button row
+--     UI.Dropdown(parent, opts)        -> dropdown list
+--     UI.Badge(parent, opts)           -> status badge
+--     UI.Info(host, text)              -> subtle text line
+--     UI.Divider(host)                 -> separator
+--     UI.ScrollArea(parent, opts)      -> scroll area and stack
+--     UI.Tooltip(frame, title, lines)
+--     UI.Confirm(opts)                 -> modal confirmation window
 -- ============================================================================
 
 local WHITE = AL.WHITE or "Interface\\Buttons\\WHITE8X8"
@@ -50,12 +50,12 @@ local function DebugControlChanged(widget)
 end
 
 -- ----------------------------------------------------------------------------
--- Valeurs par defaut ajoutees sans toucher a Core.lua.
--- FillDefaults ne remplit que les cles absentes : les anciens profils restent
--- intacts.
+-- Defaults added without modifying Core.lua.
+-- FillDefaults fills only missing keys, so existing profiles stay
+-- intact.
 -- ----------------------------------------------------------------------------
 if AL.defaults then
-	if AL.defaults.bgAlpha == nil then AL.defaults.bgAlpha = 0.75 end
+	if AL.defaults.bgAlpha == nil then AL.defaults.bgAlpha = 0.92 end
 	if AL.defaults.scale == nil then AL.defaults.scale = 1 end
 end
 
@@ -86,31 +86,31 @@ function AL.Version()
 end
 
 -- ----------------------------------------------------------------------------
--- Palette : acier sombre, bronze / or, rouge profond.
+-- Palette: ActionIcon's dark translucent panels, blue accents and gold headings.
 -- ----------------------------------------------------------------------------
 local THEME = {
-	shell      = { 0.043, 0.047, 0.055, 0.97 },
-	sidebar    = { 0.063, 0.068, 0.078, 1.00 },
-	surface    = { 0.086, 0.093, 0.105, 1.00 },
-	surfaceAlt = { 0.118, 0.126, 0.141, 1.00 },
-	raised     = { 0.157, 0.168, 0.188, 1.00 },
-	line       = { 0.192, 0.207, 0.235, 1.00 },
-	lineSoft   = { 1.000, 1.000, 1.000, 0.055 },
-	bronze     = { 0.760, 0.570, 0.290, 1.00 },
-	gold       = { 0.940, 0.740, 0.380, 1.00 },
-	crimson    = { 0.560, 0.150, 0.150, 1.00 },
-	text       = { 0.890, 0.900, 0.920, 1.00 },
-	textDim    = { 0.600, 0.630, 0.690, 1.00 },
-	textFaint  = { 0.479, 0.513, 0.581, 1.00 },
-	ok         = { 0.360, 0.780, 0.440, 1.00 },
-	green      = { 0.420, 0.880, 0.450, 1.00 },
-	goldDim    = { 0.700, 0.550, 0.280, 1.00 },
-	warn       = { 0.940, 0.700, 0.250, 1.00 },
-	danger     = { 0.850, 0.320, 0.300, 1.00 },
+	shell      = { 0.020, 0.025, 0.040, 0.98 },
+	sidebar    = { 0.030, 0.040, 0.060, 0.92 },
+	surface    = { 0.035, 0.045, 0.065, 0.92 },
+	surfaceAlt = { 0.160, 0.340, 0.520, 1.00 },
+	raised     = { 0.055, 0.070, 0.100, 1.00 },
+	line       = { 0.250, 0.550, 0.900, 1.00 },
+	lineSoft   = { 1.000, 1.000, 1.000, 0.07 },
+	bronze     = { 0.380, 0.710, 1.000, 1.00 },
+	gold       = { 1.000, 0.820, 0.180, 1.00 },
+	crimson    = { 0.650, 0.130, 0.180, 1.00 },
+	text       = { 0.880, 0.910, 0.960, 1.00 },
+	textDim    = { 0.700, 0.720, 0.780, 1.00 },
+	textFaint  = { 0.660, 0.690, 0.750, 1.00 },
+	ok         = { 0.200, 0.920, 0.320, 1.00 },
+	green      = { 0.200, 0.920, 0.320, 1.00 },
+	goldDim    = { 1.000, 0.860, 0.300, 1.00 },
+	warn       = { 1.000, 0.780, 0.160, 1.00 },
+	danger     = { 1.000, 0.200, 0.200, 1.00 },
 }
 UI.Theme = THEME
 
--- Grille commune : toutes les marges sont des multiples de 4.
+-- Shared grid: all margins are multiples of four.
 UI.GRID = {
 	pad      = 14,
 	gutter   = 10,
@@ -147,14 +147,14 @@ local function Scale(dst, c, k, a)
 end
 
 local function Derive()
-	Scale(DERIVED.checkOn, THEME.gold, 0.22)
-	Scale(DERIVED.primaryBg, THEME.gold, 0.26)
+	Scale(DERIVED.checkOn, THEME.ok, 0.32)
+	Scale(DERIVED.primaryBg, THEME.surfaceAlt, 1)
 	Scale(DERIVED.dangerBg, THEME.crimson, 0.40)
 	Scale(DERIVED.toggleOn, THEME.ok, 0.55)
 	Scale(DERIVED.closeBg, THEME.crimson, 0.62)
-	Scale(DERIVED.frameEdge, THEME.bronze, 0.82, 0.85)
+	Scale(DERIVED.frameEdge, THEME.line, 1)
 	Scale(DERIVED.listBg, THEME.shell, 1, 0.99)
-	Scale(DERIVED.highlight, THEME.gold, 1, 0.14)
+	Scale(DERIVED.highlight, THEME.lineSoft, 1, 0.07)
 	local d = THEME.danger
 	DERIVED.dangerFg[1], DERIVED.dangerFg[2], DERIVED.dangerFg[3], DERIVED.dangerFg[4] =
 		d[1] + (1 - d[1]) * 0.35, d[2] + (1 - d[2]) * 0.35, d[3] + (1 - d[3]) * 0.35, 1
@@ -233,9 +233,9 @@ function UI.ClassColored(token)
 end
 
 -- ----------------------------------------------------------------------------
--- Registre de rafraichissement.
--- Les callbacks sont proteges : un composant en erreur n'empeche jamais les
--- autres de se repeindre.
+-- Refresh registry.
+-- Callbacks are protected: a broken component never prevents the
+-- others from repainting.
 -- ----------------------------------------------------------------------------
 UI.paints = {}
 
@@ -253,7 +253,7 @@ function UI.Repaint()
 end
 
 -- ----------------------------------------------------------------------------
--- Primitives graphiques
+-- Drawing primitives
 -- ----------------------------------------------------------------------------
 function UI.Fill(frame, color, layer, alpha)
 	local t = frame:CreateTexture(nil, layer or "BACKGROUND")
@@ -324,9 +324,9 @@ function UI.Tooltip(frame, title, lines)
 end
 
 -- ----------------------------------------------------------------------------
--- Stack : pile verticale auto-dimensionnee.
--- Les enfants sont ancres a gauche et a droite du conteneur, donc l'interface
--- suit automatiquement la largeur disponible et toute echelle d'interface.
+-- Stack: automatically sized vertical stack.
+-- Children are anchored to both sides of the container, so the interface
+-- automatically follows available width and any UI scale.
 -- ----------------------------------------------------------------------------
 local Stack = {}
 Stack.__index = Stack
@@ -349,9 +349,9 @@ function Stack:Add(child, height, opts)
 	child.alHeight = height or UI.GRID.row
 	child.alGap = opts.gap
 	child.alPadX = opts.padX
-	-- half = true : l'element occupe une demi-largeur et se met en paire avec
-	-- le prochain element "half". Deux colonnes exactement, par ancrage pur,
-	-- donc sans aucun calcul de largeur : la mise en page suit la fenetre.
+	-- half = true: the item occupies half the width and pairs with
+	-- the next "half" item. Exactly two columns, using anchors alone,
+	-- with no width calculation: the layout follows the window.
 	child.alHalf = opts.half and true or nil
 	self.items[#self.items + 1] = child
 	self:Reflow()
@@ -366,7 +366,7 @@ end
 
 function Stack:SetItemShown(child, shown)
 	child.alSkip = not shown
-	child:SetShown(shown and true or false)
+	child:SetShown(shown and not (self.ownerCard and self.ownerCard.collapsed) or false)
 	self:Reflow()
 end
 
@@ -379,7 +379,7 @@ function Stack:Reflow()
 		if c.alSkip then
 			i = i + 1
 		else
-			-- cherche un partenaire de colonne parmi les elements suivants
+			-- Find a column partner among the following items.
 			local partner, pIndex
 			if c.alHalf then
 				local j = i + 1
@@ -417,7 +417,7 @@ end
 
 function Stack:Height() return self.height end
 
--- Un "host" peut etre une Card (qui embarque sa pile) ou une pile directe.
+-- A "host" can be a Card (which contains its stack) or a direct stack.
 local function HostStack(host)
 	if not host then return nil end
 	return host.stack or host
@@ -425,7 +425,7 @@ end
 UI.HostStack = HostStack
 
 -- ----------------------------------------------------------------------------
--- Card : bloc de contenu titre, avec liseret d'accent a gauche.
+-- Card: titled content block with an accent stripe on the left.
 -- ----------------------------------------------------------------------------
 function UI.Card(host, title, subtitle, opts)
 	opts = opts or {}
@@ -465,6 +465,46 @@ function UI.Card(host, title, subtitle, opts)
 		st:Reflow()
 	end
 	card.parentStack = st
+	card.stack.ownerCard = card
+	card.expandedHeight = card.alHeight
+	local previousResize = card.stack.onResize
+	card.stack.onResize = function(h)
+		card.expandedHeight = h
+		if card.collapsed then
+			card.alHeight = top + 2
+			for _, child in ipairs(card.stack.items) do child:Hide() end
+			st:Reflow()
+		else
+			previousResize(h)
+		end
+	end
+
+	if opts.collapsible then
+		local saved = ActionLiteDB and ActionLiteDB.uiCollapsed
+		local value = saved and opts.collapseKey and saved[opts.collapseKey]
+		card.collapsed = value ~= nil and value or (value == nil and opts.collapsed == true)
+		local header = CreateFrame("Button", nil, card)
+		header:SetPoint("TOPLEFT", 4, -4)
+		header:SetPoint("TOPRIGHT", -28, -4)
+		header:SetHeight(24)
+		local arrow = UI.Text(header, "GameFontNormalSmall", THEME.goldDim)
+		arrow:SetPoint("LEFT", 5, 0)
+		function card:SetCollapsed(collapsed)
+			self.collapsed = collapsed == true
+			arrow:SetText(self.collapsed and "+" or "-")
+			for _, child in ipairs(self.stack.items) do child:SetShown(not self.collapsed and not child.alSkip) end
+			self.alHeight = self.collapsed and top + 2 or self.expandedHeight
+			self.parentStack:Reflow()
+			if opts.collapseKey then
+				ActionLiteDB.uiCollapsed = ActionLiteDB.uiCollapsed or {}
+				ActionLiteDB.uiCollapsed[opts.collapseKey] = self.collapsed
+			end
+		end
+		header:SetScript("OnClick", function() card:SetCollapsed(not card.collapsed) end)
+		UI.Tooltip(header, title, { "Click the heading to expand or collapse this section." })
+		arrow:SetText(card.collapsed and "+" or "-")
+		card.headerButton = header
+	end
 
 	function card:SetAccent(r, g, b)
 		accent:SetColorTexture(r, g, b, 0.5)
@@ -474,9 +514,9 @@ function UI.Card(host, title, subtitle, opts)
 end
 
 -- ----------------------------------------------------------------------------
--- Check : case a cocher compacte. C'est le controle par defaut des grilles a
--- deux colonnes ; le libelle explicatif passe dans l'infobulle pour garder des
--- lignes courtes et denses.
+-- Check: compact checkbox. This is the default control for two-column
+-- grids; explanations go in tooltips to keep the
+-- rows short and compact.
 -- opts : label, desc, icon, get, set, onChange, tooltip, half
 -- ----------------------------------------------------------------------------
 function UI.Check(host, opts)
@@ -570,8 +610,8 @@ function UI.Check(host, opts)
 end
 
 -- ----------------------------------------------------------------------------
--- Toggle : interrupteur moderne (piste + pastille).
--- opts : label, desc, icon, get, set, onChange, tooltip = { titre, l1, l2 }
+-- Toggle: modern toggle switch (track and knob).
+-- opts: label, desc, icon, get, set, onChange, tooltip = { title, l1, l2 }
 -- ----------------------------------------------------------------------------
 function UI.Toggle(host, opts)
 	local st = HostStack(host)
@@ -671,9 +711,9 @@ function UI.Toggle(host, opts)
 end
 
 -- ----------------------------------------------------------------------------
--- Slider : nom, valeur courante avec unite, bornes min/max, pas coherent.
--- opts : label, min, max, step, suffix, get, set, deferred, format
--- Les valeurs manipulees sont celles affichees (ex. 50..200 pour des %).
+-- Slider: name, current value with unit, min/max limits and a consistent step.
+-- opts : label, icon, min, max, step, suffix, get, set, deferred, format
+-- Values are in displayed units (for example, 50..200 for percentages).
 -- ----------------------------------------------------------------------------
 local function RoundStep(value, step, minV, maxV)
 	if type(value) ~= "number" then value = minV end
@@ -692,19 +732,30 @@ function UI.Slider(host, opts)
 
 	local f = CreateFrame("Frame", nil, st.frame)
 
-	-- Ligne 1 : nom + bornes en gris, valeur courante en vert a droite.
+	-- Row 1: name and limits in gray; current value in green on the right.
+	local labelX = 6
+	if opts.icon then
+		local icon = f:CreateTexture(nil, "ARTWORK")
+		icon:SetSize(14, 14)
+		icon:SetPoint("TOPLEFT", 6, -2)
+		icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		icon:SetTexture(opts.icon)
+		f.icon = icon
+		labelX = 25
+	end
 	local label = UI.Text(f, "GameFontNormalSmall", THEME.gold)
-	label:SetPoint("TOPLEFT", 6, -3)
+	label:SetPoint("TOPLEFT", labelX, -3)
 	label:SetJustifyH("LEFT")
 	local function PaintLabel()
-		label:SetText((opts.label or "") .. "  |c" .. UI.Hex(THEME.textFaint) ..
-			"(" .. minV .. suffix .. " - " .. maxV .. suffix .. ")|r")
+		label:SetText(opts.label or "")
 	end
 	PaintLabel()
 
 	local value = UI.Text(f, "GameFontNormalSmall", THEME.green)
 	value:SetPoint("TOPRIGHT", -6, -3)
 	value:SetJustifyH("RIGHT")
+	label:SetPoint("RIGHT", value, "LEFT", -12, 0)
+	pcall(label.SetWordWrap, label, false)
 
 	local slider = CreateFrame("Slider", nil, f)
 	slider:SetPoint("TOPLEFT", 6, -20)
@@ -721,8 +772,8 @@ function UI.Slider(host, opts)
 	trackBg:SetHeight(8)
 	UI.Fill(trackBg, THEME.raised)
 	UI.Border(trackBg, THEME.line)
-	-- Le rail est un frame separe : imposer les niveaux evite qu'il masque
-	-- le remplissage ou le pouce sur certains clients anciens.
+	-- The track is a separate frame: explicit levels keep it from covering
+	-- the fill or thumb on some older clients.
 	trackBg:SetFrameLevel(f:GetFrameLevel() + 1)
 	slider:SetFrameLevel(f:GetFrameLevel() + 2)
 
@@ -735,7 +786,7 @@ function UI.Slider(host, opts)
 	local thumb = slider:GetThumbTexture()
 	local function PaintThumb()
 		if not thumb then return end
-		-- couleur d'abord : sur certains clients SetColorTexture reinitialise la taille
+		-- Set the color first: on some clients SetColorTexture resets the size.
 		pcall(thumb.SetColorTexture, thumb, UI.Color(THEME.gold))
 		pcall(thumb.SetSize, thumb, 8, 14)
 	end
@@ -802,9 +853,10 @@ function UI.Slider(host, opts)
 		Display(v)
 	end
 
-	if opts.tooltip then
-		UI.Tooltip(slider, opts.tooltip[1], { unpack(opts.tooltip, 2) })
-	end
+	local help = {}
+	if opts.tooltip then for i = 2, #opts.tooltip do help[#help + 1] = opts.tooltip[i] end end
+	help[#help + 1] = "Range: " .. minV .. suffix .. " to " .. maxV .. suffix .. "."
+	UI.Tooltip(slider, opts.tooltip and opts.tooltip[1] or opts.label, help)
 
 	st:Add(f, UI.GRID.slider, { gap = opts.gap, half = opts.half })
 	RegisterDebugControl(f, opts, "slider")
@@ -815,7 +867,7 @@ function UI.Slider(host, opts)
 end
 
 -- ----------------------------------------------------------------------------
--- Button : variantes "default", "primary", "danger".
+-- Button: "default", "primary" and "danger" variants.
 -- ----------------------------------------------------------------------------
 local BUTTON_STYLE = {
 	default = { bg = THEME.raised,  edge = THEME.line,    fg = THEME.text,  hover = THEME.gold },
@@ -852,7 +904,7 @@ function UI.Button(parent, opts)
 	return b
 end
 
--- Rangee de boutons repartis sur toute la largeur de la pile.
+-- Button row distributed across the full stack width.
 function UI.ButtonRow(host, buttons, opts)
 	opts = opts or {}
 	local st = HostStack(host)
@@ -909,9 +961,9 @@ function UI.Info(host, text, opts)
 	st:Add(f, minH, { gap = opts.gap, half = opts.half })
 	f.text = fs
 
-	-- Le texte est ancre a gauche ET a droite : il se replie tout seul quand la
-	-- fenetre retrecit. On resuit alors la ligne pour qu'elle ne deborde pas.
-	-- Stack:Resize ignore une hauteur identique, donc la boucle se stabilise.
+	-- Text is anchored on both sides, so it wraps automatically when the
+	-- window narrows. Resize the row afterward to keep it from overflowing.
+	-- Stack:Resize ignores an unchanged height, so the loop stabilizes.
 	local function FitHeight()
 		local h = fs.GetStringHeight and fs:GetStringHeight() or nil
 		if type(h) ~= "number" or h <= 0 then return end
@@ -939,7 +991,7 @@ function UI.Divider(host, opts)
 end
 
 -- ----------------------------------------------------------------------------
--- Badge : pastille d'etat a largeur automatique.
+-- Badge: automatically sized status badge.
 -- ----------------------------------------------------------------------------
 function UI.Badge(parent, opts)
 	opts = opts or {}
@@ -968,7 +1020,7 @@ function UI.Badge(parent, opts)
 	return f
 end
 
--- Rangee de badges dans une pile (utilisee par la page de classe).
+-- Badge row in a stack (used by the class page).
 function UI.BadgeRow(host, count, opts)
 	opts = opts or {}
 	local st = HostStack(host)
@@ -1001,7 +1053,7 @@ end
 
 -- ----------------------------------------------------------------------------
 -- Dropdown
--- opts : width, height, align ("LEFT" ou centre), options = { { label, value, icon, right }, ... },
+-- opts: width, height, align ("LEFT" or center), options = { { label, value, icon, right }, ... },
 --        get, set, onSelect
 -- ----------------------------------------------------------------------------
 function UI.Dropdown(parent, opts)
@@ -1010,8 +1062,8 @@ function UI.Dropdown(parent, opts)
 	UI.Fill(dd, THEME.surfaceAlt)
 	local edge = UI.Border(dd, THEME.line)
 
-	-- Libelle centre et fleche doree a droite : meme langage visuel que les
-	-- listes deroulantes pleine largeur de l'interface de reference.
+	-- Centered label and gold arrow on the right: the same visual style as
+	-- the reference interface's full-width dropdowns.
 	local label = UI.Text(dd, "GameFontHighlightSmall", THEME.text)
 	local icon = dd:CreateTexture(nil, "ARTWORK")
 	icon:SetSize(14, 14)
@@ -1044,8 +1096,8 @@ function UI.Dropdown(parent, opts)
 
 	local rows = {}
 	for n, def in ipairs(opts.options) do
-		-- Lua 5.1 partage la variable de boucle avec les closures. Conserver une
-		-- copie par ligne evite que tous les clics choisissent la derniere option.
+		-- Lua 5.1 shares the loop variable with closures. Keeping a
+		-- copy for each row prevents all clicks from selecting the final option.
 		local option = def
 		local row = CreateFrame("Button", nil, list)
 		row:SetHeight(rowH)
@@ -1100,8 +1152,8 @@ function UI.Dropdown(parent, opts)
 end
 
 -- ----------------------------------------------------------------------------
--- StackDropdown : liste deroulante pleine largeur posee dans une pile,
--- precedee d'un intitule dore centre.
+-- StackDropdown: full-width dropdown placed in a stack,
+-- preceded by a centered gold heading.
 -- ----------------------------------------------------------------------------
 function UI.StackDropdown(host, opts)
 	local st = HostStack(host)
@@ -1119,9 +1171,9 @@ function UI.StackDropdown(host, opts)
 end
 
 -- ----------------------------------------------------------------------------
--- Tabs : bandeau d'onglets horizontal.
+-- Tabs: horizontal tab strip.
 -- defs : { { label = "...", onClick = fn }, ... }
--- Appeler strip:Layout() apres avoir change un libelle (nom de classe).
+-- Call strip:Layout() after changing a label (class name).
 -- ----------------------------------------------------------------------------
 function UI.Tabs(parent, defs, opts)
 	opts = opts or {}
@@ -1151,7 +1203,7 @@ function UI.Tabs(parent, defs, opts)
 			if active then
 				bg:SetColorTexture(UI.Color(THEME.surfaceAlt))
 				edge:SetColor(UI.Color(THEME.goldDim))
-				text:SetTextColor(UI.Color(THEME.gold))
+				text:SetTextColor(UI.Color(THEME.goldDim))
 			else
 				bg:SetColorTexture(UI.Color(THEME.surface))
 				edge:SetColor(UI.Color(THEME.line))
@@ -1196,14 +1248,14 @@ function UI.Tabs(parent, defs, opts)
 end
 
 -- ----------------------------------------------------------------------------
--- ScrollArea : zone defilable + barre fine maison + molette.
--- Renvoie scroll, content, stack.
+-- ScrollArea: scroll area with a custom scrollbar and mouse wheel.
+-- Returns scroll, content, stack.
 -- ----------------------------------------------------------------------------
 function UI.ScrollArea(parent, opts)
 	opts = opts or {}
 	local pad = opts.pad or UI.GRID.pad
 	local padTop = opts.padTop or pad
-	local barW = 5
+	local barW = 16
 
 	local scroll = CreateFrame("ScrollFrame", nil, parent)
 	scroll:SetPoint("TOPLEFT", pad, -padTop)
@@ -1297,6 +1349,8 @@ function UI.ScrollArea(parent, opts)
 	})
 	stack.onResize = function(h)
 		content:SetHeight(math.max(1, h))
+		local limit = math.max(0, h - (scroll:GetHeight() or 0))
+		if (scroll:GetVerticalScroll() or 0) > limit then scroll:SetVerticalScroll(limit) end
 		UpdateThumb()
 	end
 	stack:Reflow()
@@ -1377,7 +1431,7 @@ function UI.CopyBox(parent, opts)
 end
 
 -- ----------------------------------------------------------------------------
--- Confirm : fenetre modale unique et reutilisee (aucune creation en boucle).
+-- Confirm: a single reusable modal window (never created in a loop).
 -- ----------------------------------------------------------------------------
 local confirmFrame
 
@@ -1429,15 +1483,15 @@ function UI.Confirm(opts)
 end
 
 -- ----------------------------------------------------------------------------
--- Aide : texture d'un sort, avec repli propre.
+-- Helper: spell texture with a clean fallback.
 -- ----------------------------------------------------------------------------
 function UI.SpellIcon(spell, fallbackSpell)
 	if spell then
 		local ok, tex = pcall(AL.SpellTexture, spell)
 		if ok and tex then return tex end
 	end
-	-- Forever ne renvoie pas toujours la texture par nom avant apprentissage.
-	-- L'ID de rang 1 fourni par la rotation garde alors la vraie icone visible.
+	-- Forever does not always return a texture by name before a spell is learned.
+	-- The rotation's rank-one ID keeps the actual icon visible in that case.
 	if fallbackSpell then
 		local ok, tex = pcall(AL.SpellTexture, fallbackSpell)
 		if ok and tex then return tex end

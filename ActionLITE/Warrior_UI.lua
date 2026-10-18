@@ -5,17 +5,17 @@ local L = AL.L
 -- ============================================================================
 -- ActionLITE - Warrior_UI.lua - v0.10.4
 -- ----------------------------------------------------------------------------
--- Page d'options du Guerrier, disposition dense a deux colonnes.
--- Aucune regle de combat ici : toutes les valeurs affichees proviennent de
--- rotation\Warrior.lua via M.GetUIState(), de sorte que l'interface ne peut
--- jamais diverger de la rotation.
+-- Warrior options page with a compact two-column layout.
+-- No combat rules here: all displayed values come from
+-- rotation\Warrior.lua through M.GetUIState(), so the interface can
+-- never diverge from the rotation.
 --
--- La page est construite une seule fois. Les mises a jour en direct ne font que
--- reecrire des textes de pastilles, jamais reconstruire des frames.
+-- The page is built once. Live updates only
+-- rewrite badge text; they never rebuild frames.
 --
--- Convention de cette page : toute option passee avec half = true occupe une
--- demi-largeur et se met en paire avec la suivante. Le libelle reste court, le
--- detail part dans l'infobulle.
+-- Page convention: each option with half = true takes up
+-- half the width and pairs with the next option. Labels stay short;
+-- details go in the tooltip.
 -- ============================================================================
 
 local function BuildWarriorUI(page, ui)
@@ -33,13 +33,13 @@ local function BuildWarriorUI(page, ui)
 		spellIDs[entry[2]] = entry[1]
 	end
 	local function SpellIcon(name)
-		return AL.IconFor and AL.IconFor(name, ui.Profile()) or ui.SpellIcon(name, spellIDs[name])
+		return ui.SpellIcon(name, spellIDs[name])
 	end
 
-	local STEEL = { 0.72, 0.62, 0.50, 1 }
+	local STEEL = THEME.textDim
 
-	-- --------------------------------------------------------- choix du role
-	local levelingCard = ui.Card(stack, "LEVELING ROTATION", "Original class rotation")
+	-- --------------------------------------------------------- role selection
+	local levelingCard = ui.Card(stack, "LEVELING ROTATION", "Original class rotation", { id="levelingCard", build="leveling", group="damage" })
 	ui.Check(levelingCard, {
 		profileKey = "leveling", label = "Leveling Rotation", icon = SpellIcon("Heroic Strike"),
 		get = function() return ui.Profile().leveling == true end,
@@ -48,9 +48,9 @@ local function BuildWarriorUI(page, ui)
 		tooltip = { "Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected." },
 	})
 
-	local role = ui.Card(stack, L("WARRIOR_ROLE"), L("WARRIOR_ROLE_HELP"))
+	local role = ui.Card(stack, L("WARRIOR_ROLE"), L("WARRIOR_ROLE_HELP"), { id="role", build="leveling", group="preparation" })
 	ui.StackDropdown(role, {
-		caption = L("ACTIVE_ROTATION"),
+		caption = "Leveling role",
 		options = {
 			{ label = L("ROLE_DPS"), value = "DPS" },
 			{ label = L("ROLE_TANK"), value = "TANK" },
@@ -58,21 +58,24 @@ local function BuildWarriorUI(page, ui)
 		get = function()
 			return ui.Profile().warriorRole == "TANK" and "TANK" or "DPS"
 		end,
-		set = function(value)
-			if value == "DPS" then ui.Profile().levelingWarriorRole, ui.Profile().warriorRole = "DPS", "DPS" end
-			rotation.SetTankBuild(value=="TANK",ui.Profile())
+        set = function(value)
+            local profile=ui.Profile()
+            rotation.SetBuild("leveling",true,profile)
+            profile.warriorRole=value=="TANK" and "TANK" or "DPS"
+            profile.levelingWarriorRole=profile.warriorRole
+            rotation.NormalizeBuild(profile)
 		end,
 		onSelect = ui.Repaint,
 	})
-	ui.Info(role, L("ROLE_SWITCH_HELP"))
-	ui.Info(role, "With Leveling Rotation selected, Defensive Stance retains the earlier tank fallback. Explicit DPS or Tank selections take priority.")
+	ui.Help(role, "Selects the earlier DPS or Tank leveling priority. Choose Protection above for the level-60 talent build.")
+	ui.Help(role, "With Leveling Rotation selected, Defensive Stance retains the earlier tank fallback. Explicit DPS or Tank selections take priority.")
 	ui.Check(role, {
 		profileKey="protection",label="Tank - Protection (0/20/31)",icon=SpellIcon("Shield Slam"),
 		get=function() return ui.Profile().protection==true end,
 		set=function(value) rotation.SetTankBuild(value,ui.Profile()) end,onChange=ui.Repaint,
 		tooltip={"Tank - Protection (0/20/31)","Selects learned Protection priorities and deselects Arms/Fury. Turning it off automatically selects Leveling Rotation. With Leveling Rotation selected, Defensive Stance keeps its earlier tank fallback. Talents and equipment are not changed."},
 	})
-	local arms = ui.Card(stack, "DPS BUILD - ARMS", "MythicSim default level-60 talents: 39/10/2")
+	local arms = ui.Card(stack, "DPS BUILD - ARMS", "MythicSim default level-60 talents: 39/10/2", { id="arms", build="arms", group="damage" })
 	ui.Check(arms, {
 		profileKey = "arms", label = "Use Arms (39/10/2)", icon = SpellIcon("Mortal Strike"),
 		get = function() return ui.Profile().arms==true end,
@@ -102,9 +105,9 @@ local function BuildWarriorUI(page, ui)
 		set = function(value) ui.Profile().armsFillerReserveRage=value end,
 		tooltip = { "Arms filler minimum Rage", "Minimum Rage for Spearing Strike and optional damage-filler Hamstring between primary attacks. Default: 20. Actual costs are also checked." },
 	})
-	ui.Info(arms, "Rend supports Bloodthrill's Overpower opportunities. Improved Slam and Mortal Strike are the normal attacks; Spearing Strike fills verified gaps on any creature type. Shared DPS sliders below save separate Arms choices for Sunder, Slam, Heroic Strike and Cleave.")
-	ui.Info(arms, "Arms area attacks require AoE On and the selected number of confirmed engaged melee enemies. Hamstring damage filler defaults OFF; Maintain Hamstring and /alhamstring keep their existing target-slow behavior.")
-	local armsBurst = ui.Card(stack, "ARMS BURST", "Requires Burst On at the spell icon")
+	ui.Help(arms, "Rend supports Bloodthrill's Overpower opportunities. Improved Slam and Mortal Strike are the normal attacks; Spearing Strike fills verified gaps on any creature type. Shared DPS sliders below save separate Arms choices for Sunder, Slam, Heroic Strike and Cleave.")
+	ui.Help(arms, "Arms area attacks require AoE On and the selected number of confirmed engaged melee enemies. Hamstring damage filler defaults OFF; Maintain Hamstring and /alhamstring keep their existing target-slow behavior.")
+	local armsBurst = ui.Card(stack, "ARMS BURST", "Requires Burst On at the spell icon", { id="armsBurst", build="arms", group="burst" })
 	for _,entry in ipairs({{"armsRecklessness","Recklessness"},{"armsBloodFury","Blood Fury"},{"armsBerserking","Berserking"}}) do
 		ui.SettingCheck(armsBurst,entry[1],{
 			label="Use "..entry[2],icon=SpellIcon(entry[2]),half=true,
@@ -117,7 +120,7 @@ local function BuildWarriorUI(page, ui)
 		set = function(value) ui.Profile().armsBurstMinTargetHP=value end,
 		tooltip = { "Arms Burst minimum target health", "Minimum target health for enabled Arms Burst spells. Default: 35%. Zero removes this limit. Normal damage continues with Burst Off." },
 	})
-	local fury = ui.Card(stack, "DPS BUILD - FURY", "MythicSim default level-60 talents: 18/31/2")
+	local fury = ui.Card(stack, "FURY DAMAGE", "MythicSim default level-60 talents: 18/31/2", { id="fury", build="fury", group="damage" })
 	ui.Check(fury, {
 		profileKey="fury",label = "Use Fury", icon = SpellIcon("Bloodthirst"),
 		get=function()return ui.Profile().fury==true end,
@@ -149,9 +152,9 @@ local function BuildWarriorUI(page, ui)
 		label = "Use Intercept", icon = SpellIcon("Intercept"), half = true,
 		tooltip = { "Intercept", "Combat gap closer in Berserker Stance. Requires a learned spell, positively verified range, enough Rage and a ready cooldown." },
 	})
-	ui.Info(fury, "Area attacks require AoE On. Death Wish and Recklessness require Burst On and their individual checkboxes. Only learned and enabled spells are used.")
+	ui.Help(fury, "Area attacks require AoE On. Death Wish and Recklessness require Burst On and their individual checkboxes. Only learned and enabled spells are used.")
 
-	local burst = ui.Card(stack, "FURY BURST", "Requires Burst On at the spell icon")
+	local burst = ui.Card(stack, "FURY BURST", "Requires Burst On at the spell icon", { id="burst", build="fury", group="burst" })
 	ui.SettingCheck(burst, "furyDeathWish", {
 		label = "Use Death Wish", icon = SpellIcon("Death Wish"), half = true,
 		tooltip = { "Death Wish", "Fury Burst On only: physical damage boost when learned, ready and affordable. Costs 10 Rage; three-minute cooldown. Also increases damage taken." },
@@ -167,11 +170,11 @@ local function BuildWarriorUI(page, ui)
 			return rotation and rotation.FuryBurstMinimum and rotation.FuryBurstMinimum(ui.Profile()) or 35
 		end,
 		set = function(value) ui.Profile().furyBurstMinTargetHP = value end,
-		tooltip = { "Burst minimum target health", "Activates Death Wish and Recklessness only when target health is at or above this percentage. Default: 35%. Zero removes the health limit." },
+		tooltip = { "Burst minimum target health", "Activates Death Wish, Recklessness and learned offensive racials only when target health is at or above this percentage. Default: 35%. Zero removes the health limit." },
 	})
 
-	-- ---------------------------------------------------------------- en-tete
-	local head = ui.Card(stack, L("LIVE_STATUS"), L("WARRIOR_PROFILE", UI_VERSION))
+	-- ---------------------------------------------------------------- header
+	local head = ui.Card(stack, L("LIVE_STATUS"), L("WARRIOR_PROFILE", UI_VERSION), { id="head", group="status", status=true })
 
 	local rowA = ui.BadgeRow(head, 3)
 	local rowB = ui.BadgeRow(head, 3)
@@ -184,11 +187,11 @@ local function BuildWarriorUI(page, ui)
 		state  = rowB.badges[3],
 	}
 
-	ui.Info(head, L("RAGE_PROTECTED"),
+	ui.Help(head, L("RAGE_PROTECTED"),
 		{ height = 28, justify = "CENTER" })
 
-	-- ------------------------------------------------------- rotation de base
-	local core = ui.Card(stack, L("MAIN_ROTATION"))
+	-- ------------------------------------------------------- basic rotation
+	local core = ui.Card(stack, L("MAIN_ROTATION"), nil, { id="core", group="damage" })
 	ui.SettingCheck(core, "shout", {
 		label = "Battle Shout", icon = SpellIcon("Battle Shout"), half = true,
 		tooltip = { "Battle Shout", L("BATTLE_SHOUT_HELP") },
@@ -241,6 +244,7 @@ local function BuildWarriorUI(page, ui)
 		},
 	})
 	ui.Slider(core, {
+        profileKey="slamReserveRage",
 		label = L("SLAM_RESERVE"), half = true,
 		min = 15, max = 100, step = 5, suffix = " rage",
 		get = function()local p=ui.Profile();return p.arms==true and (tonumber(p.armsSlamReserveRage) or 15) or (tonumber(p.slamReserveRage) or 30) end,
@@ -249,7 +253,7 @@ local function BuildWarriorUI(page, ui)
 	})
 
 	-- ------------------------------------------------------ procs & finishers
-	local procs = ui.Card(stack, L("PROCS_FINISHERS"))
+	local procs = ui.Card(stack, L("PROCS_FINISHERS"), nil, { id="procs", group="damage" })
 	ui.SettingCheck(procs, "overpower", {
 		label = "Overpower", icon = SpellIcon("Overpower"), half = true,
 		tooltip = { "Overpower", L("OVERPOWER_HELP") },
@@ -263,8 +267,8 @@ local function BuildWarriorUI(page, ui)
 		tooltip = { "Execute", L("EXECUTE_HELP") },
 	})
 
-	-- ------------------------------------------------------- gestion de rage
-	local rage = ui.Card(stack, L("RAGE_MANAGEMENT"))
+	-- ------------------------------------------------------- Rage management
+	local rage = ui.Card(stack, L("RAGE_MANAGEMENT"), nil, { id="rage", group="resources" })
 	ui.SettingCheck(rage, "bloodrage", {
 		label = "Bloodrage", icon = SpellIcon("Bloodrage"), half = true,
 		tooltip = { "Bloodrage", L("BLOODRAGE_HELP") },
@@ -274,13 +278,14 @@ local function BuildWarriorUI(page, ui)
 		tooltip = { "Heroic Strike", L("HEROIC_HELP") },
 	})
 	ui.Slider(rage, {
+        profileKey="heroicDumpRage",
 		label = L("HEROIC_THRESHOLD") .. " (DPS)",
 		min = 15, max = 100, step = 5, suffix = " rage",
 		get = function()
 			if ui.Profile().arms==true then return tonumber(ui.Profile().armsHeroicDumpRage) or 80 end
 			local configured = tonumber(ui.Profile().heroicDumpRage)
 			if configured then return configured end
-			local state = (rotation and rotation.GetUIState and rotation.GetUIState()) or {}
+			local state = (rotation and rotation.GetUIState and ui.State()) or {}
 			return state.heroicDumpAt or 75
 		end,
 		set = function(v)local p=ui.Profile();if p.arms==true then p.armsHeroicDumpRage=v else p.heroicDumpRage=v end end,
@@ -290,10 +295,10 @@ local function BuildWarriorUI(page, ui)
 		},
 	})
 
-	-- ------------------------------------------------------------ profil Tank
-	local tank = ui.Card(stack, L("TANK_ROTATION"), L("TANK_PROFILE_HELP"))
-	ui.Info(tank, "Protection and the Defensive Stance leveling rotation use the Tank Heroic Strike and Protection Cleave Rage thresholds below. DPS reserves are separate.")
-	ui.Info(tank,"Standard 0/20/31: Shield Slam and usable Revenge lead the damage rotation. Shield Block, emergency defenses and interrupts take priority. Rend, Heroic Strike and Sunder retain their existing checkboxes. Thunder Clap and Cleave require AoE On and the configured number of confirmed engaged melee enemies.")
+	-- ------------------------------------------------------------ Tank profile
+	local tank = ui.Card(stack, L("TANK_ROTATION"), L("TANK_PROFILE_HELP"), { id="tank", build={"leveling","protection"}, group="damage", levelingTank=true })
+	ui.Help(tank, "Protection and the Defensive Stance leveling rotation use the Tank Heroic Strike and Protection Cleave Rage thresholds below. DPS reserves are separate.")
+	ui.Help(tank,"Standard 0/20/31: Shield Slam and usable Revenge lead the damage rotation. Shield Block, emergency defenses and interrupts take priority. Rend, Heroic Strike and Sunder retain their existing checkboxes. Thunder Clap and Cleave require AoE On and the configured number of confirmed engaged melee enemies.")
 	ui.SettingCheck(tank,"tankShieldSlam",{
 		label="Use Shield Slam",icon=SpellIcon("Shield Slam"),half=true,
 		tooltip={"Shield Slam","Primary Protection strike when the actual talent is learned, a shield is equipped, the target is in melee and its cost/cooldown permit it. Available from level 40."},
@@ -376,7 +381,7 @@ local function BuildWarriorUI(page, ui)
 		tooltip = { L("SHIELD_WALL_HP"), L("SHIELD_WALL_HP_HELP") },
 	})
 	local shieldInfo = ui.Info(tank, L("SHIELD_UNKNOWN"))
-	local tankBurst=ui.Card(stack,"PROTECTION BURST","Requires Burst On at the spell icon")
+	local tankBurst=ui.Card(stack,"PROTECTION BURST","Requires Burst On at the spell icon", { id="tankBurst", build="protection", group="burst" })
 	ui.SettingCheck(tankBurst,"tankBloodFury",{
 		label="Use Blood Fury",icon=SpellIcon("Blood Fury"),half=true,
 		tooltip={"Protection Blood Fury","Burst On only, if this racial is actually learned. Defaults OFF because it reduces healing received. Defensive cooldowns remain independent of Burst."},
@@ -391,11 +396,11 @@ local function BuildWarriorUI(page, ui)
 		set=function(v) ui.Profile().tankBurstMinTargetHP=v end,
 		tooltip={"Protection Burst minimum target health","Minimum target health for enabled damage racials. Default: 35%. Zero removes this limit."},
 	})
-	ui.Info(tankBurst,"Protection stays in Defensive Stance. Recklessness and Retaliation remain available in the Spells list for manual use; this tank rotation does not automatically change stance to activate them.")
+	ui.Help(tankBurst,"Protection stays in Defensive Stance. Recklessness and Retaliation remain available in the Spells list for manual use; this tank rotation does not automatically change stance to activate them.")
 
-	-- ------------------------------------------------------------ multi-cible
-	local aoe = ui.Card(stack, L("MULTI_TARGET"))
-	ui.Info(aoe,
+	-- ------------------------------------------------------------ multiple targets
+	local aoe = ui.Card(stack, L("MULTI_TARGET"), nil, { id="aoe", group="aoe" })
+	ui.Help(aoe,
 		"Fury area attacks require AoE On and the enemy-count setting. "
 		.. "Whirlwind requires Berserker Stance; Sweeping Strikes and Thunder Clap use Battle Stance. "
 		.. "Cleave replaces Heroic Strike in the Fury AoE branch after primary strikes. "
@@ -411,12 +416,12 @@ local function BuildWarriorUI(page, ui)
 		label = "Use Whirlwind", icon = SpellIcon("Whirlwind"),
 		tooltip = { "Whirlwind", "Fury AoE only: requires AoE On, learned Whirlwind, Berserker Stance, range, enough Rage and a ready cooldown." },
 	})
-	ui.Info(aoe, L("SWEEPING_INFO"),
+	ui.Help(aoe, L("SWEEPING_INFO"),
 		{ icon = SpellIcon("Sweeping Strikes") })
-	ui.Info(aoe, "Sweeping Strikes requires Battle Stance and the learned talent.")
-	ui.Info(aoe, L("THUNDER_INFO"),
+	ui.Help(aoe, "Sweeping Strikes requires Battle Stance and the learned talent.")
+	ui.Help(aoe, L("THUNDER_INFO"),
 		{ icon = SpellIcon("Thunder Clap") })
-	ui.Info(aoe, L("CLEAVE_INFO"),
+	ui.Help(aoe, L("CLEAVE_INFO"),
 		{ icon = SpellIcon("Cleave") })
 	ui.Slider(aoe, {
 		label = L("MIN_ENEMIES"), half = true,
@@ -426,6 +431,7 @@ local function BuildWarriorUI(page, ui)
 		tooltip = { L("MIN_ENEMIES"), L("MIN_ENEMIES_HELP"), L("ENEMY_FALLBACK") },
 	})
 	ui.Slider(aoe, {
+        profileKey="cleaveDumpRage",
 		label = L("CLEAVE_THRESHOLD") .. " (DPS)", half = true,
 		min = 20, max = 100, step = 5, suffix = " rage",
 		get = function()
@@ -441,6 +447,7 @@ local function BuildWarriorUI(page, ui)
 		tooltip = { L("CLEAVE_THRESHOLD"), L("CLEAVE_THRESHOLD_HELP"), thresholdHelp },
 	})
 	ui.Slider(aoe, {
+        profileKey="sweepingReserveRage",
 		label = L("SWEEPING_RESERVE"),
 		min = 30, max = 100, step = 5, suffix = " rage",
 		get = function() return tonumber(ui.Profile().sweepingReserveRage) or 50 end,
@@ -448,8 +455,8 @@ local function BuildWarriorUI(page, ui)
 		tooltip = { L("SWEEPING_RESERVE_TITLE"), L("SWEEPING_RESERVE_HELP"), thresholdHelp },
 	})
 
-	-- --------------------------------------------------- defensif / utilitaire
-	local utility = ui.Card(stack, L("DEFENSIVE_UTILITY"), L("UTILITY_HELP"))
+	-- --------------------------------------------------- defense / utility
+	local utility = ui.Card(stack, L("DEFENSIVE_UTILITY"), L("UTILITY_HELP"), { id="utility", group="survival" })
 	ui.SettingCheck(utility, "demo", {
 		label = "Demoralizing Shout", icon = SpellIcon("Demoralizing Shout"), half = true,
 		tooltip = { "Demoralizing Shout", L("DEMO_HELP") },
@@ -459,7 +466,7 @@ local function BuildWarriorUI(page, ui)
 		tooltip = { "Revenge", L("REVENGE_HELP") },
 	})
 
-	-- ------------------------------------------------------------ etat direct
+	-- ------------------------------------------------------------ live state
 	local last = {}
 	local function SetBadge(key, text, color)
 		if last[key] == text then return end
@@ -468,12 +475,12 @@ local function BuildWarriorUI(page, ui)
 	end
 
 	local function PaintLiveStatus()
-		local state = (rotation and rotation.GetUIState and rotation.GetUIState()) or {}
+		local state = (rotation and rotation.GetUIState and ui.State()) or {}
 		local profile = ui.Profile()
 
 		SetBadge("level", L("LEVEL") .. " " .. tostring(state.level or "?"), STEEL)
 
-		-- Ne jamais inventer une valeur de rage : Forever peut la rendre illisible.
+		-- Never invent a Rage value: Forever can make it unreadable.
 		if type(state.rage) == "number" then
 			SetBadge("rage", "RAGE " .. tostring(state.rage), THEME.gold)
 		else
@@ -516,8 +523,8 @@ local function BuildWarriorUI(page, ui)
 	ui.Paint(PaintLiveStatus)
 	PaintLiveStatus()
 
-	-- Rafraichissement leger : uniquement lorsque la page est visible, et
-	-- uniquement des textes, jamais des frames.
+	-- Lightweight refresh: only while the page is visible, updating
+	-- text only, never frames.
 	local elapsed = 0
 	page:SetScript("OnUpdate", function(_, delta)
 		elapsed = elapsed + delta

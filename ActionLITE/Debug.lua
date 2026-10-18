@@ -294,6 +294,17 @@ end
 
 function D.Bugs() return D.Settings().bugs end
 
+function D.ErrorSummary()
+	local bugs = D.Bugs()
+	local summary = { sessionOccurrences = D.sessionErrors, sessionGroups = 0,
+		savedGroups = #bugs, savedOccurrences = 0 }
+	for _, bug in ipairs(bugs) do
+		summary.savedOccurrences = summary.savedOccurrences + (tonumber(bug.count) or 1)
+		if bug.session == D.session then summary.sessionGroups = summary.sessionGroups + 1 end
+	end
+	return summary
+end
+
 function D.ClearBugs()
 	local s = D.Settings()
 	s.bugs = {}
@@ -354,6 +365,7 @@ local function Capture(message, stack, locals, source)
 	end
 	table.insert(bugs, 1, bug)
 	CapBugs(bugs)
+	bug.lastVersion, bug.lastBuild = Version(), Build()
 	D.sessionErrors = D.sessionErrors + 1
 	local full = stack ~= "" and (message .. "\n" .. stack) or message
 	if source == "blocked" or source == "forbidden" then
@@ -370,6 +382,16 @@ end
 local function SafeCapture(...)
 	local ok, bug = pcall(Capture, ...)
 	if ok then return bug end
+end
+
+-- Handled API/display failures belong in the same Results report as Lua errors.
+function D.CaptureError(message, source)
+	local stack = ""
+	if type(debugstack) == "function" then
+		local ok, value = pcall(debugstack, 2)
+		if ok then stack = value end
+	end
+	return SafeCapture(message, stack, "", source or "handled")
 end
 
 local handling, prevHandler = false, nil
@@ -692,7 +714,15 @@ local function BlockedEvent(source, event, a1, a2)
 	else
 		msg = ("[%s] AddOn '%s' tried to call the protected function '%s'."):format(event, Safe(a1), Safe(a2))
 	end
-	local bug = SafeCapture(msg, "", "", source)
+	local stack = ""
+	if type(debugstack) == "function" then
+		local ok, value = pcall(debugstack, 3)
+		if ok and type(value) == "string" and not IsSecret(value) then stack = value end
+	elseif debug and type(debug.traceback) == "function" then
+		local ok, value = pcall(debug.traceback, "", 3)
+		if ok and type(value) == "string" and not IsSecret(value) then stack = value end
+	end
+	local bug = SafeCapture(msg, stack, "", source)
 	if bug and type(a1) == "string" and not IsSecret(a1) and event:find("^ADDON") then bug.addon = a1 end
 end
 
@@ -781,7 +811,8 @@ end
 
 if ev then
 	for event in pairs(H) do
-		if not CAST_LEVELS[event] then pcall(ev.RegisterEvent, ev, event) end
+		if not CAST_LEVELS[event] and (event ~= "COMBAT_LOG_EVENT_UNFILTERED"
+			or type(CombatLogGetCurrentEventInfo) == "function") then pcall(ev.RegisterEvent, ev, event) end
 	end
 	for _, event in ipairs(UNIT_EVENTS) do
 		if not pcall(ev.RegisterUnitEvent, ev, event, "player") then pcall(ev.RegisterEvent, ev, event) end

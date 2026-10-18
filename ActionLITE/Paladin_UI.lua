@@ -1,8 +1,8 @@
 local ADDON, AL = ...
 local UI_VERSION = "0.14.4"
 
--- Interface Paladin dediee. Les textes sont localises ici uniquement ; les
--- noms internes des sorts et les cles du profil restent inchanges.
+-- Dedicated Paladin interface. Only UI text is localized here;
+-- internal spell names and profile keys remain unchanged.
 
 local function Text(value)
 	if type(value) ~= "table" then return tostring(value or "") end
@@ -21,8 +21,7 @@ local function BuildPaladinUI(page, ui)
 	end
 
 	local function SpellIcon(name)
-		local override = AL.IconFor and AL.IconFor(name)
-		return override or ui.SpellIcon(name, spellIDs[name])
+		return ui.SpellIcon(name, spellIDs[name])
 	end
 
 	local function Check(card, key, label, spell, help, full, changed)
@@ -77,7 +76,7 @@ local function BuildPaladinUI(page, ui)
 		})
 	end
 
-	local levelingCard = ui.Card(stack, "LEVELING ROTATION", "Original class rotation")
+	local levelingCard = ui.Card(stack, "LEVELING ROTATION", "Original class rotation", { id="levelingCard", build="leveling", group="damage" })
 	Check(levelingCard, "leveling", "Leveling Rotation", "Judgement", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected.", true,
 		function() rotation.SetBuild("leveling", ui.Profile().leveling == true, ui.Profile()); ui.Repaint() end)
 
@@ -90,19 +89,22 @@ local function BuildPaladinUI(page, ui)
 			es = "El rol elegido cambia realmente la prioridad de combate, los beneficios, el sello y la gestión de maná.",
 			de = "Die gewählte Rolle ändert die echte Kampfpriorität, Buffs, Siegel und Mana-Strategie.",
 			zh = "所选职责会实际改变战斗优先级、增益、圣印和法力策略。",
-		}))
+		}), { id="roleCard", build="leveling", group="preparation" })
 	Dropdown(roleCard, "paladinRole",
-		{ en = "Active rotation", fr = "Rotation active", pt = "Rotação ativa", es = "Rotación activa", de = "Aktive Rotation", zh = "当前循环" }, {
+		{ en = "Leveling role", fr = "Rotation active", pt = "Rotação ativa", es = "Rotación activa", de = "Aktive Rotation", zh = "当前循环" }, {
 			{ label = { en = "Retribution DPS", fr = "Vindicte DPS", pt = "Retribuição DPS", es = "Reprensión DPS", de = "Vergeltung DPS", zh = "惩戒 DPS" }, value = "DPS" },
 			{ label = { en = "Protection Tank", fr = "Protection Tank", pt = "Proteção Tanque", es = "Protección Tanque", de = "Schutz Tank", zh = "防护坦克" }, value = "TANK" },
 		}, "DPS", function(value)
-			if value == "DPS" then ui.Profile().levelingPaladinRole, ui.Profile().paladinRole = "DPS", "DPS" end
-			if rotation and rotation.SelectBuild then rotation.SelectBuild(ui.Profile(), "protection", value == "TANK") end
+            local profile=ui.Profile()
+            rotation.SetBuild("leveling",true,profile)
+            profile.paladinRole=value=="TANK" and "TANK" or "DPS"
+            profile.levelingPaladinRole=profile.paladinRole
+            rotation.NormalizeBuild(profile)
 		end)
 	Check(roleCard, "protection", "Tank — Protection (8/33/10)", "Holy Shield",
 		"Uses the Protection priority with learned spells through level 60. Selecting Tank disables both DPS build boxes. Turning Tank off automatically selects Leveling Rotation. Talents, equipment, spell permissions and icon assignments are not changed.", true,
 		function() rotation.SelectBuild(ui.Profile(), "protection", ui.Profile().protection == true); ui.Repaint() end)
-	local buildCard = ui.Card(stack, "DPS BUILDS", "MythicSim level-60 references: Retribution 10/8/33; Shockadin 23/0/28")
+	local buildCard = ui.Card(stack, "DPS BUILDS", "MythicSim level-60 references: Retribution 10/8/33; Shockadin 23/0/28", { id="buildCard", build="retribution", group="damage" })
 	local function SelectBuild(key, other)
 		rotation.SelectBuild(ui.Profile(), key, ui.Profile()[key] == true)
 		ui.Repaint()
@@ -116,22 +118,23 @@ local function BuildPaladinUI(page, ui)
 	Check(buildCard, "sealTwisting", "Use Twist of Light", "Seal of Command",
 		"Retribution only, in melee and with Automatic seal mode. Requires the learned capstone and both seals. Swaps Command and Righteousness only when readable aura data confirms the previous Echo is gone. Protected or incomplete aura data falls back to maintaining one seal according to your weapon or explicit seal choice.", true)
 	Slider(buildCard, "sealTwistMinMana", "Seal twisting minimum mana", 0, 100, 15, " %")
-	ui.Info(buildCard, "Area damage requires AoE On. Divine Favor requires Burst On and an eligible offensive Holy Shock. Only learned and enabled spells are used.")
-	local tankCard = ui.Card(stack, "PROTECTION — 8/33/10", "Tank defenses and Judgement reset")
+	ui.Help(buildCard, "Area damage requires AoE On. Divine Favor requires Burst On and an eligible offensive Holy Shock. Only learned and enabled spells are used.")
+	local burstCard=ui.Card(stack,"BURST",nil,{id="burst",group="burst"})
+	local tankCard = ui.Card(stack, "PROTECTION — 8/33/10", "Tank defenses and Judgement reset", { id="tankCard", build="protection", group="survival" })
 	Check(tankCard, "holyShield", "Maintain Holy Shield", "Holy Shield",
 		"Tank only. Requires the learned spell and an equipped shield. Prepares for a nearby pull and maintains block protection in melee combat. Uses confirmed casts when aura or cooldown data is protected.", true)
 	Slider(tankCard, "holyShieldMinMana", "Holy Shield minimum mana", 0, 100, 10, " %")
-	Check(tankCard, "swiftJudgement", "Burst: use Swift Judgement", "Swift Judgement",
+	Check(burstCard, "swiftJudgement", "Burst: use Swift Judgement", "Swift Judgement",
 		"Tank only and Burst On. Resets a cooling-down Judgement when an active seal, the Judgement checkbox, target range, mana slider and target-health limits allow the follow-up. It is never used while Judgement is already ready.", true)
 	Check(tankCard, "templarsBulwark", "Use Templar's Bulwark", "Templar's Bulwark",
 		"Tank only, with emergency spells enabled. Uses the learned absorb at or below its health slider, unless Forbearance or the absorb is already active. Independent of Burst On. Tank never automatically uses Divine Protection or Divine Shield.", true)
 	Slider(tankCard, "templarsBulwarkHP", "Templar's Bulwark at or below health", 5, 80, 35, " %")
-	ui.Info(tankCard, "Automatic Tank preparation keeps Seal of Fury, Righteous Fury, Blessing of Wisdom and Devotion Aura. Explicit seal, blessing and aura choices take priority. Area damage still requires AoE On and enough engaged nearby enemies.")
+	ui.Help(tankCard, "Automatic Tank preparation keeps Seal of Fury, Righteous Fury, Blessing of Wisdom and Devotion Aura. Explicit seal, blessing and aura choices take priority. Area damage still requires AoE On and enough engaged nearby enemies.")
 
 	local steel = { 0.72, 0.62, 0.50, 1 }
 	local head = ui.Card(stack,
 		Text({ en = "PALADIN - LIVE STATUS", fr = "PALADIN - ETAT EN DIRECT", pt = "PALADINO - STATUS AO VIVO", es = "PALADÍN - ESTADO EN VIVO", de = "PALADIN - LIVE-STATUS", zh = "圣骑士 - 实时状态" }),
-		Text({ en = "Level 1-60 - interface " .. UI_VERSION, fr = "Niveaux 1-60 - interface " .. UI_VERSION, pt = "Níveis 1-60 - interface " .. UI_VERSION, es = "Niveles 1-60 - interfaz " .. UI_VERSION, de = "Stufe 1-60 - Interface " .. UI_VERSION, zh = "等级 1-60 - 界面 " .. UI_VERSION }))
+		Text({ en = "Level 1-60 - interface " .. UI_VERSION, fr = "Niveaux 1-60 - interface " .. UI_VERSION, pt = "Níveis 1-60 - interface " .. UI_VERSION, es = "Niveles 1-60 - interfaz " .. UI_VERSION, de = "Stufe 1-60 - Interface " .. UI_VERSION, zh = "等级 1-60 - 界面 " .. UI_VERSION }), { id="head", group="status", status=true })
 	local rowA = ui.BadgeRow(head, 3)
 	local rowB = ui.BadgeRow(head, 3)
 	local rowC = ui.BadgeRow(head, 3)
@@ -142,7 +145,7 @@ local function BuildPaladinUI(page, ui)
 		blessing = rowC.badges[1], enemies = rowC.badges[2], shield = rowC.badges[3],
 		aoe = rowD.badges[1], burst = rowD.badges[2],
 	}
-	ui.Info(head, Text({
+	ui.Help(head, Text({
 		en = "Forever may protect mana, auras and enemy counts in combat. Unknown values remain unknown; they are never converted to zero.",
 		fr = "Forever peut proteger le mana, les auras et le nombre d'ennemis en combat. Une valeur inconnue reste inconnue et n'est jamais convertie en zero.",
 		pt = "Forever pode proteger mana, auras e contagem de inimigos em combate. Valores desconhecidos continuam desconhecidos; nunca são convertidos em zero.",
@@ -152,7 +155,7 @@ local function BuildPaladinUI(page, ui)
 	}), { justify = "CENTER" })
 
 	local preparation = ui.Card(stack,
-		Text({ en = "BLESSINGS, AURAS & SEALS", fr = "BENEDICTIONS, AURAS ET SCEAUX", pt = "BÊNÇÃOS, AURAS E SELOS", es = "BENDICIONES, AURAS Y SELLOS", de = "SEGEN, AUREN & SIEGEL", zh = "祝福、光环和圣印" }))
+		Text({ en = "BLESSINGS, AURAS & SEALS", fr = "BENEDICTIONS, AURAS ET SCEAUX", pt = "BÊNÇÃOS, AURAS E SELOS", es = "BENDICIONES, AURAS Y SELLOS", de = "SEGEN, AUREN & SIEGEL", zh = "祝福、光环和圣印" }), nil, { id="preparation", group="preparation" })
 	Check(preparation, "buffs",
 		{ en = "Maintain selected preparation", fr = "Maintenir la preparation choisie", pt = "Manter a preparação escolhida", es = "Mantener la preparación elegida", de = "Gewählte Vorbereitung halten", zh = "维持所选准备" },
 		"Blessing of Might",
@@ -177,7 +180,7 @@ local function BuildPaladinUI(page, ui)
 			{ label = "Seal of Righteousness", value = "RIGHTEOUSNESS" },
 			{ label = "Seal of Fury", value = "FURY" },
 		}, "AUTO")
-	ui.Info(preparation, Text({
+	ui.Help(preparation, Text({
 		en = "Protection Auto prefers learned Seal of Fury. Righteous Fury remains a separate threat buff.",
 		fr = "En Protection, Auto prefere Seal of Fury appris. Righteous Fury reste un buff de menace distinct.",
 		pt = "Em Proteção, Auto prefere Seal of Fury aprendido. Righteous Fury continua como um buff de ameaça separado.",
@@ -189,7 +192,7 @@ local function BuildPaladinUI(page, ui)
 		{ en = "Protection only. Maintains the threat buff whenever it is learned.", fr = "Protection uniquement. Maintient le buff de menace lorsqu'il est appris.", pt = "Somente Proteção. Mantém o buff de ameaça quando aprendido.", es = "Solo Protección. Mantiene el beneficio de amenaza cuando está aprendido.", de = "Nur Schutz. Hält den Bedrohungsbuff aufrecht, sobald er erlernt ist.", zh = "仅限防护。学会后维持仇恨增益。" }, true)
 
 	local offense = ui.Card(stack,
-		Text({ en = "OFFENSIVE PRIORITY", fr = "PRIORITE OFFENSIVE", pt = "PRIORIDADE OFENSIVA", es = "PRIORIDAD OFENSIVA", de = "OFFENSIVPRIORITÄT", zh = "进攻优先级" }))
+		Text({ en = "OFFENSIVE PRIORITY", fr = "PRIORITE OFFENSIVE", pt = "PRIORIDADE OFENSIVA", es = "PRIORIDAD OFENSIVA", de = "OFFENSIVPRIORITÄT", zh = "进攻优先级" }), nil, { id="offense", group="damage" })
 	Check(offense, "holyShock", "Use Holy Shock", "Holy Shock", "Shockadin: casts on cooldown when learned, enabled and above the configured mana minimum.")
 	Slider(offense, "holyShockMinMana", "Holy Shock minimum mana", 0, 100, 10, " %")
 	Check(offense, "hammerOfWrath", "Use Hammer of Wrath", "Hammer of Wrath", "Protection, Retribution and Shockadin: casts when target health is at or below 20%, the spell is learned and ready, the player is stationary, and mana meets the configured minimum.")
@@ -210,12 +213,10 @@ local function BuildPaladinUI(page, ui)
 		{ en = "Exorcism minimum mana", fr = "Mana minimum Exorcism", pt = "Mana mínima Exorcism", es = "Maná mínimo Exorcism", de = "Exorcism Mindest-Mana", zh = "Exorcism 最低法力" }, 0, 100, 25, " %")
 	Slider(offense, "exorcismMinTargetHP",
 		{ en = "Exorcism minimum target health", fr = "Vie cible minimum pour Exorcism", pt = "Vida mínima do alvo para Exorcism", es = "Vida mínima del objetivo para Exorcism", de = "Exorcism Mindest-Zielgesundheit", zh = "Exorcism 目标最低生命值" }, 0, 100, 25, " %")
-	Check(offense, "hsicon",
-		{ en = "Alternate Holy Strike icon", fr = "Icone alternative Holy Strike", pt = "Ícone alternativo Holy Strike", es = "Icono alternativo Holy Strike", de = "Alternatives Holy Strike-Symbol", zh = "Holy Strike 备用图标" }, "Holy Strike",
-		{ en = "Use the alternate Holy Strike artwork. A selected Universal icon takes priority.", fr = "Utilise l'illustration alternative de Holy Strike. L'icone Universal selectionnee est prioritaire.", pt = "Usa a imagem alternativa de Holy Strike. O ícone Universal selecionado tem prioridade.", es = "Usa la imagen alternativa de Holy Strike. El icono Universal seleccionado tiene prioridad.", de = "Nutzt das alternative Holy Strike-Symbol. Ein gewähltes Universal-Symbol hat Vorrang.", zh = "使用 Holy Strike 备用图标。已选择的通用图标优先。" }, true)
+
 
 	local aoe = ui.Card(stack,
-		Text({ en = "AOE & BURST", fr = "AOE ET BURST", pt = "AOE E BURST", es = "AOE Y BURST", de = "AOE & BURST", zh = "AOE 和爆发" }))
+		Text({ en = "AREA DAMAGE", fr = "AOE ET BURST", pt = "AOE E BURST", es = "AOE Y BURST", de = "AOE & BURST", zh = "AOE 和爆发" }), nil, { id="aoe", group="aoe" })
 	Check(aoe, "aoe", { en = "Enable AoE mode", fr = "Activer le mode AoE", pt = "Ativar modo AoE", es = "Activar modo AoE", de = "AoE-Modus aktivieren", zh = "启用 AoE 模式" }, nil,
 		{ en = "Allows Consecration only after the enemy threshold is confirmed.", fr = "Autorise Consecration uniquement lorsque le seuil d'ennemis est confirme.", pt = "Permite Consecration apenas após confirmar o limite de inimigos.", es = "Permite Consecration solo tras confirmar el umbral de enemigos.", de = "Erlaubt Consecration erst, wenn die Gegnerschwelle bestätigt ist.", zh = "仅在确认敌人数量阈值后才允许 Consecration。" })
 	Check(aoe, "consecration", "Consecration", "Consecration")
@@ -231,11 +232,11 @@ local function BuildPaladinUI(page, ui)
 		{ en = "DPS Consecration minimum mana", fr = "Mana minimum Consecration DPS", pt = "Mana mínima Consecration DPS", es = "Maná mínimo Consecration DPS", de = "DPS-Consecration Mindest-Mana", zh = "DPS Consecration 最低法力" }, 0, 100, 35, " %")
 	Slider(aoe, "tankConsecrationMinMana",
 		{ en = "Tank Consecration minimum mana", fr = "Mana minimum Consecration Tank", pt = "Mana mínima Consecration Tanque", es = "Maná mínimo Consecration Tanque", de = "Tank-Consecration Mindest-Mana", zh = "坦克 Consecration 最低法力" }, 0, 100, 20, " %")
-	Slider(aoe, "burstMinTargetHP",
+	Slider(burstCard, "burstMinTargetHP",
 		{ en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Vida mínima del objetivo para Burst", de = "Burst Mindest-Zielgesundheit", zh = "爆发目标最低生命值" }, 0, 100, 40, " %")
-	Check(aoe, "divineFavor", "Use Divine Favor", "Divine Favor",
+	Check(burstCard, "divineFavor", "Use Divine Favor", "Divine Favor",
 		"Shockadin Burst On only. Prepares a guaranteed critical Holy Shock when learned, enabled, ready, in range and above the Holy Shock mana threshold. The Burst target-health slider controls activation.", true)
-	ui.Info(aoe, Text({
+	ui.Help(aoe, Text({
 		en = "If the enemy count is protected, Consecration is withheld instead of being guessed on a single target.",
 		fr = "Si le nombre d'ennemis est protege, Consecration est retenu au lieu d'etre suppose sur une cible unique.",
 		pt = "Se a contagem de inimigos estiver protegida, Consecration é retido em vez de ser presumido em um alvo único.",
@@ -245,7 +246,7 @@ local function BuildPaladinUI(page, ui)
 	}))
 
 	local survival = ui.Card(stack,
-		Text({ en = "HEALING & SURVIVAL", fr = "SOINS ET SURVIE", pt = "CURA E SOBREVIVÊNCIA", es = "SANACIÓN Y SUPERVIVENCIA", de = "HEILUNG & ÜBERLEBEN", zh = "治疗和生存" }))
+		Text({ en = "HEALING & SURVIVAL", fr = "SOINS ET SURVIE", pt = "CURA E SOBREVIVÊNCIA", es = "SANACIÓN Y SUPERVIVENCIA", de = "HEILUNG & ÜBERLEBEN", zh = "治疗和生存" }), nil, { id="survival", group="survival" })
 
 	Check(survival, "oocHeal",
 		{ en = "Holy Light out of combat", fr = "Holy Light hors combat", pt = "Holy Light fora de combate", es = "Holy Light fuera de combate", de = "Holy Light außerhalb des Kampfes", zh = "非战斗时使用 Holy Light" }, "Holy Light",
@@ -275,13 +276,13 @@ local function BuildPaladinUI(page, ui)
 		{ en = "Lay on Hands health threshold", fr = "Seuil de vie Lay on Hands", pt = "Limite de vida Lay on Hands", es = "Umbral de vida Lay on Hands", de = "Lay on Hands Gesundheitsschwelle", zh = "Lay on Hands 生命阈值" }, 1, 50, 10, " % HP")
 
 	local utility = ui.Card(stack,
-		Text({ en = "CONTROL & RECOVERY", fr = "CONTROLE ET RECUPERATION", pt = "CONTROLE E RECUPERAÇÃO", es = "CONTROL Y RECUPERACIÓN", de = "KONTROLLE & ERHOLUNG", zh = "控制和恢复" }))
+		Text({ en = "CONTROL & RECOVERY", fr = "CONTROLE ET RECUPERATION", pt = "CONTROLE E RECUPERAÇÃO", es = "CONTROL Y RECUPERACIÓN", de = "KONTROLLE & ERHOLUNG", zh = "控制和恢复" }), nil, { id="utility", group="survival" })
 	Check(utility, "hammer",
 		{ en = "Hammer of Justice on casting targets", fr = "Hammer of Justice sur les cibles qui incantent", pt = "Hammer of Justice em alvos conjurando", es = "Hammer of Justice en objetivos lanzando", de = "Hammer of Justice auf zaubernde Ziele", zh = "对施法目标使用 Hammer of Justice" }, "Hammer of Justice")
 	Check(utility, "drink", { en = "Drink reminder", fr = "Rappel de boisson", pt = "Lembrete de bebida", es = "Recordatorio de bebida", de = "Trink-Erinnerung", zh = "喝水提醒" })
 	Slider(utility, "drinkMana",
 		{ en = "Drink at or below mana", fr = "Boire à ce niveau de mana ou en dessous", pt = "Beber com mana igual ou abaixo de", es = "Beber con maná igual o inferior", de = "Trinken bei oder unter Mana", zh = "法力等于或低于此值时喝水" }, 0, 80, 30, " %")
-	ui.Info(utility, Text({
+	ui.Help(utility, Text({
 		en = "Purify, Blessing of Freedom and Blessing of Protection remain available in the Spells tab, but are not guessed without a readable player debuff.",
 		fr = "Purify, Blessing of Freedom et Blessing of Protection restent disponibles dans l'onglet Sorts, mais ne sont pas devines sans debuff joueur lisible.",
 		pt = "Purify, Blessing of Freedom e Blessing of Protection continuam disponíveis na aba Feitiços, mas não são presumidos sem um debuff legível no jogador.",
@@ -303,7 +304,7 @@ local function BuildPaladinUI(page, ui)
 	end
 
 	local function Paint()
-		local state = rotation and rotation.GetUIState and rotation.GetUIState() or {}
+		local state = rotation and rotation.GetUIState and ui.State() or {}
 		local profile = ui.Profile()
 		SetBadge("level", (AL.L and AL.L("LEVEL") or "LEVEL") .. " " .. tostring(state.level or "?"), steel)
 		SetBadge("mana", type(state.mana) == "number" and ("MANA " .. math.floor(state.mana + 0.5) .. "%") or "MANA ?",

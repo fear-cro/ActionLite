@@ -3,10 +3,10 @@ local ADDON, AL = ...
 -- ============================================================================
 -- ActionLITE - Class_UI.lua - v0.9.2
 -- ----------------------------------------------------------------------------
--- Constructeur commun des interfaces de classe declaratives.
--- Chaque <Class>_UI.lua ne contient que la structure propre a sa rotation :
--- cartes, options, sorts et listes deroulantes. Les controles ecrivent
--- directement dans le profil selectionne, lu ensuite par la rotation.
+-- Shared builder for declarative class interfaces.
+-- Each <Class>_UI.lua contains only its rotation's structure:
+-- cards, options, spells and dropdowns. Controls write
+-- directly to the selected profile, which the rotation then reads.
 -- ============================================================================
 
 local function Text(value)
@@ -37,6 +37,7 @@ local function BuildControl(card, control, ui, spellIDs, rotation)
 		return ui.Slider(card, {
 			profileKey = control.key,
 			label = Text(control.label),
+			icon = control.icon,
 			min = control.min,
 			max = control.max,
 			step = control.step or 1,
@@ -44,8 +45,10 @@ local function BuildControl(card, control, ui, spellIDs, rotation)
 			half = control.half,
 			format = control.format,
 			get = function()
-				local value = tonumber(ui.Profile()[control.key])
-				return value or control.default or control.min
+				local raw = ui.Profile()[control.key]
+                local value = not (issecretvalue and issecretvalue(raw)) and tonumber(raw) or nil
+                if not value or value ~= value or value == math.huge or value == -math.huge then value = control.default or control.min end
+                return math.max(control.min, math.min(control.max, math.floor(value + 0.5)))
 			end,
 			set = function(value) ui.Profile()[control.key] = value end,
 			tooltip = control.tooltip and {
@@ -65,7 +68,10 @@ local function BuildControl(card, control, ui, spellIDs, rotation)
 			options = options,
 			get = function()
 				local value = ui.Profile()[control.key]
-				return value or control.default
+				if not (issecretvalue and issecretvalue(value)) then
+                    for _, option in ipairs(control.options or {}) do if value == option.value then return value end end
+                end
+                return control.default
 			end,
 			set = function(value) ui.Profile()[control.key] = value end,
 			onSelect = ui.Repaint,
@@ -74,7 +80,7 @@ local function BuildControl(card, control, ui, spellIDs, rotation)
 	end
 
 	if control.type == "info" then
-		return ui.Info(card, Text(control.text))
+		return (ui.Help or ui.Info)(card, Text(control.text))
 	end
 
 	if control.type == "dynamic_info" then
@@ -120,8 +126,8 @@ local function BuildControl(card, control, ui, spellIDs, rotation)
 			break
 		end
 	end
-	local icon
-	if control.spell then
+	local icon = control.icon
+	if not icon and control.spell then
 		icon = ui.SpellIcon(control.spell, spellIDs[control.spell])
 	end
 	return ui.SettingCheck(card, control.key, {
@@ -147,7 +153,7 @@ function AL.RegisterSimpleClassUI(token, config, version)
 		local theme = ui.Theme
 		local steel = { 0.72, 0.62, 0.50, 1 }
 
-		local head = ui.Card(stack, Text(config.title), Text(config.subtitle))
+		local head = ui.Card(stack, Text(config.title), Text(config.subtitle), { id="status", group="status", status=true })
 		local rowA = ui.BadgeRow(head, 3)
 		local rowB = ui.BadgeRow(head, 2)
 		local badges = {
@@ -157,25 +163,13 @@ function AL.RegisterSimpleClassUI(token, config, version)
 			aoe = rowB.badges[1],
 			burst = rowB.badges[2],
 		}
-
-		if AL.DPS60 then AL.DPS60.BuildUI(token, stack, ui) end
 		for _, cardDef in ipairs(config.cards or {}) do
-			local card = ui.Card(stack, Text(cardDef.title), Text(cardDef.subtitle))
+			local card = ui.Card(stack, Text(cardDef.title), Text(cardDef.subtitle), { id=cardDef.id, build=cardDef.build, group=cardDef.group, collapsed=cardDef.collapsed })
 			for _, control in ipairs(cardDef.controls or {}) do
 				BuildControl(card, control, ui, spellIDs, rotation)
 			end
 		end
 
-		local linkCard = ui.Card(stack,
-			Text({ en = "ROTATION LINK", fr = "LIAISON ROTATION", pt = "VÍNCULO DA ROTAÇÃO", es = "VÍNCULO DE ROTACIÓN", de = "ROTATIONS-LINK", zh = "循环联动" }))
-		ui.Info(linkCard, Text({
-			en = "Every control on this page writes directly to this class profile. The combat rotation reads the same values.",
-			fr = "Chaque controle de cette page ecrit directement dans le profil de cette classe. La rotation de combat lit les memes valeurs.",
-			pt = "Cada controle desta página grava diretamente no perfil desta classe. A rotação de combate lê os mesmos valores.",
-			es = "Cada control de esta página escribe directamente en el perfil de esta clase. La rotación de combate lee los mismos valores.",
-			de = "Jede Einstellung auf dieser Seite schreibt direkt in dieses Klassenprofil. Die Kampfrotation liest dieselben Werte.",
-			zh = "本页的每个控件都直接写入该职业配置。战斗循环读取相同的数值。",
-		}))
 
 		local last = {}
 		local function SetBadge(key, value, color)

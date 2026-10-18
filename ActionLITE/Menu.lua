@@ -3,47 +3,47 @@ local ADDON, AL = ...
 -- ============================================================================
 -- ActionLITE - Menu.lua - v0.6.11
 -- ----------------------------------------------------------------------------
--- Fenetre principale, disposition compacte a onglets horizontaux, taille libre
--- (poignee en bas a droite) et echelle independante (curseur General) :
+-- Main window with compact horizontal tabs, free resizing
+-- (bottom-right grip) and independent scale (General slider):
 --
 --   +--------------------------------------------------------------+
---   | Session 0:12:44        ActionLITE           Guerrier  v0.6.1 X|
---   | [ profil de classe v ]                                       |
---   | | General | Guerrier | Sorts |                                 |
+--     | Session 0:12:44        ActionLITE           Warrior   v0.6.1 X|
+--     | [ class profile v ]                                         |
+--     | | General | Warrior | Spells |                               |
 --   +--------------------------------------------------------------+
 --   |                          General                              |
---   |                          AFFICHAGE                            |
---   |   Nom du reglage (50 % - 200 %)                    100 %      |
+--     |                          DISPLAY                            |
+--     |   Setting name (50% - 200%)                       100%       |
 --   |   [=============O--------------------------]                  |
---   |   [x] Option a gauche             [ ] Option a droite         |
+--     |   [x] Left option                [ ] Right option            |
 --   +--------------------------------------------------------------+
 --   | v0.6.1 - composants UI 0.6.1          /action  /al            |
 --   +--------------------------------------------------------------+
 --
--- Contrat avec les fichiers <Class>_UI.lua :
+-- Contract with <Class>_UI.lua files:
 --   AL.RegisterClassUI(token, builder, version)
---   builder(panel, ui) est appele une seule fois, a la construction du menu.
---   "panel" remplit la page de classe ; "ui" expose les composants partages :
+--     builder(panel, ui) is called once, when the menu is built.
+--     "panel" fills the class page; "ui" exposes the shared components:
 --
---     ui.Body(panel)                 -> pile defilable prete a l'emploi
---     ui.Card(host, titre, soustitre)-> section titree
---     ui.Check(host, opts)           -> case a cocher compacte (opts.half)
---     ui.SettingCheck(host, cle, o)  -> case liee au profil selectionne
---     ui.Toggle(host, opts)          -> interrupteur, pour les bascules fortes
+--         ui.Body(panel)                  -> ready-to-use scrolling stack
+--         ui.Card(host, title, subtitle)  -> titled section
+--         ui.Check(host, opts)            -> compact checkbox (opts.half)
+--         ui.SettingCheck(host, key, o)   -> checkbox bound to the selected profile
+--         ui.Toggle(host, opts)           -> switch for prominent toggles
 --     ui.Slider / ui.Button / ui.ButtonRow / ui.Dropdown / ui.StackDropdown
 --     ui.Badge / ui.BadgeRow / ui.Info / ui.Divider / ui.Tooltip / ui.Tabs
---     ui.Paint(fn)                   -> enregistre un rafraichissement
---     ui.SpellIcon(nom)              -> texture d'un sort
---     ui.Profile()                   -> profil en cours d'edition (AL.ES)
+--         ui.Paint(fn)                    -> register a repaint callback
+--         ui.SpellIcon(name)              -> spell texture
+--         ui.Profile()                    -> profile being edited (AL.ES)
 --     ui.Theme / ui.Grid / ui.Version
 --
---   Toute option passee avec half = true occupe une demi-largeur et se met
---   automatiquement en paire avec la suivante : c'est ainsi qu'on obtient les
---   grilles a deux colonnes sans la moindre coordonnee en dur.
+--     Each option with half = true takes up half the width and
+--     automatically pairs with the next option, producing
+--     two-column grids without hard-coded coordinates.
 --
---   L'API historique (Section, Check positionnee, SettingCheck, Card, InfoText,
---   Dropdown) reste disponible pour les modules qui exposent encore
---   mod.BuildOptions ; elle est simplement repeinte au nouveau theme.
+--     The legacy API (Section, positioned Check, SettingCheck, Card, InfoText,
+--     Dropdown) remains available for modules that still expose
+--     mod.BuildOptions; it is simply repainted using the new theme.
 -- ============================================================================
 
 local UI = AL.UI
@@ -60,33 +60,17 @@ local menu
 local menuSerial = 0
 local pages, classPanels = {}, {}
 local tabStrip
-local sessionStart = GetTime()
 
 local function ActiveToken()
 	return (ActionLiteDB and ActionLiteDB.activeProfile) or AL.playerClass
 end
 
--- Reglages d'affichage et conditions de pause : le moteur les lit toujours sur
--- le profil de la classe jouee (AL.S). On edite donc ce profil-la, afin que
--- chaque controle de la page General soit reellement connecte.
+-- Display settings and pause conditions are always read by the engine
+-- from the player's class profile (AL.S). Edit that same profile so
+-- every control on the General page is actually connected.
 local function S() return AL.S() end
--- Options de rotation : profil selectionne dans l'en-tete.
+-- Rotation options: profile selected in the header.
 local function ES() return AL.ES() end
-
-local function ClassUIVersion(token)
-	local v = AL.classUIVersions and AL.classUIVersions[token]
-	if v then return "|cff6fcf82UI " .. v .. "|r" end
-	local mod = AL.rotations and AL.rotations[token]
-	if mod and mod.BuildOptions then return "|cff8a92a1" .. L("CLASSIC") .. "|r" end
-	return "|cffbf5c5c" .. L("NO_UI") .. "|r"
-end
-
-local function SessionText()
-	local t = math.floor(GetTime() - sessionStart)
-	if t < 0 then t = 0 end
-	return (L("SESSION") .. " %d:%02d:%02d"):format(
-		math.floor(t / 3600), math.floor(t / 60) % 60, t % 60)
-end
 
 -- ----------------------------------------------------------------------------
 -- Macros
@@ -100,7 +84,7 @@ local function OpenMacroWindow()
 	if MacroFrame and ShowUIPanel then ShowUIPanel(MacroFrame) end
 end
 
--- les noms de macro sont limites a 16 caracteres
+-- Macro names are limited to 16 characters.
 local function SpellMacroName(spell)
 	return ("AL" .. spell:gsub("[%s:'%-]", "")):sub(1, 16)
 end
@@ -119,7 +103,7 @@ local function CreateSpellMacro(spell)
 	local body = "#showtooltip " .. spell .. "\n/run ActionLite_Queue(\"" .. spell .. "\")"
 	local ok = pcall(CreateMacro, mname, icon, body, false)
 	if not ok then
-		-- certains clients n'acceptent ici que le jeton point d'interrogation
+		-- Some clients only accept the question-mark token here.
 		ok = pcall(CreateMacro, mname, "INV_MISC_QUESTIONMARK", body, false)
 	end
 	if ok then
@@ -149,7 +133,7 @@ local function CreateBurstMacro()
 end
 
 -- ----------------------------------------------------------------------------
--- Echelle de la fenetre : le coin haut-gauche reste en place.
+-- Window scaling keeps its top-left corner in place.
 -- ----------------------------------------------------------------------------
 function AL.MenuScale(scale)
 	scale = math.max(0.7, math.min(1.5, tonumber(scale) or 1))
@@ -175,7 +159,7 @@ function AL.ResetMenuSize()
 end
 
 -- ----------------------------------------------------------------------------
--- Reinitialisation
+-- Reset
 -- ----------------------------------------------------------------------------
 local DISPLAY_KEYS = { "scale", "bgAlpha", "nobg", "norange", "noprint" }
 
@@ -185,8 +169,8 @@ local function ResetSettings()
 	wipe(edited)
 	AL.FillDefaults(edited, token)
 
-	-- si l'on editait un autre profil, on remet quand meme l'affichage du
-	-- profil reellement utilise par le moteur dans son etat par defaut
+	-- When editing another profile, still restore the display settings of
+	-- the profile actually used by the engine to their defaults.
 	local live = S()
 	if live ~= edited then
 		for _, k in ipairs(DISPLAY_KEYS) do live[k] = AL.defaults[k] end
@@ -202,7 +186,6 @@ local function ResetSettings()
 	ActionLiteDB.mmHidden = false
 	ActionLiteDB.glowHidden = false
 	ActionLiteDB.glowPulse = false
-	ActionLiteDB.trainHidden = false
 	ActionLiteDB.menuScale = 1
 	ActionLiteDB.menuSize = nil
 
@@ -229,7 +212,9 @@ local function RecordUI(name, detail)
 end
 
 local function BuildMenu()
+    pages, classPanels = {}, {}
 	AL.FillDBDefaults()
+	if ActionLiteDB.spellsOnlyKnown == nil then ActionLiteDB.spellsOnlyKnown = true end
 	if AL.ActionLiteDebug and AL.ActionLiteDebug.ClearControls then AL.ActionLiteDebug.ClearControls() end
 	if AL.LoadTheme then AL.LoadTheme() end
 
@@ -244,20 +229,20 @@ local function BuildMenu()
 	menu:RegisterForDrag("LeftButton")
 	menu:SetScale(ActionLiteDB.menuScale or 1)
 
-	-- Taille libre : l'echelle grossit tout, le redimensionnement donne de la
-	-- place sans toucher a la taille du texte. Les deux sont independants.
+	-- Free resizing: scaling enlarges everything; resizing provides more
+	-- space without changing text size. The two are independent.
 	menu:SetResizable(true)
 	local size = ActionLiteDB.menuSize
 	menu:SetSize(
 		math.max(MIN_W, math.min(MAX_W, (size and size[1]) or W)),
 		math.max(MIN_H, math.min(MAX_H, (size and size[2]) or H)))
-	-- SetResizeBounds est recent ; SetMinResize/SetMaxResize couvrent 1.60
+	-- SetResizeBounds is recent; SetMinResize/SetMaxResize cover 1.60.
 	if not pcall(menu.SetResizeBounds, menu, MIN_W, MIN_H, MAX_W, MAX_H) then
 		pcall(menu.SetMinResize, menu, MIN_W, MIN_H)
 		pcall(menu.SetMaxResize, menu, MAX_W, MAX_H)
 	end
 	UI.Fill(menu, THEME.shell)
-	-- double liseret : or a l'exterieur, acier a l'interieur
+	-- Double border: blue outside, dark inside.
 	UI.Border(menu, UI.Derived.frameEdge)
 	local inner = CreateFrame("Frame", nil, menu)
 	inner:SetPoint("TOPLEFT", 1, -1)
@@ -281,14 +266,12 @@ local function BuildMenu()
 	headerLine:SetPoint("BOTTOMRIGHT")
 	UI.Tint(headerLine, THEME.bronze, 0.55)
 
-	-- ligne 1 : session, titre, profil, version, fermeture
-	local sessionText = UI.Text(header, "GameFontNormalSmall", THEME.textFaint)
-	sessionText:SetPoint("TOPLEFT", 12, -9)
+	-- Row 1: session, title, profile, version and close button.
 
-	local title = UI.Text(header, "GameFontNormalLarge", THEME.gold)
+	local title = UI.Text(header, "GameFontNormalLarge", THEME.bronze)
 	title:SetPoint("TOP", 0, -6)
 	local function PaintTitle()
-		local g = THEME.gold
+		local g = THEME.bronze
 		title:SetText("|c" .. UI.Hex({ g[1] * 0.9, g[2] * 0.9, g[3] * 0.9 }) .. "Action|r|c" .. UI.Hex(g) .. "LITE|r")
 	end
 	PaintTitle()
@@ -318,11 +301,6 @@ local function BuildMenu()
 	themeButton:SetScript("OnClick", function() themeDrawer.Toggle() end)
 
 	local headerLeftOf = themeButton
-	if AL.DebugButton then
-		local debugButton = AL.DebugButton(header)
-		debugButton:SetPoint("RIGHT", themeButton, "LEFT", -6, 0)
-		headerLeftOf = debugButton
-	end
 
 	local profileText = UI.Text(header, "GameFontNormalSmall", THEME.text)
 	profileText:SetPoint("TOPRIGHT", headerLeftOf, "TOPLEFT", -8, -1)
@@ -333,14 +311,13 @@ local function BuildMenu()
 	versionText:SetJustifyH("RIGHT")
 	versionText:SetText("v" .. AL.Version())
 
-	-- ligne 2 : selecteur de profil ; les pastilles d'etat suivent les onglets
+	-- Row 2: profile selector; status badges follow the tabs.
 	local ddOptions = {}
 	for i, token in ipairs(AL.CLASS_TOKENS) do
 		ddOptions[i] = {
 			label = UI.ClassColored(token),
 			value = token,
 			icon = function(tex) AL.SetClassIcon(tex, token) end,
-			right = function() return ClassUIVersion(token) end,
 		}
 	end
 	local classDD = UI.Dropdown(header, {
@@ -357,12 +334,8 @@ local function BuildMenu()
 	classDD:SetPoint("TOPLEFT", 10, -40)
 	UI.Tooltip(classDD, L("CLASS_PROFILE"), { L("CLASS_PROFILE_1"), L("CLASS_PROFILE_2") })
 
-	local function UpdateStatus()
-		sessionText:SetText(SessionText())
-	end
-	UI.Register(UpdateStatus)
 
-	-- ligne 3 : onglets horizontaux
+	-- Row 3: horizontal tabs.
 	local function ShowPage(i)
 		if i ~= 1 and i ~= 2 and i ~= 3 and i ~= 4 then i = 1 end
 		for n, p in ipairs(pages) do p:SetShown(n == i) end
@@ -380,6 +353,20 @@ local function BuildMenu()
 	}, { minWidth = 86 })
 	tabStrip:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 8, 0)
 	tabStrip:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -8, 0)
+	local lastErrorCount
+	local function UpdateStatus()
+		local panel = classPanels[ActiveToken()]
+		if panel and panel:IsShown() and panel.classLayout then panel.classLayout.Refresh() end
+		local count = AL.Debug and AL.Debug.sessionErrors
+		if (issecretvalue and issecretvalue(count)) or type(count) ~= "number" then count = 0 end
+		if count == lastErrorCount then return end
+		lastErrorCount = count
+		local label = L("BUG_REPORT")
+		if count > 0 then label = label .. " |c" .. UI.Hex(THEME.danger) .. "(" .. math.min(count, 999) .. ")|r" end
+		tabStrip.buttons[4].label:SetText(label)
+		tabStrip:Layout()
+	end
+	UI.Register(UpdateStatus)
 
 	local function NewPage(index, caption)
 		local page = CreateFrame("Frame", nil, menu)
@@ -394,7 +381,7 @@ local function BuildMenu()
 		return page
 	end
 
-	local generalPage = NewPage(1, L("GENERAL"))
+	local generalPage = NewPage(1, L("GENERAL") .. " - " .. UI.ClassName(AL.playerClass))
 	local classPage = NewPage(2, L("CLASS"))
 	local spellsPage = NewPage(3, L("SPELLS"))
 	local bugReportPage = NewPage(4, L("BUG_REPORT"))
@@ -413,13 +400,13 @@ local function BuildMenu()
 
 	local footerLeft = UI.Text(footer, "GameFontNormalSmall", THEME.textFaint)
 	footerLeft:SetPoint("LEFT", 12, 0)
-	footerLeft:SetText("v" .. AL.Version() .. "  -  " .. L("UI_COMPONENTS") .. " " .. UI.VERSION)
+	footerLeft:SetText("ActionLITE v" .. AL.Version())
 
 	local footerRight = UI.Text(footer, "GameFontNormalSmall", THEME.textFaint)
 	footerRight:SetPoint("RIGHT", -26, 0)
 	footerRight:SetText("/action   /al   /actionlite")
 
-	-- ------------------------------------------------------ poignee de taille
+	-- ------------------------------------------------------ resize grip
 	local grip = CreateFrame("Button", nil, menu)
 	grip:SetSize(16, 16)
 	grip:SetPoint("BOTTOMRIGHT", -3, 3)
@@ -437,7 +424,7 @@ local function BuildMenu()
 		ActionLiteDB.menuSize = { menu:GetWidth(), menu:GetHeight() }
 		local point, _, relPoint, x, y = menu:GetPoint()
 		if point then ActionLiteDB.menuPos = { point, relPoint, x, y } end
-		-- la liste des sorts se repose sur sa propre hauteur de contenu
+		-- The spell list uses its own content height.
 		if menu.RebuildSpells then menu.RebuildSpells() end
 	end
 	grip:SetScript("OnMouseDown", function()
@@ -479,7 +466,7 @@ local function BuildMenu()
 	end
 
 	-- ========================================================================
-	-- API composants exposee aux pages de classe
+	-- Component API exposed to class pages.
 	-- ========================================================================
 	local function SettingCheck(host, key, opts)
 		opts = opts or {}
@@ -547,7 +534,7 @@ local function BuildMenu()
 		Card          = UI.Card,
 		Check         = UI.Check,
 		SettingCheck  = SettingCheck,
-		-- noms de la 0.6.0 conserves pour ne casser aucune page deja ecrite
+		-- Names from 0.6.0 retained to avoid breaking existing pages.
 		Toggle        = UI.Check,
 		SettingToggle = SettingCheck,
 		Switch        = UI.Toggle,
@@ -560,6 +547,7 @@ local function BuildMenu()
 		Badge         = UI.Badge,
 		BadgeRow      = UI.BadgeRow,
 		Info          = UI.Info,
+		Help          = UI.Info,
 		Divider       = UI.Divider,
 		Tooltip       = UI.Tooltip,
 		Paint         = UI.Register,
@@ -571,8 +559,8 @@ local function BuildMenu()
 	}
 
 	-- ------------------------------------------------------------------------
-	-- API historique pour les modules qui exposent encore mod.BuildOptions.
-	-- Memes signatures qu'en 0.5.x, habillage 0.6.1.
+	-- Legacy API for modules that still expose mod.BuildOptions.
+	-- Same signatures as 0.5.x, styled for 0.6.1.
 	-- ------------------------------------------------------------------------
 	local function LegacyCheck(parent, x, y, label, get, set)
 		local cb = CreateFrame("Button", nil, parent)
@@ -659,205 +647,123 @@ local function BuildMenu()
 	}
 
 	-- ========================================================================
-	-- Page 1 : General
+	-- Page 1: General
 	-- ========================================================================
 	do
 		local _, _, stack = UI.ScrollArea(generalPage, { padTop = 30 })
-		local currentLanguage = AL.GetUILanguage()
-		local languageNames, languageOptions = {}, {}
-		for i, def in ipairs(AL.UI_LANGUAGES) do
-			languageNames[def.code] = def.name
-			languageOptions[i] = { label = def.name, value = def.code }
-		end
+        local function Card(title, key, collapsed)
+            return UI.Card(stack, title, nil, { collapsible=true,
+                collapseKey="general:" .. key, collapsed=collapsed })
+        end
 
-		local language = UI.Card(stack, L("LANGUAGE"))
-		UI.StackDropdown(language, {
-			caption = L("INTERFACE_LANGUAGE"),
-			options = languageOptions,
-			get = AL.GetUILanguage,
-			onSelect = function(code)
-				if code == currentLanguage then return end
-				local saved = AL.SetUILanguage(code)
-				AL.Say(L("LANGUAGE_SAVED", languageNames[saved], saved))
-				if AL.RebuildMenu then AL.RebuildMenu() end
-			end,
-		})
-		UI.Info(language, L("LANGUAGE_HELP"))
+        local display = Card("Main icon", "icon")
+        UI.Slider(display, {
+            label=L("MAIN_ICON_SCALE"), min=50, max=200, step=5, suffix=" %",
+            get=function() return (S().scale or 1)*100 end,
+            set=function(v) S().scale=v/100; AL.ApplyStyle() end,
+            tooltip={ L("MAIN_ICON_SCALE"), L("MAIN_ICON_SCALE_HELP") },
+        })
+        UI.Slider(display, {
+            label=L("ICON_BG_OPACITY"), min=0, max=100, step=5, suffix=" %",
+            get=function() return (S().bgAlpha or 0.92)*100 end,
+            set=function(v) S().bgAlpha=v/100; AL.ApplyStyle() end,
+        })
+        InvertedDBCheck(display, "hidden", { label=L("SHOW_MAIN_ICON"),
+            onChange=function() if AL.frame then AL.frame:SetShown(not ActionLiteDB.hidden) end end })
+        UI.Check(display, { label=L("LOCK_POSITION"), half=true,
+            get=function() return ActionLiteDB.locked end,
+            set=function(v) ActionLiteDB.locked=v end,
+            onChange=function() AL.ApplyLock(); UI.Repaint() end,
+            tooltip={L("LOCK_POSITION"),L("LOCK_POSITION_HELP")},
+        })
+        InvertedProfileCheck(display,"nobg",{label=L("SHOW_ICON_BG"),onChange=AL.ApplyStyle})
+        InvertedProfileCheck(display,"norange",{label=L("RANGE_TINT"),tooltip={L("RANGE_TINT"),L("RANGE_TINT_HELP")}})
+        UI.Check(display, { label=L("HIDE_TOGGLE_BOXES"), half=false,
+            get=function() return ActionLiteDB.togglesHidden==true end,
+            set=function(v) ActionLiteDB.togglesHidden=v end,
+            onChange=function() if AL.ApplyToggles then AL.ApplyToggles() end; UI.Repaint() end,
+            tooltip={L("HIDE_TOGGLE_BOXES"),L("HIDE_TOGGLE_BOXES_HELP")},
+        })
 
-		local actions = UI.Card(stack, L("ACTIONS"))
-		UI.ButtonRow(actions, {
-			{
-				label = L("CENTER_ICON"),
-				onClick = function()
-					if AL.ResetIconPosition then AL.ResetIconPosition() end
-					AL.Say(L("ICON_POSITION_RESET"))
-				end,
-				tooltip = { L("CENTER_ICON"), L("CENTER_ICON_HELP") },
-			},
-			{
-				label = L("DEFAULT_SIZE"),
-				onClick = function()
-					AL.ResetMenuSize()
-					AL.Say(L("WINDOW_RESTORED", W, H))
-				end,
-				tooltip = { L("DEFAULT_SIZE"), L("DEFAULT_SIZE_HELP") },
-			},
-			{
-				label = L("CREATE_BURST"),
-				variant = "primary",
-				onClick = CreateBurstMacro,
-				tooltip = { L("CREATE_BURST"), L("CREATE_BURST_HELP") },
-			},
-		})
-		UI.Info(actions, L("BURST_INFO"))
-		UI.Divider(actions)
-		UI.ButtonRow(actions, {
-			{
-				label = L("RESET_SETTINGS"),
-				variant = "danger",
-				onClick = function()
-					UI.Confirm({
-						parent = menu,
-						title = L("RESET_SETTINGS"),
-						text = L("RESET_WARNING"),
-						accept = L("RESET"),
-						onAccept = ResetSettings,
-					})
-				end,
-			},
-		})
+        local trail=Card("Cast Trail", "trail")
+        UI.Check(trail, {label=L("CAST_TRAIL_ON"),half=true,
+            get=function() return ActionLiteDB.castTrailOn end,
+            set=function(v) ActionLiteDB.castTrailOn=v end,
+            onChange=function() if AL.ApplyCastTrail then AL.ApplyCastTrail() end; UI.Repaint() end,
+            tooltip={L("CAST_TRAIL_ON"),L("CAST_TRAIL_ON_HELP")},
+        })
+        UI.Check(trail, {label=L("LOCK_CAST_TRAIL"),half=true,
+            get=function() return ActionLiteDB.castTrailLocked end,
+            set=function(v) ActionLiteDB.castTrailLocked=v end,
+            onChange=function() if AL.ApplyCastTrail then AL.ApplyCastTrail() end; UI.Repaint() end,
+            tooltip={L("LOCK_CAST_TRAIL"),L("LOCK_CAST_TRAIL_HELP")},
+        })
 
-		local pause = UI.Card(stack, L("PAUSE_CONDITIONS"), L("PAUSE_HELP"))
-		LiveCheck(pause, "p_targeting", { label = L("PAUSE_TARGETING") })
-		LiveCheck(pause, "p_vehicle", { label = L("PAUSE_VEHICLE") })
-		LiveCheck(pause, "p_mounted", { label = L("PAUSE_MOUNTED") })
-		LiveCheck(pause, "p_ooc", { label = L("PAUSE_OOC") })
-		LiveCheck(pause, "p_loot", { label = L("PAUSE_LOOT") })
-		LiveCheck(pause, "p_dead", { label = L("PAUSE_DEAD") })
-		LiveCheck(pause, "p_targetdead", { label = L("PAUSE_TARGET_DEAD") })
-		LiveCheck(pause, "p_eating", { label = L("PAUSE_EATING") })
+        local indicators=Card("Indicators", "indicators")
+        InvertedDBCheck(indicators,"mmHidden",{label=L("SHOW_MINIMAP"),
+            onChange=function() if AL.ApplyMinimapButton then AL.ApplyMinimapButton() end end})
+        InvertedDBCheck(indicators,"glowHidden",{label=L("SHOW_BAR_GLOW"),
+            tooltip={L("SHOW_BAR_GLOW"),L("BAR_GLOW_HELP")},onChange=AL.RefreshGlow})
+        UI.Check(indicators,{label=L("BAR_GLOW_PULSE"),half=true,
+            get=function() return ActionLiteDB.glowPulse end,
+            set=function(v) ActionLiteDB.glowPulse=v end,onChange=AL.RefreshGlow})
+        UI.Check(indicators,{label=L("SHOW_SWING_TIMER"),half=true,
+            get=function() return AL.SwingEnabled() end,
+            set=function(v) S().swingBar=v end,
+            tooltip={L("SHOW_SWING_TIMER"),L("SWING_TIMER_HELP")}})
+        InvertedProfileCheck(indicators,"noprint",{label=L("CHAT_MESSAGES")})
 
-		local display = UI.Card(stack, L("DISPLAY"))
+        local pause=Card(L("PAUSE_CONDITIONS"), "pause", true)
+        UI.Tooltip(pause,L("PAUSE_CONDITIONS"),{L("PAUSE_HELP")})
+        LiveCheck(pause,"p_targeting",{label=L("PAUSE_TARGETING")})
+        LiveCheck(pause,"p_vehicle",{label=L("PAUSE_VEHICLE")})
+        LiveCheck(pause,"p_mounted",{label=L("PAUSE_MOUNTED")})
+        LiveCheck(pause,"p_ooc",{label=L("PAUSE_OOC")})
+        LiveCheck(pause,"p_loot",{label=L("PAUSE_LOOT")})
+        LiveCheck(pause,"p_dead",{label=L("PAUSE_DEAD")})
+        LiveCheck(pause,"p_targetdead",{label=L("PAUSE_TARGET_DEAD")})
+        LiveCheck(pause,"p_eating",{label=L("PAUSE_EATING")})
 
-		UI.Slider(display, {
-			label = L("MAIN_ICON_SCALE"), min = 50, max = 200, step = 5, suffix = " %",
-			get = function() return (S().scale or 1) * 100 end,
-			set = function(v)
-				S().scale = v / 100
-				AL.ApplyStyle()
-			end,
-			tooltip = { L("MAIN_ICON_SCALE"), L("MAIN_ICON_SCALE_HELP") },
-		})
+        local interface=Card("Interface", "interface", true)
+        local currentLanguage=AL.GetUILanguage()
+        local languageNames,languageOptions={},{}
+        for i,def in ipairs(AL.UI_LANGUAGES) do
+            languageNames[def.code]=def.name
+            languageOptions[i]={label=def.name,value=def.code}
+        end
+        UI.StackDropdown(interface,{
+            caption=L("INTERFACE_LANGUAGE"),options=languageOptions,get=AL.GetUILanguage,
+            onSelect=function(code)
+                if code==currentLanguage then return end
+                local saved=AL.SetUILanguage(code)
+                AL.Say(L("LANGUAGE_SAVED",languageNames[saved],saved))
+                if AL.RebuildMenu then AL.RebuildMenu() end
+            end,
+        })
+        UI.Slider(interface,{label=L("WINDOW_SCALE"),min=70,max=150,step=5,suffix=" %",deferred=true,
+            get=function() return (ActionLiteDB.menuScale or 1)*100 end,
+            set=function(v) AL.MenuScale(v/100) end,
+            tooltip={L("WINDOW_SCALE"),L("WINDOW_SCALE_HELP")}})
 
-		UI.Slider(display, {
-			label = L("WINDOW_SCALE"), min = 70, max = 150, step = 5, suffix = " %",
-			deferred = true,
-			get = function() return (ActionLiteDB.menuScale or 1) * 100 end,
-			set = function(v) AL.MenuScale(v / 100) end,
-			tooltip = { L("WINDOW_SCALE"), L("WINDOW_SCALE_HELP") },
-		})
+        local actions=Card("Tools", "tools", true)
+        UI.ButtonRow(actions,{
+            {label=L("CENTER_ICON"),onClick=function()
+                if AL.ResetIconPosition then AL.ResetIconPosition() end
+                AL.Say(L("ICON_POSITION_RESET"))
+            end,tooltip={L("CENTER_ICON"),L("CENTER_ICON_HELP")}},
+            {label=L("DEFAULT_SIZE"),onClick=function()
+                AL.ResetMenuSize(); AL.Say(L("WINDOW_RESTORED",W,H))
+            end,tooltip={L("DEFAULT_SIZE"),L("DEFAULT_SIZE_HELP")}},
+            {label=L("CREATE_BURST"),variant="primary",onClick=CreateBurstMacro,
+                tooltip={L("CREATE_BURST"),L("CREATE_BURST_HELP")}},
+        })
+        UI.Divider(actions)
+        UI.ButtonRow(actions,{{label="Reset class and display",variant="danger",onClick=function()
+            UI.Confirm({parent=menu,title="Reset class and display",
+                text="Reset the selected " .. UI.ClassName(ActiveToken()) .. " profile, spell permissions and icon assignments, plus display, Cast Trail and window settings? Other class rotations are retained.",
+                accept=L("RESET"),onAccept=ResetSettings})
+        end}})
 
-		UI.Slider(display, {
-			label = L("ICON_BG_OPACITY"), min = 0, max = 100, step = 5, suffix = " %",
-			get = function() return (S().bgAlpha or 0.75) * 100 end,
-			set = function(v)
-				S().bgAlpha = v / 100
-				AL.ApplyStyle()
-			end,
-		})
-
-
-
-		UI.Divider(display)
-
-		InvertedDBCheck(display, "hidden", {
-			label = L("SHOW_MAIN_ICON"),
-			onChange = function()
-				if AL.frame then AL.frame:SetShown(not ActionLiteDB.hidden) end
-			end,
-		})
-		UI.Check(display, {
-			label = L("LOCK_POSITION"),
-			half = true,
-			tooltip = { L("LOCK_POSITION"), L("LOCK_POSITION_HELP") },
-			get = function() return ActionLiteDB.locked end,
-			set = function(v) ActionLiteDB.locked = v end,
-			onChange = function()
-				AL.ApplyLock()
-				UI.Repaint()
-			end,
-		})
-		InvertedProfileCheck(display, "nobg", {
-			label = L("SHOW_ICON_BG"),
-			onChange = AL.ApplyStyle,
-		})
-		UI.Check(display, {
-			label = L("HIDE_TOGGLE_BOXES"),
-			half = false,
-			tooltip = { L("HIDE_TOGGLE_BOXES"), L("HIDE_TOGGLE_BOXES_HELP") },
-			get = function() return ActionLiteDB.togglesHidden == true end,
-			set = function(value) ActionLiteDB.togglesHidden = value end,
-			onChange = function()
-				if AL.ApplyToggles then AL.ApplyToggles() end
-				UI.Repaint()
-			end,
-		})
-		UI.Check(display, {
-			label = L("CAST_TRAIL_ON"),
-			half = true,
-			tooltip = { L("CAST_TRAIL_ON"), L("CAST_TRAIL_ON_HELP") },
-			get = function() return ActionLiteDB.castTrailOn end,
-			set = function(value) ActionLiteDB.castTrailOn = value end,
-			onChange = function()
-				if AL.ApplyCastTrail then AL.ApplyCastTrail() end
-				UI.Repaint()
-			end,
-		})
-		UI.Check(display, {
-			label = L("LOCK_CAST_TRAIL"),
-			half = true,
-			tooltip = { L("LOCK_CAST_TRAIL"), L("LOCK_CAST_TRAIL_HELP") },
-			get = function() return ActionLiteDB.castTrailLocked end,
-			set = function(value) ActionLiteDB.castTrailLocked = value end,
-			onChange = function()
-				if AL.ApplyCastTrail then AL.ApplyCastTrail() end
-				UI.Repaint()
-			end,
-		})
-		InvertedDBCheck(display, "mmHidden", {
-			label = L("SHOW_MINIMAP"),
-			onChange = function() if AL.ApplyMinimapButton then AL.ApplyMinimapButton() end end,
-		})
-		InvertedProfileCheck(display, "norange", {
-			label = L("RANGE_TINT"),
-			tooltip = { L("RANGE_TINT"), L("RANGE_TINT_HELP") },
-		})
-		InvertedDBCheck(display, "glowHidden", {
-			label = L("SHOW_BAR_GLOW"),
-			tooltip = { L("SHOW_BAR_GLOW"), L("BAR_GLOW_HELP") },
-			onChange = AL.RefreshGlow,
-		})
-		UI.Check(display, {
-			label = L("BAR_GLOW_PULSE"),
-			half = true,
-			get = function() return ActionLiteDB.glowPulse end,
-			set = function(v) ActionLiteDB.glowPulse = v end,
-			onChange = AL.RefreshGlow,
-		})
-		InvertedProfileCheck(display, "noprint", {
-			label = L("CHAT_MESSAGES"),
-		})
-		InvertedDBCheck(display, "trainHidden", {
-			label = L("TRAIN_REMINDER"),
-			tooltip = { L("TRAIN_REMINDER"), L("TRAIN_REMINDER_HELP") },
-		})
-		UI.Check(display, {
-			label = L("SHOW_SWING_TIMER"),
-			half = true,
-			tooltip = { L("SHOW_SWING_TIMER"), L("SWING_TIMER_HELP") },
-			get = function() return AL.SwingEnabled() end,
-			set = function(v) S().swingBar = v end,
-		})
 	end
 
 	-- Guided, copy/paste-only issue capture.
@@ -877,7 +783,7 @@ local function BuildMenu()
 	end
 
 	-- ========================================================================
-	-- Page 2 : classe selectionnee
+	-- Page 2: selected class
 	-- ========================================================================
 	local classFallback = UI.Text(classPage, "GameFontNormal", THEME.textDim)
 	classFallback:SetPoint("TOP", 0, -70)
@@ -893,9 +799,27 @@ local function BuildMenu()
 			panel:Hide()
 			local ok, err
 			if AL.ActionLiteDebug then AL.ActionLiteDebug.controlContext = token end
-			if modern then
-				ok, err = pcall(modern, panel, ui)
-			else
+            if modern then
+                local bound = {}
+                for key, value in pairs(ui) do bound[key] = value end
+                bound.Profile = function() return AL.Profile(token) end
+                bound.SettingCheck = function(host, key, opts)
+                    local options = {}
+                    for name, value in pairs(opts or {}) do options[name] = value end
+                    options.profileKey = key
+                    options.get = function() return bound.Profile()[key] end
+                    options.set = function(value) bound.Profile()[key] = value end
+                    return UI.Check(host, options)
+                end
+                bound.SettingToggle = bound.SettingCheck
+                -- Menu artwork is independent of combat icon assignments.
+                bound.SpellIcon = UI.SpellIcon
+                local classUI = AL.ClassLayout.Wrap(token, panel, bound)
+                ok, err = pcall(function()
+                    modern(panel, classUI)
+                    classUI.FinishLayout()
+                end)
+            else
 				ok, err = pcall(legacy, panel, legacyUI)
 			end
 			if AL.ActionLiteDebug then AL.ActionLiteDebug.controlContext = nil end
@@ -931,7 +855,7 @@ local function BuildMenu()
 	end)
 
 	-- ========================================================================
-	-- Page 3 : Sorts
+	-- Page 3: Spells
 	-- ========================================================================
 	local ROW_H = 28
 	do
@@ -941,7 +865,8 @@ local function BuildMenu()
 		toolbar:SetHeight(22)
 
 		local searchBox = CreateFrame("Frame", nil, toolbar)
-		searchBox:SetPoint("LEFT")
+		-- Keep the first row fixed when Paladin's artwork selector adds a second.
+		searchBox:SetPoint("TOPLEFT", 0, 0)
 		searchBox:SetSize(240, 22)
 		UI.Fill(searchBox, THEME.surfaceAlt)
 		local searchEdge = UI.Border(searchBox, THEME.line)
@@ -957,7 +882,7 @@ local function BuildMenu()
 		search:SetMaxLetters(32)
 		local fontOk = pcall(search.SetFontObject, search, _G.ChatFontNormal or _G.GameFontHighlight)
 		if not fontOk then
-			-- repli explicite : une EditBox sans police provoque une erreur a l'affichage
+			-- Explicit fallback: an EditBox without a font raises a display error.
 			pcall(search.SetFont, search, "Fonts\\FRIZQT__.TTF", 12, "")
 		end
 		search:SetTextColor(UI.Color(THEME.text))
@@ -974,9 +899,9 @@ local function BuildMenu()
 		end)
 
 		local onlyKnown = UI.Button(toolbar, { label = L("LEARNED_ONLY"), width = 146, height = 22 })
-		onlyKnown:SetPoint("RIGHT", 0, 0)
+		onlyKnown:SetPoint("TOPRIGHT", 0, 0)
 		local function PaintFilter()
-			if ActionLiteDB.spellsOnlyKnown then
+			if ActionLiteDB.spellsOnlyKnown and ActiveToken() == AL.playerClass then
 				onlyKnown.text:SetText(L("LEARNED_ONLY"))
 				onlyKnown.text:SetTextColor(UI.Color(THEME.ok))
 			else
@@ -991,10 +916,23 @@ local function BuildMenu()
 		end)
 		UI.Tooltip(onlyKnown, L("FILTER"), { L("FILTER_HELP") })
 
+		local artwork = UI.Button(toolbar, { label = "Holy Strike artwork", width = 205, height = 20 })
+		artwork:SetPoint("TOPLEFT", 0, -26)
+		artwork:Hide()
+		artwork:SetScript("OnClick", function()
+			local profile = ES()
+			profile.hsicon = not profile.hsicon
+			RecordUI("Holy Strike artwork changed", { class = ActiveToken(), alternate = profile.hsicon })
+			menu.RebuildSpells()
+		end)
+		UI.Tooltip(artwork, "Holy Strike artwork", {
+			"Choose the original or alternate artwork. A selected Universal icon takes priority.",
+		})
+
 		local countText = UI.Text(toolbar, "GameFontNormalSmall", THEME.textFaint)
 		countText:SetPoint("RIGHT", onlyKnown, "LEFT", -12, 0)
 
-		-- en-tete de colonnes
+		-- Column headings.
 		local headRow = CreateFrame("Frame", nil, spellsPage)
 		headRow:SetPoint("TOPLEFT", toolbar, "BOTTOMLEFT", 0, -6)
 		headRow:SetPoint("TOPRIGHT", toolbar, "BOTTOMRIGHT", 0, -6)
@@ -1008,7 +946,6 @@ local function BuildMenu()
 		local colName = UI.Text(headRow, "GameFontNormalSmall", THEME.goldDim)
 		colName:SetPoint("LEFT", 36, 0)
 		colName:SetText(L("SPELL"))
-		Col("ID", -252)
 		Col(L("STATUS"), -178)
 		Col(L("ICON"), -108)
 		Col(L("MACRO"), -50)
@@ -1029,42 +966,52 @@ local function BuildMenu()
 		emptyText:SetPoint("TOP", 0, -24)
 		emptyText:Hide()
 
-		-- selecteur d'icone partage, parente au menu pour ne jamais etre rogne
+		-- Shared picker stays above the menu and shows only unreserved assignments.
 		local iconPicker = CreateFrame("Frame", nil, menu)
-		iconPicker:SetSize(160, 11 * 22 + 4)
+		iconPicker:SetSize(198, 268)
+		iconPicker:SetClampedToScreen(true)
 		UI.Fill(iconPicker, UI.Derived.listBg)
 		UI.Border(iconPicker, THEME.bronze)
 		iconPicker:SetFrameStrata("FULLSCREEN_DIALOG")
 		iconPicker:Hide()
-		for n = 0, 10 do
-			local opt = CreateFrame("Button", nil, iconPicker)
+		local pickerScroll, pickerContent = UI.ScrollArea(iconPicker, { pad = 2, padTop = 2 })
+		pickerContent:SetWidth(math.max(10, pickerScroll:GetWidth() or 10))
+		local pickerOptions = {}
+		for index = 0, #AL.UNIVERSAL_CHOICES do
+			local choice = AL.UNIVERSAL_CHOICES[index]
+			local opt = CreateFrame("Button", nil, pickerContent)
+			pickerOptions[#pickerOptions + 1] = { frame = opt, choice = choice }
 			opt:SetHeight(22)
-			opt:SetPoint("TOPLEFT", 2, -n * 22 - 2)
-			opt:SetPoint("TOPRIGHT", -2, -n * 22 - 2)
+			opt:SetPoint("TOPLEFT", 0, -index * 22)
+			opt:SetPoint("TOPRIGHT", 0, -index * 22)
 			local hl = UI.Fill(opt, UI.Derived.highlight)
 			hl:Hide()
 			local ot = UI.Text(opt, "GameFontHighlightSmall", THEME.text)
-			if n == 0 then
+			if not choice then
 				ot:SetPoint("LEFT", 8, 0)
 				ot:SetText(L("DEFAULT"))
 			else
 				local tex = opt:CreateTexture(nil, "ARTWORK")
 				tex:SetSize(16, 16)
 				tex:SetPoint("LEFT", 6, 0)
-				tex:SetTexture(AL.UNIVERSAL_ICONS[n])
+				tex:SetTexture(choice.texture)
 				tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 				ot:SetPoint("LEFT", tex, "RIGHT", 8, 0)
-				ot:SetText(L("UNIVERSAL", n))
+				ot:SetText(choice.label or L("UNIVERSAL", choice.number))
 			end
 			opt:SetScript("OnEnter", function() hl:Show() end)
 			opt:SetScript("OnLeave", function() hl:Hide() end)
 			opt:SetScript("OnClick", function()
 				local spell = iconPicker.spell
-				if spell then
-					local prof = ES()
-					prof.icons = prof.icons or {}
-					prof.icons[spell] = n > 0 and AL.UNIVERSAL_ICONS[n] or nil
-					RecordUI("Spell icon changed", { class = ActiveToken(), spell = spell, universal = n, icon = prof.icons[spell] })
+				local prof = ES()
+				if iconPicker:IsShown() and spell and iconPicker.profile == prof then
+					local changed, owner = AL.SetIconChoice(spell, choice, prof)
+					if changed then
+						RecordUI("Spell icon changed", { class = ActiveToken(), spell = spell,
+							universal = choice and choice.number or 0, icon = prof.icons[spell], mini = AL.MiniFor(spell, prof) })
+					else
+						AL.Say("That Universal icon is already assigned to " .. owner .. ".")
+					end
 				end
 				iconPicker:Hide()
 				menu.RebuildSpells()
@@ -1076,15 +1023,31 @@ local function BuildMenu()
 				return
 			end
 			iconPicker.spell = spell
+			iconPicker.profile = ES()
+			local visible = 0
+			for _, option in ipairs(pickerOptions) do
+				local available = not AL.IconChoiceOwner(spell, option.choice, iconPicker.profile)
+				option.frame:SetShown(available)
+				if available then
+					option.frame:ClearAllPoints()
+					option.frame:SetPoint("TOPLEFT", 0, -visible * 22)
+					option.frame:SetPoint("TOPRIGHT", 0, -visible * 22)
+					visible = visible + 1
+				end
+			end
+			pickerContent:SetHeight(visible * 22)
+			iconPicker:SetHeight(math.min(268, visible * 22 + 4))
 			iconPicker:ClearAllPoints()
 			iconPicker:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -2)
 			iconPicker:Show()
+			pickerScroll:SetVerticalScroll(0)
+			pickerScroll.UpdateThumb()
 			pcall(iconPicker.Raise, iconPicker)
 		end
 		scroll:HookScript("OnVerticalScroll", function() iconPicker:Hide() end)
 		spellsPage:SetScript("OnHide", function() iconPicker:Hide() end)
 
-		-- pool de lignes : aucune frame n'est creee apres le premier affichage
+		-- Row pool: no frames are created after the first display.
 		local rowPool = {}
 		local function GetRow(n)
 			if rowPool[n] then return rowPool[n] end
@@ -1107,24 +1070,21 @@ local function BuildMenu()
 
 			row.nameText = UI.Text(row, "GameFontHighlightSmall", THEME.text)
 			row.nameText:SetPoint("LEFT", row.icon, "RIGHT", 8, 0)
-			row.nameText:SetPoint("RIGHT", row, "RIGHT", -300, 0)
+			row.nameText:SetPoint("RIGHT", row, "RIGHT", -290, 0)
 			row.nameText:SetJustifyH("LEFT")
 
-			row.idText = UI.Text(row, "GameFontNormalSmall", THEME.textFaint)
-			row.idText:SetPoint("RIGHT", row, "RIGHT", -252, 0)
-			row.idText:SetJustifyH("RIGHT")
-
 			row.stateText = UI.Text(row, "GameFontNormalSmall", THEME.textFaint)
-			row.stateText:SetPoint("RIGHT", row, "RIGHT", -178, 0)
+			row.stateText:SetPoint("RIGHT", row, "RIGHT", -220, 0)
 			row.stateText:SetJustifyH("RIGHT")
 
-			row.iconBtn = UI.Button(row, { label = "", width = 62, height = 17 })
+			row.iconBtn = UI.Button(row, { label = "", width = 104, height = 17 })
 			row.iconBtn:SetPoint("RIGHT", -108, 0)
 			row.iconBtn:SetScript("OnClick", function()
 				if row.spellName then ToggleIconPicker(row.iconBtn, row.spellName) end
 			end)
+			UI.Tooltip(row.iconBtn, L("ICON"), {})
 
-			row.queueBtn = UI.Button(row, { label = L("QUEUE"), width = 52, height = 17 })
+			row.queueBtn = UI.Button(row, { label = L("MACRO"), width = 52, height = 17 })
 			row.queueBtn:SetPoint("RIGHT", -50, 0)
 			row.queueBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 			row.queueBtn:SetScript("OnClick", function(_, button)
@@ -1137,7 +1097,7 @@ local function BuildMenu()
 			end)
 			UI.Tooltip(row.queueBtn, L("QUEUE_MACRO"), { L("QUEUE_LEFT"), L("QUEUE_RIGHT") })
 
-			-- case a cocher, meme visuel que le reste de l'interface
+			-- Checkbox styled consistently with the rest of the interface.
 			local hit = CreateFrame("Button", nil, row)
 			hit:SetSize(16, 16)
 			hit:SetPoint("RIGHT", -6, 0)
@@ -1178,10 +1138,16 @@ local function BuildMenu()
 		end
 
 		function menu.RebuildSpells()
+			iconPicker:Hide()
 			local token = ActiveToken()
+			artwork:SetShown(token == "PALADIN")
+			toolbar:SetHeight(token == "PALADIN" and 48 or 22)
+			artwork.text:SetText("Holy Strike artwork: " .. (ES().hsicon and "Alternate" or "Original"))
 			local mod = AL.rotations[token]
 			local filter = (search:GetText() or ""):lower()
-			local onlyLearned = ActionLiteDB.spellsOnlyKnown
+			local viewingOther = token ~= AL.playerClass
+			local onlyLearned = ActionLiteDB.spellsOnlyKnown and not viewingOther
+			onlyKnown:SetEnabled(not viewingOther)
 
 			if not mod or not mod.spells then
 				for i = 1, #rowPool do rowPool[i]:Hide() end
@@ -1198,7 +1164,7 @@ local function BuildMenu()
 			local shown, known = 0, 0
 			for _, entry in ipairs(mod.spells) do
 				local id, name = entry[1], entry[2]
-				local isKnown = AL.known[name] and true or false
+				local isKnown = not viewingOther and AL.known[name] and true or false
 				if isKnown then known = known + 1 end
 				local matches = filter == "" or name:lower():find(filter, 1, true) ~= nil
 					or tostring(id):find(filter, 1, true) ~= nil
@@ -1206,28 +1172,33 @@ local function BuildMenu()
 					shown = shown + 1
 					local row = GetRow(shown)
 					row.spellName = name
-					row.idText:SetText(id and tostring(id) or "?")
+					UI.Tooltip(row, name, { "Spell ID: " .. tostring(id or "?"), L("QUEUE_LEFT"), L("QUEUE_RIGHT") })
 					row.nameText:SetText(name)
 					row.nameText:SetTextColor(UI.Color(isKnown and THEME.text or THEME.textFaint))
-					-- recherche par nom d'abord : les identifiants Forever peuvent
-					-- differer des identifiants classiques
-					local tex = AL.IconFor(name, prof) or AL.SpellTexture(name)
-						or (id and AL.SpellTexture(id)) or "Interface\\Icons\\INV_Misc_QuestionMark"
-					row.icon:SetTexture(tex)
+					-- Keep spell artwork recognizable; iconBtn shows its assignment.
+					row.icon:SetTexture(UI.SpellIcon(name, id))
 					pcall(row.icon.SetDesaturated, row.icon, not isKnown)
-					if isKnown then
+					if viewingOther then
+                        row.stateText:SetText("Other class")
+                    elseif isKnown then
 						row.stateText:SetText("|cff5cc46e" .. L("LEARNED") .. "|r")
 					else
 						row.stateText:SetText("|cff6b7280" .. L("NOT_LEARNED") .. "|r")
 					end
-					local chosen = prof.icons and prof.icons[name]
-					local label = L("DEFAULT")
-					if chosen then
-						for u, texId in ipairs(AL.UNIVERSAL_ICONS) do
-							if texId == chosen then label = L("UNIVERSAL_SHORT", u) break end
-						end
-					end
-					row.iconBtn.text:SetText(label)
+					local choice = AL.IconChoice(name, prof)
+					local label = choice and (choice.mini == 2
+						and ("Univ.%d Unit1"):format(choice.number) or L("UNIVERSAL_SHORT", choice.number)) or L("DEFAULT")
+					local owner = AL.IconChoiceOwner(name, choice, prof)
+					row.iconBtn.text:SetText(label .. (owner and " !" or ""))
+					row.iconBtn.text:SetTextColor(UI.Color(owner and THEME.warn or THEME.text))
+					row.iconBtn.alTipTitle = label
+					row.iconBtn.alTipLines = owner and {
+						"Also assigned to " .. owner .. ". Choose a different Universal icon or Default.",
+						"Update the matching keybind when changing a Universal icon.",
+					} or {
+						"Each Universal icon can be assigned to one spell per class and mini icon.",
+						"Choose Default to release an assignment. Regular and Unit1 icons are separate choices.",
+					}
 					row:Paint()
 					row:Show()
 				end
@@ -1240,7 +1211,7 @@ local function BuildMenu()
 			else
 				emptyText:Hide()
 			end
-			countText:SetText(L("SPELL_COUNT", shown, known))
+			countText:SetText(viewingOther and (tostring(shown) .. " spells") or L("SPELL_COUNT", shown, known))
 			content:SetHeight(math.max(shown * ROW_H, 80))
 			scroll:SetVerticalScroll(0)
 			scroll.UpdateThumb()
@@ -1302,8 +1273,8 @@ function AL.ToggleMenu()
 	end
 end
 
--- Reconstruit uniquement la fenetre d'options dans la nouvelle langue.
--- L'ancien cadre est masque et ne conserve aucune boucle OnUpdate active.
+-- Rebuild only the options window in the new language.
+-- The old frame is hidden and retains no active OnUpdate loop.
 function AL.RebuildMenu()
 	local old = menu
 	if old then

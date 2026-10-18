@@ -239,7 +239,7 @@ local function AgonySpell()
 	if AL.Ok("Curse of Agony") then return "Curse of Agony" end
 end
 
--- Le DoT en cours d'incantation compte comme pose : l'icone passe au suivant.
+-- The DoT currently being cast counts as applied: the icon moves to the next spell.
 local function DotUp(name, casting)
 	local timer = AL.targetDebuffs and AL.targetDebuffs[name]
 	return casting == name
@@ -259,7 +259,7 @@ end
 -- Return the readable spell name currently being cast/channelled by the player.
 -- While Immolate is still in flight, its debuff has not landed yet, so without
 -- this check the rotation would continue recommending Immolate every refresh.
--- Sort lisible en cours (incantation ou canalisation), sinon celui que Core connait par UNIT_SPELLCAST_START.
+-- Readable current cast or channel; otherwise use Core's UNIT_SPELLCAST_START tracking.
 local function PlayerCastingSpell()
 	if UnitCastingInfo then
 		local ok, name = pcall(UnitCastingInfo, "player")
@@ -539,7 +539,12 @@ function M.OnManaCastSucceeded(name, spellID, castGUID, pending)
 	if cost and cost > 0 then manaTracker.lastSpend = now end
 end
 
-local function WarlockManaPercent() return UpdateMana() end
+local sampledMana
+local function WarlockManaPercent()
+	if sampledMana ~= nil then return sampledMana end
+	return UpdateMana()
+end
+function M.ManaPercent() return WarlockManaPercent() end
 
 -- Preserve a minimum mana reserve even when the Shoot slider is set lower.
 local HARD_SHOOT_MANA = 10
@@ -559,10 +564,12 @@ end
 local function ShootState(s, manaPct)
 	local threshold, configured = ShootThreshold(s)
 	-- The wand reserve must not disable usable spells without a wand.
-	if not AL.WandEquipped() then
-		return false, manaPct, threshold, configured, "no wand equipped"
+	if not AL.WandEquipped() or not AL.Ok("Shoot") then
+		return false, manaPct, threshold, configured, "wand unavailable"
 	end
 	if type(manaPct) ~= "number" then return true, manaPct, threshold, configured, "mana unavailable" end
+	-- Keep an exact slider boundary stable after percentage conversion.
+	if math.abs(manaPct - threshold) < 1e-7 then manaPct = threshold end
 	if manaPct <= HARD_SHOOT_MANA then
 		return true, manaPct, threshold, configured, "Shoot protection: mana <= " .. tostring(HARD_SHOOT_MANA) .. "%"
 	end
@@ -592,10 +599,10 @@ function M.SelectedCurse(s)
 	end
 end
 
--- Une seule malediction utilitaire suffit pour cette cible. Le sort vraiment
--- lance peut differer de la selection (raccourci/macro ou changement de profil).
--- Ne pas rester bloque en attendant un autre nom, ni remplacer la malediction
--- deja posee. Bane of Agony ne fait pas partie de ce groupe.
+-- One utility curse is enough for this target. The spell actually
+-- cast may differ from the selection (binding/macro or profile change).
+-- Do not wait indefinitely for another name or replace the curse
+-- already applied. Bane of Agony is not part of this group.
 function M.ActiveCurse(casting)
 	local now = GetTime()
 	for _, choice in ipairs(CURSE_CHOICES) do
@@ -613,17 +620,17 @@ end
 local function NextCurse(s, casting)
 	local curse = M.SelectedCurse(s)
 	if not curse then return nil end
-	-- Core enregistre le succes immediatement, meme si les auras sont bloquees.
-	-- Toute malediction utilitaire active termine cette phase : passer aux DoT.
+	-- Core records success immediately, even when aura reads are blocked.
+	-- Any active utility curse completes this phase: move on to DoTs.
 	if M.ActiveCurse(casting) then return nil end
 	if AL.SpellUsable(curse) then
 		return curse, "selected curse"
 	end
 end
 
--- DoT autorises pour le repli LIKELY de Core lorsque l'identite est secrete.
--- Un succes de lancement reste obligatoire ; aucune simple suggestion ne
--- doit creer un timer. Les curses utilisent SelectedCurse separement.
+-- Allowed DoTs for Core's LIKELY fallback when the identity is secret.
+-- A successful cast is still required; a suggestion alone must
+-- never create a timer. Curses use SelectedCurse separately.
 local TRACKED_DOT_SETTINGS = {
 	["Immolate"] = "immolate", ["Corruption"] = true,
 	["Bane of Agony"] = "agony", ["Curse of Agony"] = "agony",
@@ -759,7 +766,7 @@ local function NextDot(s, casting, targetHp)
 	end
 end
 
-function M.NextSpell(s, inCombat, hostile)
+local function LevelingNextSpell(s, inCombat, hostile)
 	local myHp = AL.HealthPercent("player")
 	local manaPct = WarlockManaPercent()
 	local petUp = UnitExists("pet") and not UnitIsDeadOrGhost("pet")
@@ -817,9 +824,6 @@ function M.NextSpell(s, inCombat, hostile)
 			and AL.Ok("Life Tap")
 		then
 			return "Life Tap", "mana below " .. tostring(lifeTapMana) .. "%"
-		end
-		if s.drink then
-			if manaPct and manaPct < 30 then return nil, "Drink" end
 		end
 		if hostile then
 			local curse, curseReason = NextCurse(s, casting)
@@ -961,6 +965,86 @@ function M.NextSpell(s, inCombat, hostile)
 	end
 
 	return AL.known["Attack"] and "Attack" or nil, "melee"
+end
+
+-- Preserve the Leveling priorities while the client displays the correct
+-- side of the Shoot slider from native mana, including the 10% reserve.
+local manaVisualPlan, manaVisualFailure
+local function NativeManaPlan(s, inCombat, hostile)
+	if not hostile or not AL.WandEquipped() or not AL.Ok("Shoot") then return nil end
+	if ReadManaPercent(ManaMaximum()) ~= nil then return nil end
+	if manaVisualFailure and GetTime() - manaVisualFailure < 1 then return nil end
+	if not AL.ResourceIntervalAlpha("power", "player", 0, 0, 2) then return nil end
+	local threshold = ShootThreshold(s)
+	local lifeTap = math.max(0, math.min(100, tonumber(s.lifeTapMana) or 25))
+	local cuts, seen = { 0, 2 }, { [0] = true, [2] = true }
+	for _, cut in ipairs({ AL.ResourceThresholdCut(threshold, true),
+		AL.ResourceThresholdCut(HARD_SHOOT_MANA, true), AL.ResourceThresholdCut(lifeTap, false) }) do
+		if not seen[cut] then cuts[#cuts + 1], seen[cut] = cut, true end
+	end
+	table.sort(cuts)
+	local plan = { at = GetTime(), rows = {}, masks = {}, spells = {}, source = "native mana thresholds" }
+	for i = 1, #cuts - 1 do
+		local low, high = cuts[i], cuts[i + 1]
+		sampledMana = math.min(100, (low + high) * 50)
+		if low == lifeTap / 100 and high == AL.ResourceThresholdCut(lifeTap, true) then sampledMana = lifeTap end
+		local ok, spell, reason = pcall(LevelingNextSpell, s, inCombat, hostile)
+		sampledMana = nil
+		if not ok then manaVisualFailure = GetTime(); return nil end
+		if spell == "Shoot" and type(reason) == "string" and reason:find("^Shoot mana ") then
+			reason = "Conserve mana at " .. tostring(threshold) .. "%"
+		end
+		if AL.WandSuggestion then spell, reason = AL.WandSuggestion(spell, reason) end
+		local previous = plan.rows[#plan.rows]
+		if previous and previous.spell == spell and previous.reason == reason then
+			previous.masks[1].high = high
+		else
+			plan.rows[#plan.rows + 1] = { spell = spell, reason = reason, masks = {
+				{ kind = "power", unit = "player", powerType = 0, low = low, high = high },
+			} }
+		end
+	end
+	for _, row in ipairs(plan.rows) do
+		local mask = row.masks[1]
+		mask.key = "power:" .. tostring(mask.low) .. ":" .. tostring(mask.high)
+		plan.masks[mask.key] = mask
+		if row.spell then plan.spells[row.spell] = true end
+	end
+	local base = plan.rows[#plan.rows]
+	plan.baseSpell, plan.baseReason = base.spell, base.reason
+	if #plan.rows > 1 then plan.baseSpell, plan.baseReason = nil, "Native mana thresholds" end
+	return plan
+end
+
+function M.NextSpell(s, inCombat, hostile)
+	manaVisualPlan = NativeManaPlan(s, inCombat, hostile)
+	if manaVisualPlan then return manaVisualPlan.baseSpell, manaVisualPlan.baseReason end
+	return LevelingNextSpell(s, inCombat, hostile)
+end
+
+function M.SecretVisualPlan(spell, reason)
+	local plan = manaVisualPlan
+	if plan and GetTime() - plan.at <= 0.3 and spell == plan.baseSpell and reason == plan.baseReason then return plan end
+end
+
+function M.EvaluateVisualMasks(plan)
+	local values = {}
+	for key, mask in pairs(plan.masks) do
+		local ok, alpha = AL.ResourceIntervalAlpha(mask.kind, mask.unit, mask.powerType, mask.low, mask.high)
+		if not ok then manaVisualFailure = GetTime(); return nil end
+		values[key] = alpha
+	end
+	return values
+end
+
+function M.ApplyVisualRow(nodes, row, values)
+	for i, node in ipairs(nodes) do
+		local mask = row.masks[i]
+		local ok
+		if mask then ok = pcall(node.SetAlpha, node, values[mask.key])
+		else ok = pcall(node.SetAlpha, node, 1) end
+		if not ok then manaVisualFailure = GetTime(); error("Resource display alpha unavailable") end
+	end
 end
 
 function M.BuildOptions(page, ui)
@@ -1250,7 +1334,7 @@ local function AgonySpell()
 	if AL.Ok("Curse of Agony") then return "Curse of Agony" end
 end
 
--- Le DoT en cours d'incantation compte comme pose : l'icone passe au suivant.
+-- The DoT currently being cast counts as applied: the icon moves to the next spell.
 local function DotUp(name, casting)
 	if casting == name then return true end
 	if AL.DPS60 and AL.DPS60.Active() and AL.DPS60.Info(name) then
@@ -1275,7 +1359,7 @@ end
 -- Return the readable spell name currently being cast/channelled by the player.
 -- While Immolate is still in flight, its debuff has not landed yet, so without
 -- this check the rotation would continue recommending Immolate every refresh.
--- Sort lisible en cours (incantation ou canalisation), sinon celui que Core connait par UNIT_SPELLCAST_START.
+-- Readable current cast or channel; otherwise use Core's UNIT_SPELLCAST_START tracking.
 local function PlayerCastingSpell()
 	if UnitCastingInfo then
 		local ok, name = pcall(UnitCastingInfo, "player")
@@ -1560,6 +1644,7 @@ function M.OnManaCastSucceeded(name, spellID, castGUID, pending)
 end
 
 local function WarlockManaPercent() return UpdateMana() end
+function M.ManaPercent() return WarlockManaPercent() end
 
 -- Preserve a minimum mana reserve even when the Shoot slider is set lower.
 local HARD_SHOOT_MANA = 10
@@ -1579,10 +1664,12 @@ end
 local function ShootState(s, manaPct)
 	local threshold, configured = ShootThreshold(s)
 	-- The wand reserve must not disable usable spells without a wand.
-	if not AL.WandEquipped() then
-		return false, manaPct, threshold, configured, "no wand equipped"
+	if not AL.WandEquipped() or not AL.Ok("Shoot") then
+		return false, manaPct, threshold, configured, "wand unavailable"
 	end
 	if type(manaPct) ~= "number" then return true, manaPct, threshold, configured, "mana unavailable" end
+	-- Keep an exact slider boundary stable after percentage conversion.
+	if math.abs(manaPct - threshold) < 1e-7 then manaPct = threshold end
 	if manaPct <= HARD_SHOOT_MANA then
 		return true, manaPct, threshold, configured, "Shoot protection: mana <= " .. tostring(HARD_SHOOT_MANA) .. "%"
 	end
@@ -1612,10 +1699,10 @@ function M.SelectedCurse(s)
 	end
 end
 
--- Une seule malediction utilitaire suffit pour cette cible. Le sort vraiment
--- lance peut differer de la selection (raccourci/macro ou changement de profil).
--- Ne pas rester bloque en attendant un autre nom, ni remplacer la malediction
--- deja posee. Bane of Agony ne fait pas partie de ce groupe.
+-- One utility curse is enough for this target. The spell actually
+-- cast may differ from the selection (binding/macro or profile change).
+-- Do not wait indefinitely for another name or replace the curse
+-- already applied. Bane of Agony is not part of this group.
 function M.ActiveCurse(casting)
 	local now = GetTime()
 	for _, choice in ipairs(CURSE_CHOICES) do
@@ -1633,17 +1720,17 @@ end
 local function NextCurse(s, casting)
 	local curse = M.SelectedCurse(s)
 	if not curse then return nil end
-	-- Core enregistre le succes immediatement, meme si les auras sont bloquees.
-	-- Toute malediction utilitaire active termine cette phase : passer aux DoT.
+	-- Core records success immediately, even when aura reads are blocked.
+	-- Any active utility curse completes this phase: move on to DoTs.
 	if M.ActiveCurse(casting) then return nil end
 	if AL.SpellUsable(curse) then
 		return curse, "selected curse"
 	end
 end
 
--- DoT autorises pour le repli LIKELY de Core lorsque l'identite est secrete.
--- Un succes de lancement reste obligatoire ; aucune simple suggestion ne
--- doit creer un timer. Les curses utilisent SelectedCurse separement.
+-- Allowed DoTs for Core's LIKELY fallback when the identity is secret.
+-- A successful cast is still required; a suggestion alone must
+-- never create a timer. Curses use SelectedCurse separately.
 local TRACKED_DOT_SETTINGS = {
 	["Immolate"] = "immolate", ["Corruption"] = "corruption",
 	["Bane of Agony"] = "agony", ["Curse of Agony"] = "agony",
@@ -2161,8 +2248,31 @@ local function DemoOffer(name,reason,mana,gates)
     if not demoSelfSpells[name] and name~="Rain of Fire" and name~="Health Funnel" and DemoInRange(name)==false then return false end
     local conditions={DemoManaCostGate(SpellManaCost(name),mana)}
     for _,gate in ipairs(gates or {})do conditions[#conditions+1]=gate end
+    if name=="Shoot" and type(AL.WandReady)=="function" then
+        local ready,wait=AL.WandReady()
+        if not ready then return DemoAdd(nil,wait,conditions) end
+    elseif name~="Shoot" then
+        if type(AL.WandAutoRepeatActive)=="function" and AL.WandAutoRepeatActive() then
+            local ready,wait=AL.WandReady(true)
+            if not ready then return DemoAdd(nil,wait,conditions) end
+            return DemoAdd("Shoot","Stop wand for "..name,conditions)
+        end
+        if type(AL.WandRecoveryRemaining)=="function" and AL.WandRecoveryRemaining()>0 then
+            return DemoAdd(nil,"Wand recovery",conditions)
+        end
+    end
     return DemoAdd(name,reason,conditions)
 end
+local function DemoFillerFallback(s,mana,aboveShoot)
+    if s.shadowBolt~=false and DemoOk("Shadow Bolt") then
+        local usable,shortage=DemoUsable("Shadow Bolt")
+        if shortage==false then
+            DemoAdd(nil,"Waiting for Shadow Bolt",{aboveShoot,DemoManaCostGate(SpellManaCost("Shadow Bolt"),mana)})
+        end
+    end
+    if AL.WandEquipped() then DemoOffer("Shoot","mana protection / filler fallback",mana) end
+end
+
 local function DemoHealth(unit)
     return ReadableNumber((SafeCall(AL.HealthPercent,unit)))
 end
@@ -2224,7 +2334,7 @@ local function DemoEnemyCount(yards)
     if found==0 and unidentifiedTarget then found=1 end
     return math.max(count or 0,found)
 end
-local function DemoPetPreparation(s,inCombat,petUp,mana)
+local function DemoPetPreparation(s,inCombat,petUp,mana,targetHP)
     local kind=petUp and DemoPetType();local shards=SoulShardCount()
     local summon=DemoOk("Summon Succubus") and shards and shards>=1 and "Summon Succubus"
         or DemoOk("Summon Voidwalker") and shards and shards>=1 and "Summon Voidwalker"
@@ -2246,7 +2356,9 @@ local function DemoPetPreparation(s,inCombat,petUp,mana)
         if summon then usable,shortage=DemoUsable(summon) end
         if inCombat and AL.burst and s.demoFelDomination and summon and usable~=false and shortage~=true
             and not DemoSelfActive("Fel Domination") then
-            DemoOffer("Fel Domination","Burst: replace missing pet",mana,{DemoManaCostGate(SpellManaCost(summon),mana)})
+            DemoOffer("Fel Domination","Burst: replace missing pet",mana,{
+                DemoManaCostGate(SpellManaCost(summon),mana),
+                DemoGate("health","target",targetHP,DemoSetting(s,"demoBurstMinTargetHP",40,0,100),false,false)})
         end
         DemoOffer(summon,"summon learned demon",mana)
     end
@@ -2295,18 +2407,17 @@ local function NextDemonology(s,inCombat,hostile)
         local armor=DemoOk("Demon Armor") and "Demon Armor" or DemoOk("Demon Skin") and "Demon Skin" or nil
         DemoOffer(armor,"maintain own armor",mana)
     end
-    if PlayerStationary() then DemoPetPreparation(s,inCombat,petUp,mana) end
+    if PlayerStationary() then DemoPetPreparation(s,inCombat,petUp,mana,targetHP) end
     if s.soulLink and petUp and not DemoSelfActive("Soul Link") then DemoOffer("Soul Link","maintain own pet link",mana) end
     if not inCombat then
         if s.lifetap then DemoOffer("Life Tap","out-of-combat mana",mana,{
             DemoGate("power","player",mana,DemoSetting(s,"lifeTapMana",25,5,95),true,true),
             DemoGate("health","player",hp,80,false,true)}) end
-        if s.drink then DemoAdd(nil,"Drink",{DemoGate("power","player",mana,30,true,true)}) end
     end
     if hostile then
         local shootThreshold=math.max(10,DemoSetting(s,"shootMana",25,5,95))
         local aboveShoot=true
-        if AL.WandEquipped() then aboveShoot=DemoGate("power","player",mana,shootThreshold,false,true) end
+        if AL.WandEquipped() and DemoOk("Shoot") then aboveShoot=DemoGate("power","player",mana,shootThreshold,false,true) end
         if ShadowBoltOutOfMana() then aboveShoot=false end
         if inCombat and s.fear and AL.TargetInMelee() and not DemoDotActive("Fear",casting) then
             DemoOffer("Fear","create space",mana,{DemoGate("health","player",hp,45,true,true)})
@@ -2352,7 +2463,7 @@ local function NextDemonology(s,inCombat,hostile)
             DemoGate("power","player",mana,DemoSetting(s,"lifeTapMana",25,5,95),true,true),DemoGate("health","player",hp,60,false,true)}) end
         DemoOffer("Drain Life","sustain",mana,{aboveShoot,DemoGate("health","player",hp,70,true,true)})
         if s.shadowBolt~=false then DemoOffer("Shadow Bolt","Demonology filler",mana,{aboveShoot}) end
-        if AL.WandEquipped() then DemoOffer("Shoot","mana protection / filler fallback",mana) end
+        DemoFillerFallback(s,mana,aboveShoot)
         DemoAdd(AL.known.Attack and "Attack" or nil,"melee fallback")
     end
     DemoAdd(nil,inCombat and not hostile and "No target" or "Ready")
@@ -2462,11 +2573,10 @@ local function NextAffliction(s,inCombat,hostile)
         if s.lifetap then offer("Life Tap","out-of-combat mana",{
             DemoGate("power","player",mana,DemoSetting(s,"lifeTapMana",25,5,95),true,true),
             DemoGate("health","player",hp,80,false,true)}) end
-        if s.drink then DemoAdd(nil,"Drink",{DemoGate("power","player",mana,30,true,true)}) end
     end
     if hostile then
         local aboveShoot=true
-        if AL.WandEquipped() then
+        if AL.WandEquipped() and DemoOk("Shoot") then
             aboveShoot=DemoGate("power","player",mana,math.max(10,DemoSetting(s,"shootMana",25,5,95)),false,true)
         end
         if ShadowBoltOutOfMana() then aboveShoot=false end
@@ -2519,7 +2629,7 @@ local function NextAffliction(s,inCombat,hostile)
             offer("Wrack","optional learned Affliction channel",{aboveShoot})
         end
         if s.shadowBolt~=false then offer("Shadow Bolt","Affliction filler",{aboveShoot}) end
-        if AL.WandEquipped() then DemoOffer("Shoot","mana protection / filler fallback",mana) end
+        DemoFillerFallback(s,mana,aboveShoot)
         DemoAdd(AL.known.Attack and "Attack" or nil,"melee fallback")
     end
     DemoAdd(nil,inCombat and not hostile and "No target" or "Ready")
@@ -2630,11 +2740,10 @@ local function NextDestruction(s,inCombat,hostile)
         if s.lifetap then offer("Life Tap","out-of-combat mana",{
             DemoGate("power","player",mana,DemoSetting(s,"lifeTapMana",25,5,95),true,true),
             DemoGate("health","player",hp,80,false,true)}) end
-        if s.drink then DemoAdd(nil,"Drink",{DemoGate("power","player",mana,30,true,true)}) end
     end
     if hostile then
         local aboveShoot=true
-        if AL.WandEquipped() then
+        if AL.WandEquipped() and DemoOk("Shoot") then
             aboveShoot=DemoGate("power","player",mana,math.max(10,DemoSetting(s,"shootMana",25,5,95)),false,true)
         end
         if ShadowBoltOutOfMana() then aboveShoot=false end
@@ -2677,7 +2786,7 @@ local function NextDestruction(s,inCombat,hostile)
             DemoGate("health","player",hp,60,false,true)}) end
         offer("Drain Life","sustain",{aboveShoot,DemoGate("health","player",hp,70,true,true)})
         if s.shadowBolt~=false then offer("Shadow Bolt","Destruction filler",{aboveShoot}) end
-        if AL.WandEquipped() then DemoOffer("Shoot","mana protection / filler fallback",mana) end
+        DemoFillerFallback(s,mana,aboveShoot)
         DemoAdd(AL.known.Attack and "Attack" or nil,"melee fallback")
     end
     DemoAdd(nil,inCombat and not hostile and "No target" or "Ready")
@@ -2744,9 +2853,6 @@ local function NextLeveling(s, inCombat, hostile)
 			and AL.Ok("Life Tap")
 		then
 			return "Life Tap", "mana below " .. tostring(lifeTapMana) .. "%"
-		end
-		if s.drink then
-			if manaPct and manaPct < 30 then return nil, "Drink" end
 		end
 		if hostile then
 			local curse, curseReason = NextCurse(s, casting)

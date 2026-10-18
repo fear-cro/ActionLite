@@ -45,9 +45,9 @@ do
 local ADDON, AL = ...
 
 -- WoW Forever Priest leveling 1-30 - v0.26.4
--- Cible : beta 1.60.1.69913.
--- SHADOW favorise Mind Blast / Mind Flay ; SMITE favorise Holy Fire / Smite.
--- Les soins concernent le joueur : aucune cible de groupe n'est devinee.
+-- Target: beta 1.60.1.69913.
+-- SHADOW favors Mind Blast / Mind Flay; SMITE favors Holy Fire / Smite.
+-- Heals target the player: no group target is guessed.
 
 local A = _G.Action
 
@@ -88,8 +88,8 @@ local M = {
 	},
 }
 
--- IDs classiques de rang 1. Les raciaux et talents ne sont utilises que si
--- le grimoire Forever les expose reellement comme appris.
+-- Classic rank-one IDs. Racials and talents are used only when
+-- Forever's spellbook actually exposes them as learned.
 M.spells = {
 	{ 20554, "Berserking" },
 	{ 528, "Cure Disease" },
@@ -123,33 +123,10 @@ M.spells = {
 }
 
 local DIVINE_SPIRIT = "Divine Spirit"
-local DIVINE_SPIRIT_ICON = AL.UNIVERSAL_ICONS[9]
 local PENANCE = "Penance"
-local PENANCE_ICON = AL.UNIVERSAL_ICONS[8]
 local PENANCE_PROCS = { [402261] = true, [402277] = true, [402284] = true, [402289] = true,
 	[1240723] = true, [1240727] = true, [1240732] = true, [1240734] = true }
 local penance = { cooldown = 12, untilTime = 0, castAt = -math.huge, channelUntil = 0, seen = {} }
-AL.IconOverrides = AL.IconOverrides or {}
-AL.IconOverrides[DIVINE_SPIRIT] = function() return DIVINE_SPIRIT_ICON end
-AL.IconOverrides[PENANCE] = function() return PENANCE_ICON end
-
--- Seed the default once in both new and existing Priest profiles. Keep a
--- user's later icon choice, including choosing the default icon again.
-local FillDefaults = AL.FillDefaults
-function AL.FillDefaults(profile, token)
-	FillDefaults(profile, token)
-	if token == "PRIEST" and not profile.divineSpiritIconInitialized then
-		profile.icons = profile.icons or {}
-		if profile.icons[DIVINE_SPIRIT] == nil then profile.icons[DIVINE_SPIRIT] = DIVINE_SPIRIT_ICON end
-		profile.divineSpiritIconInitialized = true
-	end
-	if token == "PRIEST" and not profile.penanceIconInitialized then
-		profile.icons = profile.icons or {}
-		if profile.icons[PENANCE] == nil then profile.icons[PENANCE] = PENANCE_ICON end
-		profile.penanceIconInitialized = true
-	end
-end
-
 AL.selfCastSpells = AL.selfCastSpells or {}
 for _, name in ipairs({
 	"Power Word: Fortitude", "Divine Spirit", "Inner Fire", "Power Word: Shield", "Renew",
@@ -202,6 +179,9 @@ end
 if not pcall(tracker.RegisterUnitEvent, tracker, "UNIT_SPELLCAST_FAILED", "player") then
 	pcall(tracker.RegisterEvent, tracker, "UNIT_SPELLCAST_FAILED")
 end
+if not pcall(tracker.RegisterUnitEvent, tracker, "UNIT_SPELLCAST_FAILED_QUIET", "player") then
+	pcall(tracker.RegisterEvent, tracker, "UNIT_SPELLCAST_FAILED_QUIET")
+end
 if not pcall(tracker.RegisterUnitEvent, tracker, "UNIT_SPELLCAST_INTERRUPTED", "player") then
 	pcall(tracker.RegisterEvent, tracker, "UNIT_SPELLCAST_INTERRUPTED")
 end
@@ -220,7 +200,9 @@ end
 if not pcall(tracker.RegisterUnitEvent, tracker, "UNIT_MAXPOWER", "player") then
 	pcall(tracker.RegisterEvent, tracker, "UNIT_MAXPOWER")
 end
-pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
+if type(CombatLogGetCurrentEventInfo) == "function" then
+	pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
+end
 pcall(tracker.RegisterEvent, tracker, "START_AUTOREPEAT_SPELL")
 pcall(tracker.RegisterEvent, tracker, "STOP_AUTOREPEAT_SPELL")
 pcall(tracker.RegisterEvent, tracker, "PLAYER_DEAD")
@@ -279,14 +261,22 @@ local function CastName(arg2, arg3, arg4)
 	if TouchSpellID(arg4, TOUCH_CAST_IDS) or TouchSpellID(arg3, TOUCH_CAST_IDS) then return TOUCH end
 	if DivineSpiritSpellID(arg4) or DivineSpiritSpellID(arg3) then return DIVINE_SPIRIT end
 	if PenanceSpellID(arg4) or PenanceSpellID(arg3) then return PENANCE end
-	for _, value in ipairs({ arg4, arg3 }) do
+	local ids = { arg4, arg3 }
+	for index = 1, 2 do
+		local value = ids[index]
 		if type(value) == "number" and SafeValue(value) then
+			for name, ref in pairs(AL.rangeSpellRefs or {}) do
+				if type(ref) == "table" and SafeValue(ref.id) and ref.id == value then
+					return (AL.englishNames and AL.englishNames[name]) or name
+				end
+			end
 			local ok, name = pcall(AL.SpellName, value)
 			if ok and type(name) == "string" and SafeValue(name) then return name end
 		end
 	end
 	if type(arg2) == "string" and SafeValue(arg2) and not arg2:find("^Cast%-") then
-		return arg2
+		local name = (AL.englishNames and AL.englishNames[arg2]) or arg2
+		if AL.known and AL.known[name] then return name end
 	end
 end
 
@@ -321,6 +311,8 @@ local cachedCastingManaRegen = 0
 -- Robust event sensors / diagnostics.
 local lastSentCastName = nil
 local lastSentCastAt = 0
+local lastSentCastGUID = nil
+local manaPendingCasts, manaCompletedCasts = {}, {}
 local castSentCount = 0
 local castSucceededCount = 0
 local castFallbackCount = 0
@@ -507,7 +499,7 @@ local function SpellManaCost(spellName)
 							ReadableNumber(info.cost)
 							or ReadableNumber(info.minCost)
 
-						if cost and cost > 0 then return cost end
+						if cost and cost >= 0 then return cost end
 
 						local pct = ReadableNumber(info.costPercent)
 						if pct and pct > 0 and trackedManaMax and trackedManaMax > 0 then
@@ -1160,8 +1152,8 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		trackedHealthLastAmount = nil
 		trackedHealthAt = nil
 
-		lastSentCastName = nil
-		lastSentCastAt = 0
+		lastSentCastName, lastSentCastAt, lastSentCastGUID = nil, 0, nil
+		manaPendingCasts, manaCompletedCasts = {}, {}
 
 		EnsureTrackedMana()
 		EnsureTrackedHealth()
@@ -1200,19 +1192,27 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 			and not (SafeValue(arg3) and type(arg3) == "number")
 			and (not spellName or not (AL.known and AL.known[spellName]))
 			and AL.lastSuggestion == DIVINE_SPIRIT and Ok(DIVINE_SPIRIT) then spellName = DIVINE_SPIRIT end
+		local now, guid = GetTime(), TouchCastGUID(arg3)
+		for key, record in pairs(manaPendingCasts) do
+			if now - record.at > 15 then manaPendingCasts[key] = nil end
+		end
+		lastSentCastName, lastSentCastAt, lastSentCastGUID = spellName, now, guid
 		if spellName then
-			lastSentCastName = spellName
-			lastSentCastAt = GetTime()
+			if guid then manaPendingCasts[guid] = { name = spellName, at = now } end
 			castSentCount = castSentCount + 1
 		end
 		return
 	end
 
-	if event == "UNIT_SPELLCAST_FAILED"
+	if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
 		or event == "UNIT_SPELLCAST_INTERRUPTED"
 	then
-		lastSentCastName = nil
-		lastSentCastAt = 0
+		local guid = TouchCastGUID(arg2)
+		if guid then manaPendingCasts[guid] = nil end
+		if not guid or not lastSentCastGUID or guid == lastSentCastGUID then
+			if lastSentCastGUID then manaPendingCasts[lastSentCastGUID] = nil end
+			lastSentCastName, lastSentCastAt, lastSentCastGUID = nil, 0, nil
+		end
 		return
 	end
 
@@ -1220,22 +1220,32 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	-- The automatic damage/debuff proc is not another paid self-buff cast.
 	if TouchSpellID(arg3, TOUCH_PROC_IDS) or TouchSpellID(arg4, TOUCH_PROC_IDS) then return end
 
+	local now, guid = GetTime(), TouchCastGUID(arg2)
+	for key, at in pairs(manaCompletedCasts) do
+		if now - at > 60 then manaCompletedCasts[key] = nil end
+	end
+	if guid and manaCompletedCasts[guid] then return end
+	if guid then manaCompletedCasts[guid] = now end
 	castSucceededCount = castSucceededCount + 1
 
 	local spellName = CastName(arg2, arg3, arg4)
-
-	-- Forever can secretize the SUCCEEDED spell payload. Core already solves
-	-- this by remembering UNIT_SPELLCAST_SENT; Priest now does the same.
-	if not spellName
-		and lastSentCastName
-		and (GetTime() - lastSentCastAt) < 5
-	then
-		spellName = lastSentCastName
-		castFallbackCount = castFallbackCount + 1
+	local pending = guid and manaPendingCasts[guid]
+	local readableID = SafeValue(arg3) and type(arg3) == "number"
+		or SafeValue(arg4) and type(arg4) == "number"
+	-- A wand success must never impersonate another spell. Prefer its readable
+	-- identity; hidden payloads may use only the pending cast with the same GUID.
+	if not spellName and not readableID then
+		if pending and now - pending.at <= 15 then
+			spellName = pending.name
+		elseif not guid and not lastSentCastGUID and lastSentCastName and now - lastSentCastAt < 5 then
+			spellName = lastSentCastName
+		end
+		if spellName then castFallbackCount = castFallbackCount + 1 end
 	end
-
-	lastSentCastName = nil
-	lastSentCastAt = 0
+	if guid then manaPendingCasts[guid] = nil end
+	if not guid or not lastSentCastGUID or guid == lastSentCastGUID then
+		lastSentCastName, lastSentCastAt, lastSentCastGUID = nil, 0, nil
+	end
 	lastSucceededCastName = spellName
 
 	if not spellName then return end
@@ -1381,7 +1391,13 @@ local function ManaAtLeast(mana, threshold)
 end
 
 local function TargetWorthAtLeast(targetHP, threshold)
-	return targetHP == nil or (type(targetHP) == "number" and targetHP >= threshold)
+	return threshold <= 0 or (type(targetHP) == "number"
+		and (targetHP >= threshold or math.abs(targetHP - threshold) < 1e-7))
+end
+
+local function TargetAtOrBelow(targetHP, threshold)
+	return type(targetHP) == "number"
+		and (targetHP <= threshold or math.abs(targetHP - threshold) < 1e-7)
 end
 
 local function ReadyUsable(name)
@@ -1569,11 +1585,13 @@ local function WandEquipped()
 	return ok and equipped and true or false
 end
 
+local function WandAvailable(s)
+	s = s or AL.S()
+	return s.wand ~= false and WandEquipped() and Ok("Shoot") and true or false
+end
+
 local function Wand(s, reason)
-	-- Priest wand use is automatic whenever a wand is physically equipped.
-	-- There is no separate enable/disable flag that can silently bypass the
-	-- mana slider.
-	if not WandEquipped() then return nil end
+	if not WandAvailable(s) then return nil end
 	return "Shoot", reason or "save mana"
 end
 
@@ -1593,12 +1611,29 @@ local function WandManaThreshold(s)
 	return SettingNumber(s, "wandMana", 25, 0, 100)
 end
 
+-- Match exact slider positions despite floating-point percentage conversion.
+local function ManaAtOrBelow(mana, threshold)
+	return type(mana) ~= "number" or mana <= threshold
+		or math.abs(mana - threshold) < 1e-7
+end
+
 local function MindBlastManaThreshold(s)
 	-- Same rule as Smite: read the live table directly, never a second profile lookup.
 	return SettingNumber(s, "mindBlastMana", 50, 0, 100)
 end
 
 local function GateManaPercent()
+	-- A fresh readable value takes precedence over cached events and estimates.
+	local current, source = ReadCurrentManaPercent()
+	if current == nil then
+		local ok, value = pcall(AL.ManaPercent)
+		current = ok and ReadableNumber(value) or nil
+		source = "live mana"
+	end
+	if current ~= nil then
+		lastReadableManaPct, lastManaSource = current, source
+		return current
+	end
 	-- ONE conservative mana value per rotation pass.
 	--
 	-- Important: do NOT let a stale/high source re-enable Smite or Mind Blast.
@@ -1680,8 +1715,9 @@ end
 
 local function SmiteShouldWand(s, mana)
 	local threshold = WandManaThreshold(s)
+	if not WandAvailable(s) then return false, threshold end
 
-	-- Exact semantics:
+	-- With an available wand, preserve the exact slider semantics:
 	--   mana <= slider -> Smite is blocked
 	--   mana > slider  -> Smite may be used
 	--   unreadable     -> fail closed and block Smite
@@ -1689,7 +1725,7 @@ local function SmiteShouldWand(s, mana)
 		return true, threshold, "Smite mana unavailable"
 	end
 
-	if mana <= threshold then
+	if ManaAtOrBelow(mana, threshold) then
 		return true, threshold,
 			"Shoot instead of Smite: "
 				.. tostring(math.floor(mana + 0.5))
@@ -1704,17 +1740,30 @@ local lastMindBlastManaPct = nil
 
 local function MindBlastLowManaMode(s, mana)
 	local threshold = MindBlastManaThreshold(s)
+	if not WandAvailable(s) then
+		mindBlastShootModeActive = false
+		return false, mana, threshold
+	end
 
 	if type(mana) == "number" then
 		lastMindBlastManaPct = mana
-		mindBlastShootModeActive = mana <= threshold
+		mindBlastShootModeActive = ManaAtOrBelow(mana, threshold)
 	elseif type(lastMindBlastManaPct) == "number" then
-		mindBlastShootModeActive = lastMindBlastManaPct <= threshold
+		mindBlastShootModeActive = ManaAtOrBelow(lastMindBlastManaPct, threshold)
 	else
 		mindBlastShootModeActive = true
 	end
 
 	return mindBlastShootModeActive, lastMindBlastManaPct, threshold
+end
+
+local function FillerManaShortage(name)
+	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[name]
+	local id = type(ref) == "table" and ReadableNumber(ref.id) or name
+	local reader = C_Spell and C_Spell.IsSpellUsable or IsUsableSpell
+	if type(reader) ~= "function" then return false end
+	local ok, usable, shortage = pcall(reader, id)
+	return ok and SafeValue(shortage) and shortage == true
 end
 
 local function ResolveFiller(s, filler, mana, reason)
@@ -1736,33 +1785,24 @@ local function ResolveFiller(s, filler, mana, reason)
 		return filler, reason or "filler"
 	end
 
-	local wand, wandReason = Wand(s, "filler unavailable")
-	if wand then return wand, wandReason end
-	return nil, "Out of mana"
+	-- A temporary restriction (including the GCD) is not a mana shortage.
+	-- Keep waiting for the selected filler instead of restarting the wand.
+	if FillerManaShortage(filler) then
+		local wand, wandReason = Wand(s, "Out of mana")
+		if wand then return wand, wandReason end
+		return nil, "Out of mana"
+	end
+	return nil, "Waiting for " .. filler
 end
 
 local function ResolveMindBlast(s, role, mana, reason)
 	if role ~= "SHADOW" or not s.mindBlast then return nil end
 
-	local lowMana, decisionMana, threshold = MindBlastLowManaMode(s, mana)
+	local lowMana = MindBlastLowManaMode(s, mana)
 
-	-- Absolute interlock: the wand check only decides the replacement action.
-	-- It can never re-enable Mind Blast.
+	-- This slider gates Mind Blast only. Continue to the normal filler so its
+	-- own mana threshold decides whether to use Smite or Shoot.
 	if lowMana then
-		local reasonText
-		if type(decisionMana) == "number" then
-			reasonText =
-				"Shoot instead of Mind Blast: "
-					.. tostring(math.floor(decisionMana + 0.5))
-					.. "% <= " .. tostring(threshold) .. "%"
-		else
-			reasonText = "Mind Blast mana unavailable"
-		end
-
-		local wand, why = Wand(s, reasonText)
-		if wand then return wand, why end
-
-		-- If wand detection fails, still do not permit Mind Blast.
 		return nil, "Mind Blast blocked by mana gate"
 	end
 
@@ -2130,10 +2170,16 @@ local function Opener(s, role, mana, targetHP, moving)
 		return nil, "Stop moving"
 	end
 
+	if TargetAtOrBelow(targetHP, SettingNumber(s, "wandTargetHP", 20, 0, 80)) then
+		local wand, why = Wand(s, "wand finish")
+		if wand or why then return wand, why end
+	end
+
 	local mindBlast, mindBlastReason = ResolveMindBlast(s, role, mana, "ranged pull")
 	if mindBlast then return mindBlast, mindBlastReason end
 
 	if role == "SMITE" and s.holyFire and ReadyUsable("Holy Fire")
+		and TargetWorthAtLeast(targetHP, SettingNumber(s, "dotMinTargetHP", 35, 0, 100))
 		and not AL.HasDebuff("target", "Holy Fire") then
 		return "Holy Fire", "ranged pull"
 	end
@@ -2247,8 +2293,7 @@ local function Offense(s, role, mana, targetHP, moving)
 
 	-- Preserve the newest rev's target-health wand finisher. This is independent
 	-- of the hard Smite/Mind Blast mana interlocks below.
-	if type(targetHP) == "number"
-		and targetHP <= SettingNumber(s, "wandTargetHP", 20, 0, 100)
+	if TargetAtOrBelow(targetHP, SettingNumber(s, "wandTargetHP", 20, 0, 80))
 		and not moving
 	then
 		local wand, wandReason = Wand(s, "wand finish")
@@ -2296,7 +2341,7 @@ local priestDebug = {
 }
 
 local function FinalManaGuard(s, spell, reason, mana)
-	if spell ~= "Smite" and spell ~= "Mind Blast" then
+	if not WandAvailable(s) or spell ~= "Smite" and spell ~= "Mind Blast" then
 		return spell, reason
 	end
 
@@ -2309,7 +2354,7 @@ local function FinalManaGuard(s, spell, reason, mana)
 
 	-- Fail CLOSED. If current mana cannot be established, Smite/Mind Blast
 	-- are forbidden rather than allowed through.
-	local blocked = type(mana) ~= "number" or mana <= threshold
+	local blocked = ManaAtOrBelow(mana, threshold)
 
 	if spell == "Smite" then
 		priestDebug.smiteThreshold = threshold
@@ -2334,27 +2379,105 @@ local function FinalManaGuard(s, spell, reason, mana)
 	return spell, reason
 end
 
-local function ComputeNextSpell(s, inCombat, hostile)
+-- An accepted cast must finish before we recommend the next damage spell.
+-- SENT alone is insufficient: it also fires for attempts rejected by the GCD.
+local levelingCast = { pending = {}, durations = {}, settleUntil = 0 }
+function levelingCast.Wait()
+	local now = GetTime()
+	if levelingCast.name and now < levelingCast.ends then return "Casting " .. levelingCast.name end
+	levelingCast.name, levelingCast.guid, levelingCast.ends = nil, nil, nil
+	if now < levelingCast.settleUntil then return "Waiting for mana update" end
+end
+function levelingCast.Observe(_, event, unit, a, b, c)
+	if AL.playerClass ~= "PRIEST" then return end
+	if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_DEAD" then
+		levelingCast.name, levelingCast.guid, levelingCast.ends = nil, nil, nil
+		levelingCast.pending, levelingCast.settleUntil = {}, 0
+		return
+	end
+	if not SafeValue(unit) or unit ~= "player" then return end
+	local now, name = GetTime(), CastName(a, b, c)
+	local guidValue = a
+	if event == "UNIT_SPELLCAST_SENT" then guidValue = b end
+	local guid = TouchCastGUID(guidValue)
+	for key, record in pairs(levelingCast.pending) do
+		if now - record.at > 15 then levelingCast.pending[key] = nil end
+	end
+	if event == "UNIT_SPELLCAST_SENT" then
+		if guid and name then levelingCast.pending[guid] = { name = name, at = now } end
+		return
+	end
+	local pending = guid and levelingCast.pending[guid]
+	if not name and pending then name = pending.name end
+	if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_DELAYED" then
+		if not name and (not guid or guid == levelingCast.guid) then name = levelingCast.name end
+		local seconds = name and ({ Smite = 2.5, ["Mind Blast"] = 1.5, ["Holy Fire"] = 3.5 })[name]
+		if not seconds then return end
+		local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[name]
+		local id = ref and ref.id
+		if SafeValue(id) and type(id) == "number" and C_Spell and type(C_Spell.GetSpellInfo) == "function" then
+			local ok, info = pcall(C_Spell.GetSpellInfo, id)
+			local ms = ok and SafeValue(info) and type(info) == "table" and ReadableNumber(info.castTime)
+			if ms and ms > 0 and ms <= 30000 then levelingCast.durations[name] = ms / 1000 end
+		end
+		local ending
+		if type(UnitCastingInfo) == "function" then
+			local ok, _, _, _, _, ms = pcall(UnitCastingInfo, "player")
+			ending = ok and ReadableNumber(ms)
+		end
+		if ending and (ending <= now * 1000 or ending > (now + 30) * 1000) then ending = nil end
+		levelingCast.name, levelingCast.guid = name, guid
+		levelingCast.ends = ending and ending / 1000 + 0.3 or now + (levelingCast.durations[name] or seconds) + 0.5
+		return
+	end
+	local matches = levelingCast.name and (guid and levelingCast.guid and guid == levelingCast.guid
+		or not guid and name == levelingCast.name or not levelingCast.guid and name == levelingCast.name)
+	if event == "UNIT_SPELLCAST_SUCCEEDED" then
+		if matches then
+			levelingCast.name, levelingCast.guid, levelingCast.ends = nil, nil, nil
+			-- The resource value may update just after SUCCEEDED. Do not queue a
+			-- second Smite using the pre-spend value during that short interval.
+			levelingCast.settleUntil = now + 0.2
+		end
+	elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED"
+		or event == "UNIT_SPELLCAST_FAILED_QUIET" or event == "UNIT_SPELLCAST_INTERRUPTED" then
+		if matches then
+			levelingCast.name, levelingCast.guid, levelingCast.ends = nil, nil, nil
+			-- STOP can precede SUCCEEDED; let the resource update settle either way.
+			if event == "UNIT_SPELLCAST_STOP" then levelingCast.settleUntil = now + 0.2 end
+		end
+	end
+	if guid then levelingCast.pending[guid] = nil end
+end
+levelingCast.frame = CreateFrame("Frame")
+for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_DELAYED",
+	"UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET",
+	"UNIT_SPELLCAST_INTERRUPTED", "PLAYER_ENTERING_WORLD", "PLAYER_DEAD" }) do
+	pcall(levelingCast.frame.RegisterEvent, levelingCast.frame, event)
+end
+levelingCast.frame:SetScript("OnEvent", levelingCast.Observe)
+
+local function ComputeNextSpell(s, inCombat, hostile, manaOverride, targetHPOverride)
 	local role = Role(s)
 	local playerHP = PlayerHealthPercent()
-	local mana = GateManaPercent()
+	local mana = manaOverride
+	if mana == nil then mana = GateManaPercent() end
 	if type(mana) ~= "number" then
 		mana = TrackedManaPercent()
 	end
-	local targetHP = hostile and AL.HealthPercent("target") or nil
+	local targetHP = targetHPOverride
+	if targetHP == nil then targetHP = hostile and AL.HealthPercent("target") or nil end
 	local moving = PlayerMoving()
 
 	if not inCombat then
+		local wait = levelingCast.Wait()
+		if wait then return nil, wait end
 		-- HIGHEST OUT-OF-COMBAT PRIORITY TIER:
 		-- Lesser Heal <=80% is checked first, then Fortitude/Inner Fire.
 		local prep, prepReason = Preparation(s, playerHP)
 		if prep then return prep, prepReason end
 		local recovery, recoveryReason = SelfRecovery(s, false, hostile, playerHP, moving)
 		if recovery then return recovery, recoveryReason end
-		if s.drink and type(mana) == "number"
-			and mana <= SettingNumber(s, "drinkMana", 35, 0, 80) then
-			return nil, "Drink"
-		end
 		if not hostile then return nil, "Ready" end
 		return Opener(s, role, mana, targetHP, moving)
 	end
@@ -2377,12 +2500,173 @@ local function ComputeNextSpell(s, inCombat, hostile)
 	if emergency then return emergency, emergencyReason end
 
 	if not hostile then return nil, "No target" end
+	local wait = levelingCast.Wait()
+	if wait then return nil, wait end
 	return Offense(s, role, mana, targetHP, moving)
+end
+
+-- Keep the original Leveling priorities. Public slider intervals describe
+-- possible mana/target-health combinations; native curves choose the visible
+-- row without inspecting either protected resource in Lua.
+local manaVisualPlan, manaVisualFailure
+local function NativeResourcePlan(s, inCombat, hostile)
+	if not hostile then return nil end
+	if manaVisualFailure and GetTime() - manaVisualFailure < 1 then return nil end
+	local liveMana = ReadCurrentManaPercent()
+	if liveMana == nil then
+		local ok, value = pcall(AL.ManaPercent)
+		if ok then liveMana = ReadableNumber(value) end
+	end
+	local targetHP = ReadableNumber(AL.HealthPercent("target"))
+	local nativeMana = liveMana == nil and WandAvailable(s)
+		and AL.ResourceIntervalAlpha("power", "player", 0, 0, 2)
+	local nativeHealth = targetHP == nil and AL.ResourceIntervalAlpha("health", "target", nil, 0, 2)
+	if not nativeMana and not nativeHealth then return nil end
+
+	local axes = {}
+	local function Axis(kind, unit, powerType, settings)
+		local axis = { key = kind .. ":" .. unit .. ":" .. tostring(powerType or ""),
+			kind = kind, unit = unit, powerType = powerType, cuts = { 0, 2 }, boundaries = {} }
+		local seen = { [0] = true, [2] = true }
+		for _, setting in ipairs(settings) do
+			local cut = AL.ResourceThresholdCut(setting[1], setting[2])
+			if not seen[cut] then axis.cuts[#axis.cuts + 1], seen[cut] = cut, true end
+			if not setting[2] then axis.boundaries[cut] = setting[1] end
+		end
+		table.sort(axis.cuts); axes[#axes + 1] = axis
+	end
+	if nativeMana then Axis("power", "player", 0, {
+		{ WandManaThreshold(s), true }, { MindBlastManaThreshold(s), true },
+		{ SettingNumber(s, "plagueMinMana", 40, 0, 100), false },
+		{ SettingNumber(s, "offensivePenanceMana", 80, 0, 100), false },
+	}) end
+	if nativeHealth then Axis("health", "target", nil, {
+		{ SettingNumber(s, "dotMinTargetHP", 35, 0, 100), false },
+		{ SettingNumber(s, "plagueMinTargetHP", 60, 0, 100), false },
+		{ SettingNumber(s, "vampiricMinTargetHP", 60, 0, 100), false },
+		{ SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false },
+		{ SettingNumber(s, "wandTargetHP", 20, 0, 80), true },
+	}) end
+	local plan = { at = GetTime(), rows = {}, masks = {}, spells = {},
+		manaProtected = nativeMana == true, targetHealthProtected = nativeHealth == true,
+		source = nativeMana and (nativeHealth and "native mana and target-health thresholds" or "native mana thresholds")
+			or "native target-health thresholds" }
+	local samples, masks = {}, {}
+	local function Rows(index)
+		if index <= #axes then
+			local axis = axes[index]
+			for i = 1, #axis.cuts - 1 do
+				local low, high = axis.cuts[i], axis.cuts[i + 1]
+				local sample = math.min(100, (low + high) * 50)
+				-- Coincident minimum/inclusive-maximum sliders have an exact
+				-- boundary cell one float wide; evaluate that cell at the slider.
+				if axis.boundaries[low] and high == AL.ResourceThresholdCut(axis.boundaries[low], true) then sample = axis.boundaries[low] end
+				samples[axis.kind] = sample
+				masks[index] = { kind = axis.kind, unit = axis.unit, powerType = axis.powerType, low = low, high = high,
+					key = axis.key .. ":" .. tostring(low) .. ":" .. tostring(high) }
+				Rows(index + 1)
+			end
+			return
+		end
+		local mana = samples.power or GateManaPercent()
+		local spell, reason = ComputeNextSpell(s, inCombat, hostile, mana, samples.health)
+		spell, reason = FinalManaGuard(s, spell, reason, mana)
+		if spell == "Shoot" and type(reason) == "string" and reason:find("^Shoot instead of Smite") then
+			reason = "Conserve mana at " .. tostring(WandManaThreshold(s)) .. "%"
+		end
+		if AL.WandSuggestion then spell, reason = AL.WandSuggestion(spell, reason) end
+		local row = { spell = spell, reason = reason, masks = {} }
+		for i, mask in ipairs(masks) do row.masks[i] = mask end
+		plan.rows[#plan.rows + 1] = row
+	end
+	Rows(1)
+	-- Merge identical neighboring decisions so adding the health axis does
+	-- not create redundant display frames for every mana/health combination.
+	for axisIndex = #axes, 1, -1 do
+		local groups, order = {}, {}
+		for _, row in ipairs(plan.rows) do
+			local parts = { row.spell or "", row.reason or "" }
+			for i, mask in ipairs(row.masks) do if i ~= axisIndex then parts[#parts + 1] = mask.key end end
+			local key = table.concat(parts, "|")
+			if not groups[key] then groups[key] = {}; order[#order + 1] = key end
+			groups[key][#groups[key] + 1] = row
+		end
+		local combined = {}
+		for _, key in ipairs(order) do
+			local rows = groups[key]
+			table.sort(rows, function(a, b) return a.masks[axisIndex].low < b.masks[axisIndex].low end)
+			local previous
+			for _, row in ipairs(rows) do
+				local mask = row.masks[axisIndex]
+				if previous and previous.masks[axisIndex].high == mask.low then
+					local first = previous.masks[axisIndex]
+					previous.masks[axisIndex] = { kind = first.kind, unit = first.unit, powerType = first.powerType,
+						low = first.low, high = mask.high,
+						key = axes[axisIndex].key .. ":" .. tostring(first.low) .. ":" .. tostring(mask.high) }
+				else combined[#combined + 1] = row; previous = row end
+			end
+		end
+		plan.rows = combined
+	end
+
+	-- Preserve the existing protected-health healing overlay in the same plan.
+	-- A healing row masks the damage row on both mini destinations.
+	local heal, threshold, why = M.SecretHealVisualState()
+	if heal and threshold and AL.ResourceIntervalAlpha("health", "player", nil, 0, 2) then
+		local cut = AL.ResourceThresholdCut(threshold, false)
+		local spell, reason = heal, why
+		if AL.WandSuggestion then spell, reason = AL.WandSuggestion(spell, reason) end
+		local below = { kind = "health", unit = "player", low = 0, high = cut }
+		local above = { kind = "health", unit = "player", low = cut, high = 2 }
+		for _, row in ipairs(plan.rows) do row.masks[#row.masks + 1] = above end
+		table.insert(plan.rows, 1, { spell = spell, reason = reason, masks = { below } })
+	end
+	for _, row in ipairs(plan.rows) do
+		for _, mask in ipairs(row.masks) do
+			mask.key = mask.kind .. ":" .. mask.unit .. ":" .. tostring(mask.powerType or "") .. ":" .. tostring(mask.low) .. ":" .. tostring(mask.high)
+			plan.masks[mask.key] = mask
+		end
+		if row.spell then plan.spells[row.spell] = true end
+	end
+	local base = plan.rows[#plan.rows]
+	plan.baseSpell, plan.baseReason = base.spell, base.reason
+	-- An opaque cast event cannot be attributed to one of several masked
+	-- candidates. Keep the scalar suggestion empty when the client owns it.
+	if #plan.rows > 1 then
+		plan.baseSpell = nil
+		plan.baseReason = nativeMana and (nativeHealth and "Native resource thresholds" or "Native mana thresholds")
+			or "Native target-health thresholds"
+	end
+	return plan
+end
+
+function M.SecretVisualPlan(spell, reason)
+	local plan = manaVisualPlan
+	if plan and GetTime() - plan.at <= 0.3 and spell == plan.baseSpell and reason == plan.baseReason then return plan end
+end
+
+function M.EvaluateVisualMasks(plan)
+	local values = {}
+	for key, mask in pairs(plan.masks) do
+		local ok, alpha = AL.ResourceIntervalAlpha(mask.kind, mask.unit, mask.powerType, mask.low, mask.high)
+		if not ok then manaVisualFailure = GetTime(); return nil end
+		values[key] = alpha
+	end
+	return values
+end
+
+function M.ApplyVisualRow(nodes, row, values)
+	for i, node in ipairs(nodes) do
+		local mask = row.masks[i]
+		local ok
+		if mask then ok = pcall(node.SetAlpha, node, values[mask.key])
+		else ok = pcall(node.SetAlpha, node, 1) end
+		if not ok then manaVisualFailure = GetTime(); error("Resource display alpha unavailable") end
+	end
 end
 
 function M.NextSpell(s, inCombat, hostile)
 	-- Existing saved profiles may be used before the menu first fills defaults.
-	if type(s) == "table" and (not s.divineSpiritIconInitialized or not s.penanceIconInitialized) then AL.FillDefaults(s, "PRIEST") end
 	if GetTime() < penance.channelUntil then return nil, "Channeling" end
 	local role = Role(s)
 	local hp = PlayerHealthPercent()
@@ -2397,16 +2681,27 @@ function M.NextSpell(s, inCombat, hostile)
 	priestDebug.smiteThreshold = WandManaThreshold(s)
 	priestDebug.mindBlastThreshold = MindBlastManaThreshold(s)
 	priestDebug.smiteBlocked =
-		type(mana) ~= "number" or mana <= priestDebug.smiteThreshold
+		WandAvailable(s) and (ManaAtOrBelow(mana, priestDebug.smiteThreshold))
 	priestDebug.mindBlastBlocked =
-		type(mana) ~= "number" or mana <= priestDebug.mindBlastThreshold
+		WandAvailable(s) and (ManaAtOrBelow(mana, priestDebug.mindBlastThreshold))
 
-	local spell, reason = ComputeNextSpell(s, inCombat, hostile)
+	manaVisualPlan = NativeResourcePlan(s, inCombat, hostile)
+	local spell, reason
+	if manaVisualPlan then
+		spell, reason = manaVisualPlan.baseSpell, manaVisualPlan.baseReason
+		if manaVisualPlan.manaProtected then
+			priestDebug.manaSource = "native mana thresholds"
+			priestDebug.smiteBlocked, priestDebug.mindBlastBlocked = nil, nil
+		end
+	else
+		spell, reason = ComputeNextSpell(s, inCombat, hostile)
+	end
 	priestDebug.candidate = spell
 	priestDebug.candidateReason = reason
 
 	-- Absolute final interlock. No internal branch can bypass this.
-	local finalSpell, finalReason = FinalManaGuard(s, spell, reason, mana)
+	local finalSpell, finalReason = spell, reason
+	if not manaVisualPlan then finalSpell, finalReason = FinalManaGuard(s, spell, reason, mana) end
 	priestDebug.final = finalSpell
 	priestDebug.finalReason = finalReason
 
@@ -2510,12 +2805,20 @@ function M.ManaGateState()
 
 	local smiteThreshold = WandManaThreshold(profile)
 	local mindBlastThreshold = MindBlastManaThreshold(profile)
-	local smiteBlocked = type(mana) ~= "number" or mana <= smiteThreshold
-	local mindBlastBlocked = type(mana) ~= "number" or mana <= mindBlastThreshold
+	local smiteBlocked = WandAvailable() and (ManaAtOrBelow(mana, smiteThreshold))
+	local mindBlastBlocked = WandAvailable() and (ManaAtOrBelow(mana, mindBlastThreshold))
+	if manaVisualPlan and manaVisualPlan.manaProtected then smiteBlocked, mindBlastBlocked = nil, nil end
 
 	return {
 		mana = mana,
+		acceptedCast = { name = levelingCast.name, guid = levelingCast.guid,
+			ends = levelingCast.ends, settleUntil = levelingCast.settleUntil, wait = levelingCast.Wait() },
 		source = priestDebug.manaSource or lastManaSource,
+		thresholdSource = manaVisualPlan and manaVisualPlan.manaProtected and "native mana thresholds" or "readable/tracked mana",
+		visualRows = manaVisualPlan and manaVisualPlan.rows or nil,
+		targetHealth = { percent = AL.HealthPercent("target"), minimum = SettingNumber(profile, "dotMinTargetHP", 35, 0, 100),
+			painEnabled = profile.shadowWordPain == true,
+			source = manaVisualPlan and manaVisualPlan.targetHealthProtected and "native target-health thresholds" or "readable health or blocked when unavailable" },
 		trackedPct = TrackedManaPercent(),
 		trackedMana = trackedMana,
 		trackedManaMax = trackedManaMax,
@@ -2611,7 +2914,7 @@ function M.MindBlastState()
 	local lowMana = mindBlastShootModeActive
 
 	if type(lastMindBlastManaPct) == "number" then
-		lowMana = lastMindBlastManaPct <= threshold
+		lowMana = ManaAtOrBelow(lastMindBlastManaPct, threshold)
 	end
 
 	return {
@@ -2619,7 +2922,7 @@ function M.MindBlastState()
 		threshold = threshold,
 		mana = lastMindBlastManaPct,
 		lowMana = lowMana,
-		decision = lowMana and "SHOOT/BLOCK" or "MIND BLAST",
+		decision = WandAvailable(profile) and lowMana and "SKIP" or "MIND BLAST",
 	}
 end
 
@@ -2627,7 +2930,9 @@ function M.WandState()
 	local profile = AL.S()
 	local mana = GateManaPercent()
 	local threshold = WandManaThreshold(profile)
-	local lowMana = type(mana) ~= "number" or mana <= threshold
+	local lowMana = ManaAtOrBelow(mana, threshold)
+	local nativeMana = manaVisualPlan and manaVisualPlan.manaProtected
+	if nativeMana then lowMana = nil end
 
 	return {
 		equipped = WandEquipped(),
@@ -2639,8 +2944,11 @@ function M.WandState()
 		trackedLastSpell = trackedLastSpell,
 		trackedLastCost = trackedLastCost,
 		trackedSource = trackedSource,
+		thresholdSource = nativeMana and "native mana thresholds" or "readable/tracked mana",
+		visualRows = manaVisualPlan and manaVisualPlan.rows or nil,
 		lowMana = lowMana,
-		decision = WandEquipped() and lowMana and "SHOOT" or "SMITE",
+		decision = nativeMana and "CLIENT MANA THRESHOLD" or (manaVisualPlan and "CLIENT TARGET HEALTH THRESHOLD")
+			or (WandAvailable() and lowMana and "SHOOT" or "SMITE"),
 	}
 end
 
@@ -2659,7 +2967,7 @@ end
 local touchTracker = CreateFrame("Frame")
 for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
 	"UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "COMBAT_LOG_EVENT_UNFILTERED",
-	"PLAYER_DEAD", "PLAYER_ENTERING_WORLD" }) do pcall(touchTracker.RegisterEvent, touchTracker, event) end
+	"PLAYER_DEAD", "PLAYER_ENTERING_WORLD" }) do if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(touchTracker.RegisterEvent, touchTracker, event) end end
 touchTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if AL.playerClass ~= "PRIEST" then return end
 	if event == "PLAYER_DEAD" or event == "PLAYER_ENTERING_WORLD" then
@@ -2776,8 +3084,8 @@ local ADDON, AL = ...
 
 -- WoW Forever Priest leveling 1-60 - v0.28.4
 -- Shadow reference: Forever 1.60.1.70338, MythicSim 944a791060db.
--- SHADOW favorise Mind Blast / Mind Flay ; SMITE favorise Holy Fire / Smite.
--- Les soins concernent le joueur : aucune cible de groupe n'est devinee.
+-- SHADOW favors Mind Blast / Mind Flay; SMITE favors Holy Fire / Smite.
+-- Heals target the player: no group target is guessed.
 
 local A = _G.Action
 
@@ -2838,8 +3146,8 @@ local M = {
 local shadow = { cooldowns={}, dots={}, buffs={}, pending={}, completed={}, talents={},
     curves={}, curveFailures={}, form=nil, formAt=-math.huge, channelUntil=0 }
 
--- IDs classiques de rang 1. Les raciaux et talents ne sont utilises que si
--- le grimoire Forever les expose reellement comme appris.
+-- Classic rank-one IDs. Racials and talents are used only when
+-- Forever's spellbook actually exposes them as learned.
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
@@ -2920,33 +3228,10 @@ M.spells = {
 }
 
 local DIVINE_SPIRIT = "Divine Spirit"
-local DIVINE_SPIRIT_ICON = AL.UNIVERSAL_ICONS[9]
 local PENANCE = "Penance"
-local PENANCE_ICON = AL.UNIVERSAL_ICONS[8]
 local PENANCE_PROCS = { [402261] = true, [402277] = true, [402284] = true, [402289] = true,
 	[1240723] = true, [1240727] = true, [1240732] = true, [1240734] = true }
 local penance = { cooldown = 12, untilTime = 0, castAt = -math.huge, channelUntil = 0, seen = {} }
-AL.IconOverrides = AL.IconOverrides or {}
-AL.IconOverrides[DIVINE_SPIRIT] = function() return DIVINE_SPIRIT_ICON end
-AL.IconOverrides[PENANCE] = function() return PENANCE_ICON end
-
--- Seed the default once in both new and existing Priest profiles. Keep a
--- user's later icon choice, including choosing the default icon again.
-local FillDefaults = AL.FillDefaults
-function AL.FillDefaults(profile, token)
-	FillDefaults(profile, token)
-	if token == "PRIEST" and not profile.divineSpiritIconInitialized then
-		profile.icons = profile.icons or {}
-		if profile.icons[DIVINE_SPIRIT] == nil then profile.icons[DIVINE_SPIRIT] = DIVINE_SPIRIT_ICON end
-		profile.divineSpiritIconInitialized = true
-	end
-	if token == "PRIEST" and not profile.penanceIconInitialized then
-		profile.icons = profile.icons or {}
-		if profile.icons[PENANCE] == nil then profile.icons[PENANCE] = PENANCE_ICON end
-		profile.penanceIconInitialized = true
-	end
-end
-
 AL.selfCastSpells = AL.selfCastSpells or {}
 for _, name in ipairs({
 	"Power Word: Fortitude", "Divine Spirit", "Inner Fire", "Power Word: Shield", "Renew",
@@ -3000,6 +3285,9 @@ end
 if not pcall(tracker.RegisterUnitEvent, tracker, "UNIT_SPELLCAST_FAILED", "player") then
 	pcall(tracker.RegisterEvent, tracker, "UNIT_SPELLCAST_FAILED")
 end
+if not pcall(tracker.RegisterUnitEvent, tracker, "UNIT_SPELLCAST_FAILED_QUIET", "player") then
+	pcall(tracker.RegisterEvent, tracker, "UNIT_SPELLCAST_FAILED_QUIET")
+end
 if not pcall(tracker.RegisterUnitEvent, tracker, "UNIT_SPELLCAST_INTERRUPTED", "player") then
 	pcall(tracker.RegisterEvent, tracker, "UNIT_SPELLCAST_INTERRUPTED")
 end
@@ -3018,7 +3306,9 @@ end
 if not pcall(tracker.RegisterUnitEvent, tracker, "UNIT_MAXPOWER", "player") then
 	pcall(tracker.RegisterEvent, tracker, "UNIT_MAXPOWER")
 end
-pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
+if type(CombatLogGetCurrentEventInfo) == "function" then
+	pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
+end
 pcall(tracker.RegisterEvent, tracker, "START_AUTOREPEAT_SPELL")
 pcall(tracker.RegisterEvent, tracker, "STOP_AUTOREPEAT_SPELL")
 pcall(tracker.RegisterEvent, tracker, "PLAYER_DEAD")
@@ -3077,14 +3367,22 @@ local function CastName(arg2, arg3, arg4)
 	if TouchSpellID(arg4, TOUCH_CAST_IDS) or TouchSpellID(arg3, TOUCH_CAST_IDS) then return TOUCH end
 	if DivineSpiritSpellID(arg4) or DivineSpiritSpellID(arg3) then return DIVINE_SPIRIT end
 	if PenanceSpellID(arg4) or PenanceSpellID(arg3) then return PENANCE end
-	for _, value in ipairs({ arg4, arg3 }) do
+	local ids = { arg4, arg3 }
+	for index = 1, 2 do
+		local value = ids[index]
 		if type(value) == "number" and SafeValue(value) then
+			for name, ref in pairs(AL.rangeSpellRefs or {}) do
+				if type(ref) == "table" and SafeValue(ref.id) and ref.id == value then
+					return (AL.englishNames and AL.englishNames[name]) or name
+				end
+			end
 			local ok, name = pcall(AL.SpellName, value)
 			if ok and type(name) == "string" and SafeValue(name) then return name end
 		end
 	end
 	if type(arg2) == "string" and SafeValue(arg2) and not arg2:find("^Cast%-") then
-		return arg2
+		local name = (AL.englishNames and AL.englishNames[arg2]) or arg2
+		if AL.known and AL.known[name] then return name end
 	end
 end
 
@@ -3119,6 +3417,8 @@ local cachedCastingManaRegen = 0
 -- Robust event sensors / diagnostics.
 local lastSentCastName = nil
 local lastSentCastAt = 0
+local lastSentCastGUID = nil
+local manaPendingCasts, manaCompletedCasts = {}, {}
 local castSentCount = 0
 local castSucceededCount = 0
 local castFallbackCount = 0
@@ -3306,7 +3606,7 @@ local function SpellManaCost(spellName)
 							ReadableNumber(info.cost)
 							or ReadableNumber(info.minCost)
 
-						if cost and cost > 0 then return cost end
+						if cost and cost >= 0 then return cost end
 
 						local pct = ReadableNumber(info.costPercent)
 						if pct and pct > 0 and trackedManaMax and trackedManaMax > 0 then
@@ -3960,8 +4260,8 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		trackedHealthLastAmount = nil
 		trackedHealthAt = nil
 
-		lastSentCastName = nil
-		lastSentCastAt = 0
+		lastSentCastName, lastSentCastAt, lastSentCastGUID = nil, 0, nil
+		manaPendingCasts, manaCompletedCasts = {}, {}
 
 		EnsureTrackedMana()
 		EnsureTrackedHealth()
@@ -4002,19 +4302,27 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 			and not (SafeValue(arg3) and type(arg3) == "number")
 			and (not spellName or not (AL.known and AL.known[spellName]))
 			and AL.lastSuggestion == DIVINE_SPIRIT and Ok(DIVINE_SPIRIT) then spellName = DIVINE_SPIRIT end
+		local now, guid = GetTime(), TouchCastGUID(arg3)
+		for key, record in pairs(manaPendingCasts) do
+			if now - record.at > 15 then manaPendingCasts[key] = nil end
+		end
+		lastSentCastName, lastSentCastAt, lastSentCastGUID = spellName, now, guid
 		if spellName then
-			lastSentCastName = spellName
-			lastSentCastAt = GetTime()
+			if guid then manaPendingCasts[guid] = { name = spellName, at = now } end
 			castSentCount = castSentCount + 1
 		end
 		return
 	end
 
-	if event == "UNIT_SPELLCAST_FAILED"
+	if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
 		or event == "UNIT_SPELLCAST_INTERRUPTED"
 	then
-		lastSentCastName = nil
-		lastSentCastAt = 0
+		local guid = TouchCastGUID(arg2)
+		if guid then manaPendingCasts[guid] = nil end
+		if not guid or not lastSentCastGUID or guid == lastSentCastGUID then
+			if lastSentCastGUID then manaPendingCasts[lastSentCastGUID] = nil end
+			lastSentCastName, lastSentCastAt, lastSentCastGUID = nil, 0, nil
+		end
 		return
 	end
 
@@ -4022,22 +4330,32 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	-- The automatic damage/debuff proc is not another paid self-buff cast.
 	if TouchSpellID(arg3, TOUCH_PROC_IDS) or TouchSpellID(arg4, TOUCH_PROC_IDS) then return end
 
+	local now, guid = GetTime(), TouchCastGUID(arg2)
+	for key, at in pairs(manaCompletedCasts) do
+		if now - at > 60 then manaCompletedCasts[key] = nil end
+	end
+	if guid and manaCompletedCasts[guid] then return end
+	if guid then manaCompletedCasts[guid] = now end
 	castSucceededCount = castSucceededCount + 1
 
 	local spellName = CastName(arg2, arg3, arg4)
-
-	-- Forever can secretize the SUCCEEDED spell payload. Core already solves
-	-- this by remembering UNIT_SPELLCAST_SENT; Priest now does the same.
-	if not spellName
-		and lastSentCastName
-		and (GetTime() - lastSentCastAt) < 5
-	then
-		spellName = lastSentCastName
-		castFallbackCount = castFallbackCount + 1
+	local pending = guid and manaPendingCasts[guid]
+	local readableID = SafeValue(arg3) and type(arg3) == "number"
+		or SafeValue(arg4) and type(arg4) == "number"
+	-- A wand success must never impersonate another spell. Prefer its readable
+	-- identity; hidden payloads may use only the pending cast with the same GUID.
+	if not spellName and not readableID then
+		if pending and now - pending.at <= 15 then
+			spellName = pending.name
+		elseif not guid and not lastSentCastGUID and lastSentCastName and now - lastSentCastAt < 5 then
+			spellName = lastSentCastName
+		end
+		if spellName then castFallbackCount = castFallbackCount + 1 end
 	end
-
-	lastSentCastName = nil
-	lastSentCastAt = 0
+	if guid then manaPendingCasts[guid] = nil end
+	if not guid or not lastSentCastGUID or guid == lastSentCastGUID then
+		lastSentCastName, lastSentCastAt, lastSentCastGUID = nil, 0, nil
+	end
 	lastSucceededCastName = spellName
 
 	if not spellName then return end
@@ -4187,7 +4505,13 @@ local function ManaAtLeast(mana, threshold)
 end
 
 local function TargetWorthAtLeast(targetHP, threshold)
-	return targetHP == nil or (type(targetHP) == "number" and targetHP >= threshold)
+	return threshold <= 0 or (type(targetHP) == "number"
+		and (targetHP >= threshold or math.abs(targetHP - threshold) < 1e-7))
+end
+
+local function TargetAtOrBelow(targetHP, threshold)
+	return type(targetHP) == "number"
+		and (targetHP <= threshold or math.abs(targetHP - threshold) < 1e-7)
 end
 
 local function ReadyUsable(name)
@@ -4375,11 +4699,13 @@ local function WandEquipped()
 	return ok and equipped and true or false
 end
 
+local function WandAvailable(s)
+	s = s or AL.S()
+	return s.wand ~= false and WandEquipped() and Ok("Shoot") and true or false
+end
+
 local function Wand(s, reason)
-	-- Priest wand use is automatic whenever a wand is physically equipped.
-	-- There is no separate enable/disable flag that can silently bypass the
-	-- mana slider.
-	if not WandEquipped() then return nil end
+	if not WandAvailable(s) then return nil end
 	return "Shoot", reason or "save mana"
 end
 
@@ -4399,12 +4725,29 @@ local function WandManaThreshold(s)
 	return SettingNumber(s, "wandMana", 25, 0, 100)
 end
 
+-- Match exact slider positions despite floating-point percentage conversion.
+local function ManaAtOrBelow(mana, threshold)
+	return type(mana) ~= "number" or mana <= threshold
+		or math.abs(mana - threshold) < 1e-7
+end
+
 local function MindBlastManaThreshold(s)
 	-- Same rule as Smite: read the live table directly, never a second profile lookup.
 	return SettingNumber(s, "mindBlastMana", 50, 0, 100)
 end
 
 local function GateManaPercent()
+	-- A fresh readable value takes precedence over cached events and estimates.
+	local current, source = ReadCurrentManaPercent()
+	if current == nil then
+		local ok, value = pcall(AL.ManaPercent)
+		current = ok and ReadableNumber(value) or nil
+		source = "live mana"
+	end
+	if current ~= nil then
+		lastReadableManaPct, lastManaSource = current, source
+		return current
+	end
 	-- ONE conservative mana value per rotation pass.
 	--
 	-- Important: do NOT let a stale/high source re-enable Smite or Mind Blast.
@@ -4486,8 +4829,9 @@ end
 
 local function SmiteShouldWand(s, mana)
 	local threshold = WandManaThreshold(s)
+	if not WandAvailable(s) then return false, threshold end
 
-	-- Exact semantics:
+	-- With an available wand, preserve the exact slider semantics:
 	--   mana <= slider -> Smite is blocked
 	--   mana > slider  -> Smite may be used
 	--   unreadable     -> fail closed and block Smite
@@ -4495,7 +4839,7 @@ local function SmiteShouldWand(s, mana)
 		return true, threshold, "Smite mana unavailable"
 	end
 
-	if mana <= threshold then
+	if ManaAtOrBelow(mana, threshold) then
 		return true, threshold,
 			"Shoot instead of Smite: "
 				.. tostring(math.floor(mana + 0.5))
@@ -4510,17 +4854,30 @@ local lastMindBlastManaPct = nil
 
 local function MindBlastLowManaMode(s, mana)
 	local threshold = MindBlastManaThreshold(s)
+	if not WandAvailable(s) then
+		mindBlastShootModeActive = false
+		return false, mana, threshold
+	end
 
 	if type(mana) == "number" then
 		lastMindBlastManaPct = mana
-		mindBlastShootModeActive = mana <= threshold
+		mindBlastShootModeActive = ManaAtOrBelow(mana, threshold)
 	elseif type(lastMindBlastManaPct) == "number" then
-		mindBlastShootModeActive = lastMindBlastManaPct <= threshold
+		mindBlastShootModeActive = ManaAtOrBelow(lastMindBlastManaPct, threshold)
 	else
 		mindBlastShootModeActive = true
 	end
 
 	return mindBlastShootModeActive, lastMindBlastManaPct, threshold
+end
+
+local function FillerManaShortage(name)
+	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[name]
+	local id = type(ref) == "table" and ReadableNumber(ref.id) or name
+	local reader = C_Spell and C_Spell.IsSpellUsable or IsUsableSpell
+	if type(reader) ~= "function" then return false end
+	local ok, usable, shortage = pcall(reader, id)
+	return ok and SafeValue(shortage) and shortage == true
 end
 
 local function ResolveFiller(s, filler, mana, reason)
@@ -4542,33 +4899,24 @@ local function ResolveFiller(s, filler, mana, reason)
 		return filler, reason or "filler"
 	end
 
-	local wand, wandReason = Wand(s, "filler unavailable")
-	if wand then return wand, wandReason end
-	return nil, "Out of mana"
+	-- A temporary restriction (including the GCD) is not a mana shortage.
+	-- Keep waiting for the selected filler instead of restarting the wand.
+	if FillerManaShortage(filler) then
+		local wand, wandReason = Wand(s, "Out of mana")
+		if wand then return wand, wandReason end
+		return nil, "Out of mana"
+	end
+	return nil, "Waiting for " .. filler
 end
 
 local function ResolveMindBlast(s, role, mana, reason)
 	if role ~= "SHADOW" or not s.mindBlast then return nil end
 
-	local lowMana, decisionMana, threshold = MindBlastLowManaMode(s, mana)
+	local lowMana = MindBlastLowManaMode(s, mana)
 
-	-- Absolute interlock: the wand check only decides the replacement action.
-	-- It can never re-enable Mind Blast.
+	-- This slider gates Mind Blast only. Continue to the normal filler so its
+	-- own mana threshold decides whether to use Smite or Shoot.
 	if lowMana then
-		local reasonText
-		if type(decisionMana) == "number" then
-			reasonText =
-				"Shoot instead of Mind Blast: "
-					.. tostring(math.floor(decisionMana + 0.5))
-					.. "% <= " .. tostring(threshold) .. "%"
-		else
-			reasonText = "Mind Blast mana unavailable"
-		end
-
-		local wand, why = Wand(s, reasonText)
-		if wand then return wand, why end
-
-		-- If wand detection fails, still do not permit Mind Blast.
 		return nil, "Mind Blast blocked by mana gate"
 	end
 
@@ -4942,10 +5290,16 @@ local function Opener(s, role, mana, targetHP, moving)
 		return nil, "Stop moving"
 	end
 
+	if TargetAtOrBelow(targetHP, SettingNumber(s, "wandTargetHP", 20, 0, 80)) then
+		local wand, why = Wand(s, "wand finish")
+		if wand or why then return wand, why end
+	end
+
 	local mindBlast, mindBlastReason = ResolveMindBlast(s, role, mana, "ranged pull")
 	if mindBlast then return mindBlast, mindBlastReason end
 
 	if role == "SMITE" and s.holyFire and ReadyUsable("Holy Fire")
+		and TargetWorthAtLeast(targetHP, SettingNumber(s, "dotMinTargetHP", 35, 0, 100))
 		and not AL.HasDebuff("target", "Holy Fire") then
 		return "Holy Fire", "ranged pull"
 	end
@@ -5065,8 +5419,7 @@ local function Offense(s, role, mana, targetHP, moving)
 
 	-- Preserve the newest rev's target-health wand finisher. This is independent
 	-- of the hard Smite/Mind Blast mana interlocks below.
-	if type(targetHP) == "number"
-		and targetHP <= SettingNumber(s, "wandTargetHP", 20, 0, 100)
+	if TargetAtOrBelow(targetHP, SettingNumber(s, "wandTargetHP", 20, 0, 80))
 		and not moving
 	then
 		local wand, wandReason = Wand(s, "wand finish")
@@ -5122,7 +5475,7 @@ local priestDebug = {
 }
 
 local function FinalManaGuard(s, spell, reason, mana)
-	if spell ~= "Smite" and spell ~= "Mind Blast" then
+	if not WandAvailable(s) or spell ~= "Smite" and spell ~= "Mind Blast" then
 		return spell, reason
 	end
 
@@ -5135,7 +5488,7 @@ local function FinalManaGuard(s, spell, reason, mana)
 
 	-- Fail CLOSED. If current mana cannot be established, Smite/Mind Blast
 	-- are forbidden rather than allowed through.
-	local blocked = type(mana) ~= "number" or mana <= threshold
+	local blocked = ManaAtOrBelow(mana, threshold)
 
 	if spell == "Smite" then
 		priestDebug.smiteThreshold = threshold
@@ -5160,10 +5513,11 @@ local function FinalManaGuard(s, spell, reason, mana)
 	return spell, reason
 end
 
-local function ComputeNextSpell(s, inCombat, hostile)
+local function ComputeNextSpell(s, inCombat, hostile, manaOverride)
 	local role = Role(s)
 	local playerHP = PlayerHealthPercent()
-	local mana = GateManaPercent()
+	local mana = manaOverride
+	if mana == nil then mana = GateManaPercent() end
 	if type(mana) ~= "number" then
 		mana = TrackedManaPercent()
 	end
@@ -5177,10 +5531,6 @@ local function ComputeNextSpell(s, inCombat, hostile)
 		if prep then return prep, prepReason end
 		local recovery, recoveryReason = SelfRecovery(s, false, hostile, playerHP, moving)
 		if recovery then return recovery, recoveryReason end
-		if s.drink and type(mana) == "number"
-			and mana <= SettingNumber(s, "drinkMana", 35, 0, 80) then
-			return nil, "Drink"
-		end
 		if not hostile then return nil, "Ready" end
 		return Opener(s, role, mana, targetHP, moving)
 	end
@@ -5358,6 +5708,8 @@ shadow.baseCooldowns={ ["Mind Blast"]=8,["Devouring Plague"]=24,["Vampiric Embra
     ["Berserking"]=180,["Eureka!"]=120,["Elune's Light"]=180,["Silence"]=45,
     ["Psychic Scream"]=30,["Fade"]=30,["Penance"]=12 }
 function shadow.Ready(name)
+    -- Share successful Fade history with Leveling, including build switches.
+    if name=="Fade" then return shadow.Bool((shadow.Call(AL.IsReady,name)))==true end
     local record=shadow.cooldowns[name]
     if record and GetTime()-record.at<0.5 then return false end
     local info=shadow.Call(C_Spell and C_Spell.GetSpellCooldown,shadow.ID(name) or name)
@@ -5394,13 +5746,19 @@ function shadow.Offer(name,reason,gates,exitForm)
     local conditions={}
     for _,gate in ipairs(gates or {}) do conditions[#conditions+1]=gate end
     conditions[#conditions+1]=exitForm and true or shadow.Affordable(name,shadow.mana)
+    if name=="Shoot" and type(AL.WandReady)=="function" then
+        local ready,wait=AL.WandReady()
+        if not ready then return shadow.Add(nil,wait,conditions) end
+    end
     if name~="Shoot" and shadow.Wanding() and shadow.Known("Shoot") then
-        if GetTime()<(shadow.wandStopUntil or 0) then return shadow.Add(nil,"Stopping wand",conditions) end
+        local canStop=type(AL.WandReady)~="function" or AL.WandReady(true)
+        if not canStop or GetTime()<(shadow.wandStopUntil or 0) then return shadow.Add(nil,"Stopping wand",conditions) end
         return shadow.Add("Shoot","Stop wand for "..name,conditions)
     end
     return shadow.Add(name,reason,conditions)
 end
 function shadow.Wanding()
+    if type(AL.WandAutoRepeatActive)=="function" then return AL.WandAutoRepeatActive() end
     if shadow.shootAt and GetTime()-shadow.shootAt<0.6 then return shadow.shooting==true end
     return shadow.Bool((shadow.Call(IsAutoRepeatSpell,5019)))==true or shadow.Bool((shadow.Call(IsCurrentSpell,5019)))==true
         or wandEventActive==true
@@ -5532,14 +5890,22 @@ function shadow.Burst(s,mana,hp,targetHP,moving)
     local stacks=auras["Shadow Weaving"] and auras["Shadow Weaving"].stacks
     local established=stacks~=nil and stacks>=5 or stacks==nil and not complete and GetTime()-(shadow.combatAt or GetTime())>=8
     if not established or not shadow.Active("Shadow Word: Pain",true) then return end
-    gates[#gates+1]=shadow.MP(mana,shadow.Setting(s,"mindBlastMana",50,0,100),false,true)
+    gates[#gates+1]=shadow.AboveWandThreshold(s,mana,"mindBlastMana",50)
     if shadow.Enabled(s,"shadowRacials") then
         shadow.Offer("Eureka!","Shadow Burst",gates);shadow.Offer("Elune's Light","Shadow Burst",gates);shadow.Offer("Berserking","Shadow Burst",gates)
     end
     if shadow.Enabled(s,"shadowInnerFocus") and not shadow.Active("Inner Focus",false) then shadow.Offer("Inner Focus","Inner Focus for Mind Blast",gates) end
 end
+function shadow.WandAvailable(s)
+    return shadow.Enabled(s,"wand") and shadow.Known("Shoot")
+        and shadow.Bool((shadow.Call(AL.WandEquipped)))==true
+end
+function shadow.AboveWandThreshold(s,mana,key,fallback)
+    if not shadow.WandAvailable(s) then return true end
+    return shadow.MP(mana,shadow.Setting(s,key,fallback,0,100),false,true)
+end
 function shadow.Wand(s,reason,gates)
-    if shadow.Enabled(s,"wand") and shadow.Bool((shadow.Call(AL.WandEquipped)))==true then shadow.Offer("Shoot",reason,gates) end
+    if shadow.WandAvailable(s) then shadow.Offer("Shoot",reason,gates) end
 end
 function shadow.NextSpell(s,inCombat,hostile)
     shadow.decision={at=GetTime(),actions={}}
@@ -5575,12 +5941,11 @@ function shadow.NextSpell(s,inCombat,hostile)
                 if shadow.Enabled(s,"divineSpirit") and not shadow.Active(DIVINE_SPIRIT,false) then shadow.Offer(DIVINE_SPIRIT,"Divine Spirit") end
                 if shadow.Enabled(s,"innerfire") and not shadow.Active("Inner Fire",false) then shadow.Offer("Inner Fire","Inner Fire") end
             end
-            if shadow.Enabled(s,"drink") then shadow.Add(nil,"Drink",{shadow.MP(mana,shadow.Setting(s,"drinkMana",35,0,80),true)}) end
         end
         if hostile then
             if shadow.Enabled(s,"shadowForm") and form==false then shadow.Offer("Shadowform","Shadow form") end
             if not inCombat and not moving and shadow.Enabled(s,"mindBlast") then
-                shadow.Offer("Mind Blast","Ranged pull",{shadow.MP(mana,shadow.Setting(s,"mindBlastMana",50,0,100),false,true)})
+                shadow.Offer("Mind Blast","Ranged pull",{shadow.AboveWandThreshold(s,mana,"mindBlastMana",50)})
             end
             if shadow.Enabled(s,"shadowWordPain") and not shadow.Active("Shadow Word: Pain",true) then
                 shadow.Offer("Shadow Word: Pain","Shadow damage over time",{shadow.HP("target",targetHP,shadow.Setting(s,"dotMinTargetHP",35,0,100),false)})
@@ -5603,17 +5968,17 @@ function shadow.NextSpell(s,inCombat,hostile)
             if not moving then
                 shadow.Wand(s,"Wand finish",{shadow.HP("target",targetHP,shadow.Setting(s,"wandTargetHP",20,0,80),true)})
                 shadow.Wand(s,"Conserve mana",{shadow.MP(mana,shadow.Setting(s,"wandMana",25,0,100),true)})
-                if shadow.Enabled(s,"mindBlast") and shadow.Known("Mind Blast") then
-                    shadow.Wand(s,"Mind Blast mana threshold",{shadow.MP(mana,shadow.Setting(s,"mindBlastMana",50,0,100),true)})
-                end
             end
-            if not moving and shadow.Enabled(s,"mindBlast") then shadow.Offer("Mind Blast","Shadow Mind Blast",{shadow.MP(mana,shadow.Setting(s,"mindBlastMana",50,0,100),false,true)}) end
+            if not moving and shadow.Enabled(s,"mindBlast") then shadow.Offer("Mind Blast","Shadow Mind Blast",{shadow.AboveWandThreshold(s,mana,"mindBlastMana",50)}) end
             if shadow.Enabled(s,"shadowWordDeath") then shadow.Offer("Shadow Word: Death","Shadow Word: Death",{
                 shadow.HP("player",hp,shadow.Setting(s,"shadowDeathMinHP",50,20,95),false,true)}) end
             if not moving then
                 if shadow.Enabled(s,"shadowMindFlay") then shadow.Offer("Mind Flay","Shadow filler") end
                 -- Forever Shadowform blocks healing, not offensive Smite.
-                shadow.Offer("Smite","Learned leveling fallback",{shadow.MP(mana,shadow.Setting(s,"wandMana",25,0,100),false,true)})
+                shadow.Offer("Smite","Learned leveling fallback",{shadow.AboveWandThreshold(s,mana,"wandMana",25)})
+                local filler = shadow.Enabled(s,"shadowMindFlay") and shadow.Known("Mind Flay") and "Mind Flay"
+                    or shadow.Known("Smite") and "Smite"
+                if filler and not FillerManaShortage(filler) then shadow.Add(nil,"Waiting for "..filler) end
                 shadow.Wand(s,"Conserve mana")
             end
         end
@@ -5627,7 +5992,6 @@ end
 function M.NextSpell(s, inCombat, hostile)
     M.NormalizeBuild(s)
 	-- Existing saved profiles may be used before the menu first fills defaults.
-	if type(s) == "table" and (not s.divineSpiritIconInitialized or not s.penanceIconInitialized) then AL.FillDefaults(s, "PRIEST") end
 	if shadow.Enabled(s,"shadow") then return shadow.NextSpell(s,inCombat,hostile) end
     shadow.decision=nil
 	if GetTime() < penance.channelUntil then return nil, "Channeling" end
@@ -5644,9 +6008,9 @@ function M.NextSpell(s, inCombat, hostile)
 	priestDebug.smiteThreshold = WandManaThreshold(s)
 	priestDebug.mindBlastThreshold = MindBlastManaThreshold(s)
 	priestDebug.smiteBlocked =
-		type(mana) ~= "number" or mana <= priestDebug.smiteThreshold
+		WandAvailable(s) and (ManaAtOrBelow(mana, priestDebug.smiteThreshold))
 	priestDebug.mindBlastBlocked =
-		type(mana) ~= "number" or mana <= priestDebug.mindBlastThreshold
+		WandAvailable(s) and (ManaAtOrBelow(mana, priestDebug.mindBlastThreshold))
 
 	local spell, reason = ComputeNextSpell(s, inCombat, hostile)
 	priestDebug.candidate = spell
@@ -5757,8 +6121,8 @@ function M.ManaGateState()
 
 	local smiteThreshold = WandManaThreshold(profile)
 	local mindBlastThreshold = MindBlastManaThreshold(profile)
-	local smiteBlocked = type(mana) ~= "number" or mana <= smiteThreshold
-	local mindBlastBlocked = type(mana) ~= "number" or mana <= mindBlastThreshold
+	local smiteBlocked = WandAvailable() and (ManaAtOrBelow(mana, smiteThreshold))
+	local mindBlastBlocked = WandAvailable() and (ManaAtOrBelow(mana, mindBlastThreshold))
 
 	return {
 		mana = mana,
@@ -5860,7 +6224,7 @@ function M.MindBlastState()
 	local lowMana = mindBlastShootModeActive
 
 	if type(lastMindBlastManaPct) == "number" then
-		lowMana = lastMindBlastManaPct <= threshold
+		lowMana = ManaAtOrBelow(lastMindBlastManaPct, threshold)
 	end
 
 	return {
@@ -5868,7 +6232,7 @@ function M.MindBlastState()
 		threshold = threshold,
 		mana = lastMindBlastManaPct,
 		lowMana = lowMana,
-		decision = lowMana and "SHOOT/BLOCK" or "MIND BLAST",
+		decision = WandAvailable(profile) and lowMana and "SKIP" or "MIND BLAST",
 	}
 end
 
@@ -5876,7 +6240,7 @@ function M.WandState()
 	local profile = AL.S()
 	local mana = GateManaPercent()
 	local threshold = WandManaThreshold(profile)
-	local lowMana = type(mana) ~= "number" or mana <= threshold
+	local lowMana = ManaAtOrBelow(mana, threshold)
 
 	return {
 		equipped = WandEquipped(),
@@ -5889,7 +6253,7 @@ function M.WandState()
 		trackedLastCost = trackedLastCost,
 		trackedSource = trackedSource,
 		lowMana = lowMana,
-		decision = WandEquipped() and lowMana and "SHOOT" or "SMITE",
+		decision = WandAvailable() and lowMana and "SHOOT" or "SMITE",
 	}
 end
 
@@ -5910,7 +6274,7 @@ end
 local touchTracker = CreateFrame("Frame")
 for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
 	"UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "COMBAT_LOG_EVENT_UNFILTERED",
-	"PLAYER_DEAD", "PLAYER_ENTERING_WORLD" }) do pcall(touchTracker.RegisterEvent, touchTracker, event) end
+	"PLAYER_DEAD", "PLAYER_ENTERING_WORLD" }) do if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(touchTracker.RegisterEvent, touchTracker, event) end end
 touchTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if AL.playerClass ~= "PRIEST" then return end
 	if event == "PLAYER_DEAD" or event == "PLAYER_ENTERING_WORLD" then
@@ -6340,7 +6704,7 @@ for _,event in ipairs({"UNIT_SPELLCAST_SENT","UNIT_SPELLCAST_SUCCEEDED","UNIT_SP
     "UNIT_SPELLCAST_CHANNEL_START","UNIT_SPELLCAST_CHANNEL_STOP","UNIT_SPELLCAST_FAILED","UNIT_SPELLCAST_FAILED_QUIET","UNIT_SPELLCAST_INTERRUPTED",
     "PLAYER_STARTED_MOVING","PLAYER_STOPPED_MOVING","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED","PLAYER_TARGET_CHANGED","UNIT_AURA",
     "UPDATE_SHAPESHIFT_FORM","START_AUTOREPEAT_SPELL","STOP_AUTOREPEAT_SPELL","PLAYER_DEAD","PLAYER_ENTERING_WORLD","PLAYER_LOGIN","SPELLS_CHANGED","CHARACTER_POINTS_CHANGED","PLAYER_TALENT_UPDATE","COMBAT_LOG_EVENT_UNFILTERED"}) do
-    pcall(shadow.observer.RegisterEvent,shadow.observer,event)
+    if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(shadow.observer.RegisterEvent,shadow.observer,event) end
 end
 shadow.observer:SetScript("OnEvent",shadow.Observe)
 

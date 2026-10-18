@@ -4,7 +4,7 @@ local L = AL.L
 -- ============================================================================
 -- ActionLITE - Trainer.lua
 -- ----------------------------------------------------------------------------
--- Rappel des sorts et rangs a apprendre chez le maitre de classe.
+-- Manual report of spells and ranks available from the class trainer.
 -- ============================================================================
 
 local function Level(v)
@@ -67,28 +67,3 @@ function AL.ReportTrainable(playerLevel, quietWhenEmpty)
 	if #ranks > 0 then AL.Say(L("TRAIN_RANKS", "|cffffcc00" .. table.concat(ranks, ", ") .. "|r")) end
 	if #spells == 0 and #ranks == 0 and not quietWhenEmpty then AL.Say(L("TRAIN_NONE")) end
 end
-
-local function PlayerLevel()
-	local ok, lvl = pcall(UnitLevel, "player")
-	return ok and Level(lvl) or nil
-end
-
-local function Remind(playerLevel)
-	if ActionLiteDB and ActionLiteDB.trainHidden then return end
-	AL.ScanSpellbook()
-	AL.ReportTrainable(playerLevel or PlayerLevel(), true)
-end
-
-local reminded = false
-local events = CreateFrame("Frame")
-events:RegisterEvent("PLAYER_ENTERING_WORLD")
-events:RegisterEvent("PLAYER_LEVEL_UP")
-events:SetScript("OnEvent", function(_, event, level)
-	-- UnitLevel can still hold the old level while PLAYER_LEVEL_UP fires
-	if event == "PLAYER_LEVEL_UP" then
-		Remind(Level(level))
-	elseif not reminded then
-		reminded = true
-		if C_Timer and C_Timer.After then C_Timer.After(3, function() Remind() end) else Remind() end
-	end
-end)

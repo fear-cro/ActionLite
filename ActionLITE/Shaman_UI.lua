@@ -1,8 +1,8 @@
 local ADDON, AL = ...
 local UI_VERSION = "0.17.4"
 
--- Interface Shaman dediee. Les textes sont localises ici uniquement ; les
--- noms de sorts et les cles de profil restent identiques dans les deux langues.
+-- Dedicated Shaman interface. Only UI text is localized here;
+-- spell names and profile keys remain identical in both languages.
 
 local function Text(value)
 	if type(value) ~= "table" then return tostring(value or "") end
@@ -21,15 +21,13 @@ local function BuildShamanUI(page, ui)
 	if rotation and rotation.NormalizeBuild then rotation.NormalizeBuild(ui.Profile()) end
 	local theme = ui.Theme
 	local stack = ui.Body(page)
-	if AL.DPS60 then AL.DPS60.BuildUI("SHAMAN", stack, ui) end
 	local spellIDs = {}
 	for _, entry in ipairs((rotation and rotation.spells) or {}) do
 		spellIDs[entry[2]] = entry[1]
 	end
 
 	local function SpellIcon(name)
-		local override = AL.IconFor and AL.IconFor(name)
-		return override or ui.SpellIcon(name, spellIDs[name])
+		return ui.SpellIcon(name, spellIDs[name])
 	end
 
 	local function Check(card, key, label, spell, help, full)
@@ -41,7 +39,6 @@ local function BuildShamanUI(page, ui)
 			onChange = function()
 				local profile=ui.Profile()
 				if key=="elemental" or key=="enhancement" or key=="leveling" then rotation.SetBuild(key,profile[key]==true,profile) end
-				if (key=="elemental" or key=="enhancement" or key=="leveling") and AL.UpdateRoleText then AL.UpdateRoleText() end
 				ui.Repaint()
 			end,
 		})
@@ -83,17 +80,17 @@ local function BuildShamanUI(page, ui)
 				ui.Profile()[key] = value
 				if key == "shamanRole" and value == "ELEMENTAL" then ui.Profile().enhancement = false end
 				if key == "shamanRole" then ui.Profile().elemental = false; rotation.NormalizeBuild(ui.Profile()) end
-				if AL.UpdateRoleText then AL.UpdateRoleText() end
 			end,
 			onSelect = ui.Repaint,
 		})
 	end
 
-	local levelingCard = ui.Card(stack, "LEVELING ROTATION", "Original class rotation")
+	local levelingCard = ui.Card(stack, "LEVELING ROTATION", "Original class rotation", { id="levelingCard", build="leveling", group="damage" })
 	Check(levelingCard, "leveling", "Leveling Rotation", "Lightning Bolt", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected.", true)
 
+	local levelingPreferences=ui.Card(stack,"LEVELING PLAYSTYLE",nil,{id="leveling-role",build="leveling",group="preparation"})
 	local roleCard = ui.Card(stack,
-		Text({ en = "SHAMAN SPECIALIZATION", fr = "SPECIALISATION DU CHAMAN", pt = "ESPECIALIZAÇÃO DO XAMÃ", es = "ESPECIALIZACIÓN DEL CHAMÁN", de = "SCHAMANEN-SPEZIALISIERUNG", zh = "萨满祭司专精" }),
+		Text({ en = "ENHANCEMENT DAMAGE", fr = "SPECIALISATION DU CHAMAN", pt = "ESPECIALIZAÇÃO DO XAMÃ", es = "ESPECIALIZACIÓN DEL CHAMÁN", de = "SCHAMANEN-SPEZIALISIERUNG", zh = "萨满祭司专精" }),
 		Text({
 			en = "The selected specialization changes the real priority, weapon enchant, totems and mana policy.",
 			fr = "La specialisation choisie change reellement la priorite, l'enchantement, les totems et la gestion du mana.",
@@ -101,20 +98,21 @@ local function BuildShamanUI(page, ui)
 			es = "La especialización elegida cambia realmente la prioridad, el encantamiento de arma, los tótems y la gestión de maná.",
 			de = "Die gewählte Spezialisierung ändert die echte Priorität, Waffenverzauberung, Totems und Mana-Strategie.",
 			zh = "所选专精会实际改变优先级、武器附魔、图腾和法力策略。",
-		}))
-	Dropdown(roleCard, "shamanRole",
+		}), { id="roleCard", build="enhancement", group="damage" })
+	Dropdown(levelingPreferences, "shamanRole",
 		{ en = "Active rotation", fr = "Rotation active", pt = "Rotação ativa", es = "Rotación activa", de = "Aktive Rotation", zh = "当前循环" }, {
 			{ label = { en = "Enhancement melee", fr = "Amelioration melee", pt = "Aperfeiçoamento corpo a corpo", es = "Mejora cuerpo a cuerpo", de = "Verstärkung Nahkampf", zh = "增强近战" }, value = "ENHANCEMENT" },
 			{ label = { en = "Elemental caster", fr = "Elementaire distance", pt = "Elemental conjurador", es = "Elemental lanzador", de = "Elementar Zauberer", zh = "元素施法" }, value = "ELEMENTAL" },
 		}, "ENHANCEMENT")
 	Check(roleCard, "enhancement", "Use Enhancement (18/33/0)", "Stormstrike",
 		"Uses the level 60 Enhancement priority with your learned spells and turns Use Elemental off. Overrides Active rotation while checked; unchecking selects Leveling Rotation, using the Active rotation choice. It does not change your talents or equipment.", true)
-	ui.Info(roleCard, "18/33/0: Stormstrike, confirmed instant Maelstrom Lightning Bolt, Searing Totem, Flame Shock and Earth Shock. In melee, ordinary Lightning Bolt is withheld to preserve weapon swings. Existing spell permissions and sliders apply.")
+	ui.Help(roleCard, "18/33/0: Stormstrike, confirmed instant Maelstrom Lightning Bolt, Searing Totem, Flame Shock and Earth Shock. In melee, ordinary Lightning Bolt is withheld to preserve weapon swings. Existing spell permissions and sliders apply.")
 	Check(roleCard, "enhancementMaelstrom", "Use instant Maelstrom Lightning Bolt", "Lightning Bolt",
 		"Requires readable instant cast time, or five readable Maelstrom stacks with five learned talent points. Uses the Lightning Bolt checkbox and mana slider.")
-	Check(roleCard, "enhancementRage", "Rage of the Farseer (Burst)", "Rage of the Farseer",
+	local enhancementBurst=ui.Card(stack,"ENHANCEMENT BURST",nil,{id="enhancement-burst",build="enhancement",group="burst"})
+	Check(enhancementBurst, "enhancementRage", "Rage of the Farseer (Burst)", "Rage of the Farseer",
 		"Only in combat, in melee, with Burst On and the Burst target-health threshold met.")
-	Check(roleCard, "enhancementRacials", "Racial cooldowns (Burst)", "Blood Fury",
+	Check(enhancementBurst, "enhancementRacials", "Racial cooldowns (Burst)", "Blood Fury",
 		"Learned Blood Fury or Berserking only, with Burst On and the Burst target-health threshold met.")
 	Dropdown(roleCard, "enhancementAirTotem", "Enhancement air totem", {
 		{ label="Automatic: Windfury / Grace of Air", value="AUTO" },
@@ -122,9 +120,9 @@ local function BuildShamanUI(page, ui)
 		{ label="Grace of Air Totem", value="GRACE" },
 		{ label="Disabled", value="OFF" },
 	}, "AUTO")
-	ui.Info(roleCard, "Enhancement AUTO uses Rockbiter Weapon, Strength of Earth, Windfury and Mana Spring. With Windfury Weapon, the automatic air totem changes to Grace of Air. Manual weapon and totem choices take precedence. Totems require Maintain combat totems.")
+	ui.Help(roleCard, "Enhancement AUTO uses Rockbiter Weapon, Strength of Earth, Windfury and Mana Spring. With Windfury Weapon, the automatic air totem changes to Grace of Air. Manual weapon and totem choices take precedence. Totems require Maintain combat totems.")
 
-	local elemental=ui.Card(stack,"ELEMENTAL - 31/7/13","Ranged spell rotation with learned spells through level 60.")
+	local elemental=ui.Card(stack,"ELEMENTAL - 31/7/13","Ranged spell rotation with learned spells through level 60.", { id="elemental", build="elemental", group="damage" })
 	Check(elemental,"elemental","Use Elemental (31/7/13)","Lava Burst",
 		"Select Elemental and turn off Use Enhancement. Selecting Enhancement turns Elemental off. Other settings and icon choices are preserved; Leveling Rotation uses the earlier Active rotation choice. This does not change your talents or equipment.",true)
 	Check(elemental,"elementalLavaBurst","Use Lava Burst","Lava Burst",
@@ -133,17 +131,18 @@ local function BuildShamanUI(page, ui)
 		"At or above this player mana percentage. Actual spell affordability is also required. Lightning Bolt retains its separate minimum-mana slider.")
 	Check(elemental,"elementalWaterShield","Prefer learned Water Shield","Water Shield",
 		"Requires Maintain shield and an actually learned Water Shield. Otherwise uses learned Lightning Shield. The reference 31/7/13 build does not learn Water Shield; its checkbox never invents a talent.")
-	Check(elemental,"elementalMastery","Elemental Mastery during Burst","Elemental Mastery",
+	local elementalBurst=ui.Card(stack,"ELEMENTAL BURST",nil,{id="elemental-burst",build="elemental",group="burst"})
+	Check(elementalBurst,"elementalMastery","Elemental Mastery during Burst","Elemental Mastery",
 		"Requires the learned spell, Burst On and the mana/target-health thresholds. Tracks its fifteen-second effect and releases Chain Lightning's cooldown during the effect; Chain Lightning still requires AoE On.")
-	Check(elemental,"elementalRacials","Elemental racials during Burst","Berserking",
+	Check(elementalBurst,"elementalRacials","Elemental racials during Burst","Berserking",
 		"Learned Blood Fury or Berserking only with Burst On, spell range and the Burst target-health threshold. No item or consumable use. The default Tauren preset has no offensive racial cooldown to add.")
-	ui.Info(elemental,"Normal damage: maintain your own missing Flame Shock, use ready Lava Burst, then repeat Lightning Bolt while stationary. At melee distance Elemental remains a caster. Earth/Frost Shocks provide instant fallbacks during movement or when the main casts are disabled or unavailable; Earth Shock still interrupts with its separate control.")
-	ui.Info(elemental,"AoE spells require AoE On and enough confirmed engaged enemies. Chain Lightning can be used at spell range; Fire Nova and Magma require confirmed enemies within eight yards. Searing Totem is used only when its target is confirmed within twenty yards. Existing mana, target-health, totem and spell controls apply.")
+	ui.Help(elemental,"Normal damage: maintain your own missing Flame Shock, use ready Lava Burst, then repeat Lightning Bolt while stationary. At melee distance Elemental remains a caster. Earth/Frost Shocks provide instant fallbacks during movement or when the main casts are disabled or unavailable; Earth Shock still interrupts with its separate control.")
+	ui.Help(elemental,"AoE spells require AoE On and enough confirmed engaged enemies. Chain Lightning can be used at spell range; Fire Nova and Magma require confirmed enemies within eight yards. Searing Totem is used only when its target is confirmed within twenty yards. Existing mana, target-health, totem and spell controls apply.")
 
 	local steel = { 0.72, 0.62, 0.50, 1 }
 	local head = ui.Card(stack,
 		Text({ en = "SHAMAN - LIVE STATUS", fr = "CHAMAN - ETAT EN DIRECT", pt = "XAMÃ - STATUS AO VIVO", es = "CHAMÁN - ESTADO EN VIVO", de = "SCHAMANE - LIVE-STATUS", zh = "萨满祭司 - 实时状态" }),
-		Text({ en = "Level 1-60 - interface " .. UI_VERSION, fr = "Niveaux 1-60 - interface " .. UI_VERSION, pt = "Níveis 1-60 - interface " .. UI_VERSION, es = "Niveles 1-60 - interfaz " .. UI_VERSION, de = "Stufe 1-60 - Interface " .. UI_VERSION, zh = "等级 1-60 - 界面 " .. UI_VERSION }))
+		Text({ en = "Level 1-60 - interface " .. UI_VERSION, fr = "Niveaux 1-60 - interface " .. UI_VERSION, pt = "Níveis 1-60 - interface " .. UI_VERSION, es = "Niveles 1-60 - interfaz " .. UI_VERSION, de = "Stufe 1-60 - Interface " .. UI_VERSION, zh = "等级 1-60 - 界面 " .. UI_VERSION }), { id="head", group="status", status=true })
 	local rowA = ui.BadgeRow(head, 3)
 	local rowB = ui.BadgeRow(head, 3)
 	local rowC = ui.BadgeRow(head, 3)
@@ -154,7 +153,7 @@ local function BuildShamanUI(page, ui)
 		weapon = rowC.badges[1], earth = rowC.badges[2], water = rowC.badges[3],
 		fire = rowD.badges[1], aoe = rowD.badges[2], burst = rowD.badges[3],
 	}
-	ui.Info(head, Text({
+	ui.Help(head, Text({
 		en = "Forever may protect health, mana, auras and enemy counts. Unknown values stay unknown and optional AoE is withheld.",
 		fr = "Forever peut proteger la vie, le mana, les auras et le nombre d'ennemis. Les valeurs inconnues restent inconnues et l'AoE optionnelle est retenue.",
 		pt = "Forever pode proteger vida, mana, auras e contagem de inimigos. Valores desconhecidos continuam desconhecidos e o AoE opcional é retido.",
@@ -164,10 +163,10 @@ local function BuildShamanUI(page, ui)
 	}), { justify = "CENTER" })
 
 	local maintenance = ui.Card(stack,
-		Text({ en = "SHIELDS, WEAPON & TOTEMS", fr = "BOUCLIER, ARME ET TOTEMS", pt = "ESCUDOS, ARMA E TOTENS", es = "ESCUDOS, ARMA Y TÓTEMS", de = "SCHILDE, WAFFE & TOTEMS", zh = "护盾、武器和图腾" }))
+		Text({ en = "SHIELDS, WEAPON & TOTEMS", fr = "BOUCLIER, ARME ET TOTEMS", pt = "ESCUDOS, ARMA E TOTENS", es = "ESCUDOS, ARMA Y TÓTEMS", de = "SCHILDE, WAFFE & TOTEMS", zh = "护盾、武器和图腾" }), nil, { id="maintenance", group="preparation" })
 	Check(maintenance, "shield",
 		{ en = "Maintain shield (automatic)", fr = "Maintenir le bouclier (automatique)", pt = "Manter escudo (automático)", es = "Mantener escudo (automático)", de = "Schild halten (automatisch)", zh = "自动保持护盾" }, "Lightning Shield")
-	ui.Info(maintenance, "The Elemental build prefers Water Shield only when learned and its preference is enabled; otherwise it uses Lightning Shield. Enhancement uses Lightning Shield. Shield and spell permissions still apply.")
+	ui.Help(maintenance, "The Elemental build prefers Water Shield only when learned and its preference is enabled; otherwise it uses Lightning Shield. Enhancement uses Lightning Shield. Shield and spell permissions still apply.")
 	Check(maintenance, "weapon",
 		{ en = "Maintain weapon enchant", fr = "Maintenir l'enchantement d'arme", pt = "Manter encantamento de arma", es = "Mantener encantamiento de arma", de = "Waffenverzauberung halten", zh = "维持武器附魔" }, "Windfury Weapon")
 	Dropdown(maintenance, "weaponMode",
@@ -198,7 +197,7 @@ local function BuildShamanUI(page, ui)
 		{ en = "Totem minimum target health", fr = "Vie cible minimum pour les totems", pt = "Vida mínima do alvo para totens", es = "Vida mínima del objetivo para tótems", de = "Totem Mindest-Zielgesundheit", zh = "图腾目标最低生命值" }, 0, 100, 45, " %")
 
 	local offense = ui.Card(stack,
-		Text({ en = "COMBAT PRIORITY", fr = "PRIORITE DE COMBAT", pt = "PRIORIDADE DE COMBATE", es = "PRIORIDAD DE COMBATE", de = "KAMPFPRIORITÄT", zh = "战斗优先级" }))
+		Text({ en = "COMBAT PRIORITY", fr = "PRIORITE DE COMBAT", pt = "PRIORIDADE DE COMBATE", es = "PRIORIDAD DE COMBATE", de = "KAMPFPRIORITÄT", zh = "战斗优先级" }), nil, { id="offense", group="damage" })
 	Check(offense, "interrupt",
 		{ en = "Earth Shock interrupt", fr = "Interruption avec Earth Shock", pt = "Interromper com Earth Shock", es = "Interrumpir con Earth Shock", de = "Earth Shock unterbricht", zh = "Earth Shock 打断" }, "Earth Shock",
 		{ en = "Always checked before healing, maintenance and damage.", fr = "Toujours verifie avant les soins, la maintenance et les degats.", pt = "Sempre verificado antes de cura, manutenção e dano.", es = "Siempre se comprueba antes de sanación, mantenimiento y daño.", de = "Wird immer vor Heilung, Pflege und Schaden geprüft.", zh = "始终在治疗、维持和伤害之前检查。" }, true)
@@ -209,8 +208,8 @@ local function BuildShamanUI(page, ui)
 	Check(offense, "frostshock",
 		{ en = "Frost Shock on low-health targets", fr = "Frost Shock sur cible faible", pt = "Frost Shock em alvos com pouca vida", es = "Frost Shock en objetivos con poca vida", de = "Frost Shock bei schwachen Zielen", zh = "对低生命目标使用 Frost Shock" }, "Frost Shock")
 	Check(offense, "lightningbolt", "Lightning Bolt", "Lightning Bolt")
-	ui.Info(offense, "With Use Enhancement (18/33/0), Lightning Bolt repeats at range while stationary; in melee it requires confirmed instant casting. Earth Shock is the default damage shock after Flame Shock; Frost Shock remains the low-health fallback when Earth Shock is unavailable or disabled.")
-	ui.Info(offense, Text({
+	ui.Help(offense, "With Use Enhancement (18/33/0), Lightning Bolt repeats at range while stationary; in melee it requires confirmed instant casting. Earth Shock is the default damage shock after Flame Shock; Frost Shock remains the low-health fallback when Earth Shock is unavailable or disabled.")
+	ui.Help(offense, Text({
 		en = "Lightning Bolt opens at range in both specializations. Enhancement repeats it while stationary at range and uses it after melee priorities. Start Attack is a melee fallback. Red indicates out of range when range coloring is enabled.",
 		fr = "Eclair ouvre a distance dans les deux specialisations. Amelioration le repete immobile a distance et l'utilise apres les priorites de melee. Start Attack sert de repli au contact. Le rouge indique hors de portee si la coloration est activee.",
 		pt = "Lightning Bolt abre à distância nas duas especializações. Aperfeiçoamento o repete parado à distância e o usa após as prioridades corpo a corpo. Start Attack é o recurso corpo a corpo. Vermelho indica fora de alcance quando a coloração de alcance está ativada.",
@@ -228,7 +227,7 @@ local function BuildShamanUI(page, ui)
 		{ en = "Frost Shock below target health", fr = "Frost Shock sous cette vie cible", pt = "Frost Shock abaixo desta vida do alvo", es = "Frost Shock bajo esta vida del objetivo", de = "Frost Shock unter Zielgesundheit", zh = "目标生命低于此值时 Frost Shock" }, 0, 100, 25, " %")
 
 	local survival = ui.Card(stack,
-		Text({ en = "HEALING & RECOVERY", fr = "SOINS ET RECUPERATION", pt = "CURA E RECUPERAÇÃO", es = "SANACIÓN Y RECUPERACIÓN", de = "HEILUNG & ERHOLUNG", zh = "治疗和恢复" }))
+		Text({ en = "HEALING & RECOVERY", fr = "SOINS ET RECUPERATION", pt = "CURA E RECUPERAÇÃO", es = "SANACIÓN Y RECUPERACIÓN", de = "HEILUNG & ERHOLUNG", zh = "治疗和恢复" }), nil, { id="survival", group="survival" })
 	Check(survival, "heal",
 		{ en = "Self-healing suggestions", fr = "Suggestions de soins personnels", pt = "Sugestões de autocura", es = "Sugerencias de autosanación", de = "Selbstheilungsvorschläge", zh = "自我治疗建议" }, "Lesser Healing Wave")
 	Slider(survival, "healHP",
@@ -246,7 +245,7 @@ local function BuildShamanUI(page, ui)
 		{ en = "Drink below mana", fr = "Boire sous ce niveau de mana", pt = "Beber abaixo desta mana", es = "Beber bajo este maná", de = "Trinken unter Mana", zh = "法力低于此值时喝水" }, 0, 80, 30, " %")
 
 	local aoe = ui.Card(stack,
-		Text({ en = "AOE & BURST", fr = "AOE ET BURST", pt = "AOE E BURST", es = "AOE Y BURST", de = "AOE & BURST", zh = "AOE 和爆发" }))
+		Text({ en = "AREA DAMAGE", fr = "AOE ET BURST", pt = "AOE E BURST", es = "AOE Y BURST", de = "AOE & BURST", zh = "AOE 和爆发" }), nil, { id="aoe", group="aoe" })
 	Check(aoe, "aoe", { en = "Enable AoE mode", fr = "Activer le mode AoE", pt = "Ativar modo AoE", es = "Activar modo AoE", de = "AoE-Modus aktivieren", zh = "启用 AoE 模式" }, nil,
 		{ en = "AoE totems require a confirmed nearby enemy count.", fr = "Les totems AoE exigent un nombre confirme d'ennemis proches.", pt = "Totens AoE exigem uma contagem confirmada de inimigos próximos.", es = "Los tótems AoE requieren un número confirmado de enemigos cercanos.", de = "AoE-Totems brauchen eine bestätigte Anzahl naher Gegner.", zh = "AoE 图腾需要已确认的附近敌人数量。" })
 	Check(aoe, "firenova", "Fire Nova / Fire Nova Totem", "Fire Nova",
@@ -264,9 +263,10 @@ local function BuildShamanUI(page, ui)
 		{ en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Mínimo de enemigos", de = "Mindestanzahl Gegner", zh = "最少敌人数" }, 2, 5, 2, "")
 	Slider(aoe, "aoeMinMana",
 		{ en = "AoE minimum mana", fr = "Mana minimum pour l'AoE", pt = "Mana mínima para AoE", es = "Maná mínimo para AoE", de = "AoE Mindest-Mana", zh = "AoE 最低法力" }, 0, 100, 30, " %")
-	Slider(aoe, "burstMinTargetHP",
+	local sharedBurst=ui.Card(stack,"BURST LIMITS",nil,{id="burst-limits",group="burst"})
+	Slider(sharedBurst, "burstMinTargetHP",
 		{ en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Vida mínima del objetivo para Burst", de = "Burst Mindest-Zielgesundheit", zh = "爆发目标最低生命值" }, 0, 100, 40, " %")
-	ui.Info(aoe, Text({
+	ui.Help(aoe, Text({
 		en = "Enhancement uses Blood Fury or Berserking in melee. Elemental only uses Berserking at spell range.",
 		fr = "Amelioration utilise Blood Fury ou Berserking en melee. Elementaire utilise uniquement Berserking a portee des sorts.",
 		pt = "Aperfeiçoamento usa Blood Fury ou Berserking corpo a corpo. Elemental usa apenas Berserking ao alcance de feitiços.",
@@ -276,8 +276,8 @@ local function BuildShamanUI(page, ui)
 	}))
 
 	local utility = ui.Card(stack,
-		Text({ en = "FOREVER SAFETY", fr = "SECURITE FOREVER", pt = "SEGURANÇA FOREVER", es = "SEGURIDAD FOREVER", de = "FOREVER-SICHERHEIT", zh = "FOREVER 安全" }))
-	ui.Info(utility, Text({
+		Text({ en = "FOREVER SAFETY", fr = "SECURITE FOREVER", pt = "SEGURANÇA FOREVER", es = "SEGURIDAD FOREVER", de = "FOREVER-SICHERHEIT", zh = "FOREVER 安全" }), nil, { id="utility", group="advanced" })
+	ui.Help(utility, Text({
 		en = "The three Shocks use one shared lock when cooldown data is protected. Purge and cleansing totems stay manual because hidden enemy/player auras are never guessed.",
 		fr = "Les trois Shocks utilisent un verrou commun lorsque les recharges sont protegees. Purge et les totems de purification restent manuels car les auras masquees ne sont jamais devinees.",
 		pt = "Os três Shocks usam um bloqueio compartilhado quando os dados de recarga estão protegidos. Purge e os totens de purificação ficam manuais porque auras ocultas de inimigos/jogador nunca são presumidas.",
@@ -310,7 +310,7 @@ local function BuildShamanUI(page, ui)
 	end
 
 	local function Paint()
-		local state = rotation and rotation.GetUIState and rotation.GetUIState() or {}
+		local state = rotation and rotation.GetUIState and ui.State() or {}
 		local profile = ui.Profile()
 		SetBadge("level", (AL.L and AL.L("LEVEL") or "LEVEL") .. " " .. tostring(state.level or "?"), steel)
 		SetBadge("health", PercentBadge("HP", state.health), type(state.health) == "number" and theme.ok or theme.gold)

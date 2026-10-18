@@ -13,8 +13,8 @@ local function BuildCheck(key,label,spell)
 	end }
 end
 
--- Les cases restent des checkbox, mais cocher l'une decoche les autres.
--- Aucune case cochee desactive les maledictions utilitaires.
+-- These remain checkboxes, but checking one unchecks the others.
+-- Leaving all unchecked disables utility curses.
 local function CurseCheck(key, spell)
 	return {
 		key = key, label = spell, spell = spell, half = false,
@@ -37,6 +37,7 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 	cards = {
         {
             title = "LEVELING ROTATION",
+            id="leveling-rotation", build="leveling", group="damage",
             controls = {
                 { key="leveling", label="Leveling Rotation", spell="Shadow Bolt", half=false,
                   tooltip={"Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected."} },
@@ -44,6 +45,7 @@ AL.RegisterSimpleClassUI("WARLOCK", {
         },
 		{
 			title = "DESTRUCTION BUILD - 11/11/29", subtitle = "MythicSim Shadow and Flame reference; learned spells through level 60.",
+			id="destruction-build-11-11-29", build="destruction", group="damage",
 			controls = {
 				BuildCheck("destruction", "Use Destruction (11/11/29)", "Conflagrate"),
 				{ type = "info", text = "Destruction, Affliction and Demonology are exclusive. Each build's options and icon assignments are kept; Leveling Rotation uses the original leveling priority. This selects priorities, without changing talents or equipment. The reference learns Conflagrate and Shadowburn, uses Shadow Bolt, and does not learn Incinerate." },
@@ -61,6 +63,7 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 		},
 		{
 			title = "DESTRUCTION BURST", subtitle = "Requires Destruction selected and Burst On at the spell icon.",
+			id="destruction-burst", build="destruction", group="burst",
 			controls = {
 				{ key = "destEureka", label = "Use Eureka!", spell = "Eureka!" },
 				{ key = "destRacials", label = "Use learned offensive racials", spell = "Blood Fury", half = false },
@@ -75,6 +78,7 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 		},
 		{
 			title = "AFFLICTION BUILD - 33/0/18", subtitle = "MythicSim default level-60 talents; learned spells through level 60.",
+			id="affliction-build-33-0-18", build="affliction", group="damage",
 			controls = {
 				BuildCheck("affliction", "Use Affliction (33/0/18)", "Corruption"),
 				{ type = "info", text = "The three Warlock builds are exclusive; each build's saved options are kept. Leveling Rotation uses the previous leveling priority. Talents and equipment are not changed. The reference keeps a Succubus and does not learn Siphon Life, Wrack or Shadowburn; optional spells require actual learning." },
@@ -92,6 +96,7 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 		},
 		{
 			title = "AFFLICTION BURST", subtitle = "Requires Affliction selected and Burst On at the spell icon.",
+			id="affliction-burst", build="affliction", group="burst",
 			controls = {
 				{ key = "affAmplifyCurse", label = "Use Amplify Curse", spell = "Amplify Curse", half = false,
 					tooltip = { "Amplify Curse", "Empowers the next eligible missing Bane of Agony. Requires its mana, range and permission checks. Never clips an active Bane or uses Amplify with an active Bane of Doom." } },
@@ -105,6 +110,7 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 		},
 		{
 			title = "DPS BUILD - DEMONOLOGY", subtitle = "MythicSim default level-60 talents: 2/31/18",
+			id="dps-build-demonology", build="demonology", group="damage",
 			controls = {
 				BuildCheck("demonology", "Use Demonology (2/31/18)", "Summon Succubus"),
 				{ type = "info", text = "Uses learned Demonology priorities and prefers Succubus when summoning a missing pet. Selecting Demonology unchecks the other builds and preserves their saved options. Talents and equipment are not changed." },
@@ -116,17 +122,19 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 		},
 		{
 			title = "DEMONOLOGY BURST", subtitle = "Requires Burst On at the spell icon; only learned abilities are used.",
+			id="demonology-burst", build="demonology", group="burst",
 			controls = {
 				{ key = "demoEureka", label = "Use Eureka!", spell = "Eureka!", tooltip = { "Eureka!", "Gnome racial. Burst On only, after the maintained DoTs, with usable Shadow Bolt and sufficient mana." } },
 				{ key = "demoDeathCoil", label = "Use Death Coil", spell = "Death Coil", tooltip = { "Death Coil", "Offensive Death Coil requires Burst On, range, cooldown and mana checks. Damages the target, restores health and causes Horror." } },
 				{ key = "demoSoulFire", label = "Use Soul Fire (optional)", spell = "Soul Fire", tooltip = { "Soul Fire", "Optional Burst cast, default OFF. Requires stationary casting, a target estimated to survive the cast, and a Soul Shard above your saved reserve. Native cooldowns take priority over the fallback." } },
-				{ key = "demoFelDomination", label = "Fel Domination for a missing pet", spell = "Fel Domination", tooltip = { "Fel Domination", "Burst On only. Speeds a learned, affordable replacement summon in combat when the pet is missing. The 2/31/18 reference does not take this talent; it is used only if you actually learned it." } },
+				{ key = "demoFelDomination", label = "Fel Domination for a missing pet", spell = "Fel Domination", tooltip = { "Fel Domination", "Burst On only. Speeds a learned, affordable replacement summon in combat when the pet is missing and the Burst target-health minimum is met. The 2/31/18 reference does not take this talent; it is used only if you actually learned it." } },
 				{ type = "slider", key = "demoBurstMinTargetHP", label = "Burst minimum target health", min = 0, max = 100, step = 5, default = 40, suffix = " %" },
 				{ type = "slider", key = "demoBurstMinMana", label = "Burst minimum mana", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 			},
 		},
 		{
 			title = "AREA DAMAGE",
+			id="area-damage", group="aoe",
 			controls = {
 				{ key = "aoe", label = "Enable AoE Mode", spell = "Rain of Fire" },
 				{ key = "rainOfFire", label = "Rain of Fire", spell = "Rain of Fire" },
@@ -138,6 +146,7 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 		},
 		{
 			title = { en = "PREPARATION", fr = "PREPARATION", pt = "PREPARAÇÃO", es = "PREPARACIÓN", de = "VORBEREITUNG", zh = "准备" },
+			id="preparation", group="preparation",
 			controls = {
 				{ key = "armor", label = { en = "Demon Armor upkeep", fr = "Maintenir Demon Armor", pt = "Manter Demon Armor", es = "Mantener Demon Armor", de = "Demon Armor halten", zh = "保持Demon Armor" }, spell = "Demon Armor" },
 				{ key = "pet", label = { en = "Summon pet", fr = "Invoquer le familier", pt = "Invocar mascote", es = "Invocar mascota", de = "Diener beschwören", zh = "召唤宠物" }, spell = "Summon Voidwalker" },
@@ -149,6 +158,7 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 		},
 		{
 			title = { en = "CURSE SELECTION", fr = "CHOIX DE MALEDICTION", pt = "SELEÇÃO DE MALDIÇÃO", es = "SELECCIÓN DE MALDICIÓN", de = "FLUCHAUSWAHL", zh = "诅咒选择" },
+			id="curse-selection", group="damage",
 			subtitle = {
 				en = "Select one curse before damage DoTs. Selecting it unchecks the others; all unchecked disables curses. An active utility curse advances to DoTs. Bane of Agony is separate.",
 				fr = "Choisissez une malediction avant les DoT. La cocher decoche les autres ; aucune coche les desactive. Une malediction utilitaire active permet de passer aux DoT. Bane of Agony reste separe.",
@@ -165,7 +175,8 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 			},
 		},
 		{
-			title = { en = "DAMAGE OVER TIME", fr = "DEGATS SUR LA DUREE", pt = "DANO CONTÍNUO", es = "DAÑO PERIÓDICO", de = "SCHADEN ÜBER ZEIT", zh = "持续伤害" },
+			title = { en = "DAMAGE SPELLS", fr = "DEGATS SUR LA DUREE", pt = "DANO CONTÍNUO", es = "DAÑO PERIÓDICO", de = "SCHADEN ÜBER ZEIT", zh = "持续伤害" },
+			id="damage-over-time", group="damage",
 			controls = {
 				{ key = "immolate", label = "Immolate", spell = "Immolate" },
 				{ key = "corruption", label = "Corruption", spell = "Corruption" },
@@ -176,6 +187,7 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 		},
 		{
 			title = { en = "SURVIVAL & RESOURCES", fr = "SURVIE ET RESSOURCES", pt = "SOBREVIVÊNCIA E RECURSOS", es = "SUPERVIVENCIA Y RECURSOS", de = "ÜBERLEBEN & RESSOURCEN", zh = "生存与资源" },
+			id="survival-resources", group="resources",
 			controls = {
 				{ key = "lifetap", label = "Life Tap", spell = "Life Tap" },
 				{ type = "slider", key = "lifeTapMana", label = {
@@ -186,13 +198,13 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 					de = "Life Tap unter Mana",
 					zh = "法力低于此值时使用Life Tap"
 				}, min = 5, max = 95, step = 5, default = 25, suffix = " %" },
-				{ type = "slider", key = "shootMana", label = {
-					en = "Shoot below mana",
-					fr = "Shoot sous ce niveau de mana",
-					pt = "Shoot abaixo desta mana",
-					es = "Shoot por debajo de este maná",
-					de = "Shoot unter Mana",
-					zh = "法力低于此值时使用Shoot"
+				{ type = "slider", key = "shootMana", icon = "Interface\\Icons\\INV_Wand_01", label = {
+					en = "Wand / Shoot below mana threshold:",
+					fr = "Baguette / Shoot sous ce seuil de mana:",
+					pt = "Varinha / Shoot abaixo do limite de mana:",
+					es = "Varita / Shoot bajo el umbral de maná:",
+					de = "Zauberstab / Shoot unter der Mana-Schwelle:",
+					zh = "法力低于阈值时使用魔杖 / Shoot："
 				}, min = 5, max = 95, step = 5, default = 25, suffix = " %", tooltip = {
 					{ en = "Shoot mana protection" },
 					{ en = "Shoot uses the higher of this slider or 10% mana. Setting the slider below 10% keeps the 10% reserve." },

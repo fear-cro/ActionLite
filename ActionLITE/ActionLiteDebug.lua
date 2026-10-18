@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-local ns = { version = "1.0.0", Errors = {} }
+local ns = { version = "1.0.2", Errors = {} }
 AL.ActionLiteDebug = ns
 local S = { state = "Stopped", ready = true, interval = 5, maxBytes = 2 * 1024 * 1024,
     maxEvents = 3000, maxSnapshots = 240, maxSeconds = 600 }
@@ -12,6 +12,13 @@ local stopping, hookedLogger = false, nil
 local lastConfig, lastState, lastCooldown = nil, nil, -100
 local eventThrottle = {}
 local P
+local automaticContexts, automaticBytes, collectingError = {}, 0, false
+local resultsRevision = 0
+
+function S.ResultsChanged()
+    resultsRevision = resultsRevision + 1
+    if ns.UI and ns.UI.MarkResultsDirty then ns.UI.MarkResultsDirty() end
+end
 
 function ns.ErrorText(value)
     if ns.Probe and ns.Probe.Public(value) and type(value) == "string" then return value:sub(1, 1000) end
@@ -28,6 +35,7 @@ function ns.Try(component, fn, ...)
     if not ok then
         local message = ns.ErrorText(result)
         ns.Errors[component] = message
+        S.ResultsChanged()
         ns.Notice(component .. ": " .. message)
         if S.state == "Recording" then S.AddEvent("Debugger error", { component = component, message = message }) end
         return false
@@ -265,7 +273,36 @@ local function AttachLogger()
     end)
     if type(logger.OnBug) == "function" then logger.OnBug(function(bug)
         if S.state == "Recording" then S.AddEvent("Lua error / taint", bug) end
+        -- Keep bounded context even when Start was never pressed. Repeated
+        -- occurrences update the logger's group, not another full snapshot.
+        P = ns.Probe
+        if not collectingError and P and ns.State and type(bug) == "table" then
+            collectingError = true
+            pcall(function()
+                local key = tostring(bug.id)
+                for _, record in ipairs(automaticContexts) do if record.key == key then return end end
+                if #automaticContexts >= 10 or automaticBytes >= 256 * 1024 then return end
+                local record = { key = key, at = Now(), error = P.Copy(bug),
+                    runtime = ns.State.Runtime(false),
+                    profile = P.Copy(ActionLiteDB and ActionLiteDB.profiles and ActionLiteDB.profiles[AL.playerClass]) }
+                local size = #P.JSON(record)
+                if automaticBytes + size <= 256 * 1024 then
+                    automaticContexts[#automaticContexts + 1], automaticBytes = record, automaticBytes + size
+                end
+            end)
+            collectingError = false
+        end
+        S.ResultsChanged()
     end) end
+end
+
+local function ErrorCounts()
+    local logger = AL.Debug
+    if type(logger) ~= "table" or type(logger.ErrorSummary) ~= "function" then return nil end
+    local ok, counts = pcall(logger.ErrorSummary)
+    local clean = ok and P.Copy(counts)
+    if type(clean) == "table" and type(clean.sessionOccurrences) == "number"
+        and P.Public(clean.sessionOccurrences) then return clean end
 end
 
 function S.Start()
@@ -294,12 +331,13 @@ function S.Start()
         client = "WoW Forever", build = build, addonVersion = P.Call("C_AddOns.GetAddOnMetadata",{ADDON,"Version"}),
         locale = P.Call("GetLocale"), class = P.Call("UnitClass",{"player"}), race = P.Call("UnitRace",{"player"}),
         recordedAt = P.Call("GetServerTime"), started = Now(), startedInCombat = enteredCombat, startPhase = Phase(),
-        componentVersions = { ui = AL.UI and AL.UI.VERSION, classUIs = P.Copy(AL.classUIVersions) },
+        componentVersions = { ui = AL.UI and AL.UI.VERSION, classUIs = P.Copy(AL.classUIVersions), buildId = AL.buildId },
         guards = { issecretvalue = type(issecretvalue)=="function", canaccessvalue = type(canaccessvalue)=="function",
             canaccesstable = type(canaccesstable)=="function" },
         eventSupport = P.Copy(ns.eventSupport),
         inventory = P.Inventory(), configurations = {}, states = {}, stateValues = {}, timeline = {}, observations = {}, snapshots = {},
         spells = {}, spellSet = {}, priorSessionErrors = {}, pauseCount = 0,
+        errorCountsAtStart = ErrorCounts(),
         notes = { "Copy/paste capture only; this report is never stored in SavedVariables or written to disk.",
             "Hidden/Inaccessible values are classified without retaining their protected contents. Missing is different from zero or false.",
             "Snapshot observation IDs reference the 1-based observations array. Repeated observations are stored once.",
@@ -307,7 +345,9 @@ function S.Start()
             "Configuration snapshots contain stored and effective class settings, all spell toggles and icon choices.",
             "Only current-state getters are queried. Rotation decisions/casts are observed; NextSpell and cast-result handlers are never invoked by this recorder.",
             "Aura indexes 1-4 and spellbook indexes 1-40 are sampled; full learned spell mappings come from ActionLITE. Bounded or interrupted scans are marked.",
-            "Start outside combat, reproduce the issue, then wait five seconds after combat and open Results." } }
+            "Start outside combat, reproduce the issue, then wait five seconds after combat and open Results.",
+            "Error counts separate repeated occurrences from distinct saved groups. Saved group counts may include previous reloads.",
+            "newErrorOccurrences counts errors recorded during this capture; priorSessionErrors lists earlier errors from the same login session." } }
     bytes = #P.JSON(data)
     if AL.Debug and type(AL.Debug.Bugs) == "function" then
         local ok, bugs = pcall(AL.Debug.Bugs)
@@ -362,15 +402,55 @@ function S.Stop(reason)
         completeCombatSequence = data.startPhase == "Before combat" and phases["In combat"] == true
             and phases["After combat"] == true and combatEnded ~= nil and Now()-combatEnded >= 5 and data.pauseCount==0 }
     data.debuggerErrors = P.Copy(ns.Errors)
+    data.errorCountsAtEnd = ErrorCounts()
+    if data.errorCountsAtStart and data.errorCountsAtEnd then
+        data.newErrorOccurrences = math.max(0,
+            data.errorCountsAtEnd.sessionOccurrences - data.errorCountsAtStart.sessionOccurrences)
+    end
     data.spellSet = nil
     S.state, S.stopReason, stopping = "Stopped", data.stopReason, false
     S.Notify()
 end
 
 function S.Results()
+    P = ns.Probe
+    AttachLogger()
     S.Stop("Results opened")
-    if not data then return "ActionLiteDebug\nNo capture yet. Click Start outside combat, reproduce the issue, wait five seconds after combat, then click Results." end
-    return "ActionLiteDebug\nWoW Forever - ActionLITE bug report\nSelect All, copy, and paste this complete report.\n\n" .. P.JSON(data)
+    local report = data
+    if not report then
+        report = { addon = "ActionLiteDebug", version = ns.version, format = "ActionLiteDebug report 1",
+            client = "WoW Forever", automaticReport = true, recordedAt = P.Call("GetServerTime"),
+            build = P.Call("GetBuildInfo"), class = P.Call("UnitClass", {"player"}),
+            componentVersions = { buildId = AL.buildId, ui = AL.UI and AL.UI.VERSION, classUIs = P.Copy(AL.classUIVersions) },
+            configuration = ns.State.Configuration(), runtime = ns.State.Runtime(false),
+            notes = { "Errors are collected automatically. Start is optional for reporting errors.",
+                "For a full combat recording, click Start outside combat and reproduce the issue." } }
+    end
+    local logger = AL.Debug
+    local automatic = { currentSessionErrors = {}, savedEarlierErrors = {}, contexts = P.Copy(automaticContexts),
+        debuggerErrors = P.Copy(ns.Errors), counts = ErrorCounts(), refreshedAt = Now(), revision = resultsRevision }
+    if logger and type(logger.Bugs) == "function" then
+        local ok, bugs = pcall(logger.Bugs)
+        local clean = ok and P.Copy(bugs)
+        if type(clean) == "table" then
+            for _, bug in ipairs(clean) do
+                local list = bug.session == logger.session and automatic.currentSessionErrors or automatic.savedEarlierErrors
+                list[#list + 1] = bug
+            end
+        end
+    end
+    automatic.recentLog = {}
+    if logger and type(logger.Count) == "function" and type(logger.Get) == "function" then
+        local size, count = 0, logger.Count()
+        for i = count, math.max(1, count - 79), -1 do
+            local entry = P.Copy(logger.Get(i))
+            local length = #P.JSON(entry)
+            if size + length > 96 * 1024 then break end
+            table.insert(automatic.recentLog, 1, entry); size = size + length
+        end
+    end
+    report.automaticErrors = automatic
+    return "ActionLiteDebug\nWoW Forever - ActionLITE bug report\nSelect All, copy, and paste this complete report.\n\n" .. P.JSON(report), report
 end
 function S.Data() return data end
 function S.Current() return data end
@@ -414,6 +494,7 @@ function S.Event(event, ...)
     if event == "PLAYER_LOGIN" then AttachLogger();return end
     if event == "PLAYER_LOGOUT" then
         data,pending,intern,logRows,stateIntern = nil,nil,{},{},{}
+        automaticContexts, automaticBytes = {}, 0
         S.state="Stopped"
         if ns.UI then ns.UI.ClearResults() end
         return
@@ -472,13 +553,14 @@ frame:SetScript("OnUpdate",function(_,elapsed)
     local ok,problem=pcall(S.Step,elapsed)
     if not ok then
         ns.Errors.Scanner=ns.ErrorText(problem)
+        S.ResultsChanged()
         S.Stop("Scanner error; partial report retained")
         ns.Notice("Capture stopped. Open Results to copy the partial report.")
     end
 end)
 frame:SetScript("OnEvent",function(_,event,...)
     local ok,problem=pcall(S.Event,event,...)
-    if not ok then ns.Errors.Events=ns.ErrorText(problem);S.Stop("Event error; partial report retained") end
+    if not ok then ns.Errors.Events=ns.ErrorText(problem);S.ResultsChanged();S.Stop("Event error; partial report retained") end
 end)
 for _,event in ipairs({ "PLAYER_LOGIN","PLAYER_LOGOUT","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED",
     "PLAYER_TARGET_CHANGED","PLAYER_DEAD","PLAYER_LEVEL_UP","SPELLS_CHANGED","LEARNED_SPELL_IN_TAB",
@@ -492,3 +574,4 @@ for _,event in ipairs({ "PLAYER_LOGIN","PLAYER_LOGOUT","PLAYER_REGEN_DISABLED","
     local registered = pcall(frame.RegisterEvent,frame,event)
     ns.eventSupport[event] = registered and "Registered" or "Unavailable on this client"
 end
+AttachLogger()

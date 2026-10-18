@@ -14,8 +14,8 @@ local function BuildCheck(key,label,spell)
 	end }
 end
 
--- Interface declarative Hunter. Chaque cle correspond directement a
--- rotation\Hunter.lua ; les seuils ne dupliquent aucune logique dans l'UI.
+-- Declarative Hunter interface. Each key maps directly to
+-- rotation\Hunter.lua; thresholds duplicate no logic in the UI.
 AL.RegisterSimpleClassUI("HUNTER", {
 	title = { en = "HUNTER - LEVELING", fr = "CHASSEUR - PROGRESSION", pt = "CAÇADOR - EVOLUÇÃO", es = "CAZADOR - SUBIDA", de = "JÄGER - LEVELN", zh = "猎人 - 升级" },
 	subtitle = { en = "Level 1-60 - pet, ranged, dead zone and AoE", fr = "Niveaux 1-60 - familier, distance, zone morte et AoE", pt = "Níveis 1-60 - mascote, distância, zona morta e AoE", es = "Niveles 1-60 - mascota, distancia, zona muerta y AoE", de = "Stufe 1-60 - Begleiter, Fernkampf, tote Zone und AoE", zh = "1-60级 - 宠物、远程、死区和AoE" },
@@ -23,6 +23,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 	cards = {
         {
             title = "LEVELING ROTATION",
+            id="leveling-rotation", build="leveling", group="damage",
             controls = {
                 { key="leveling", label="Leveling Rotation", spell="Auto Shot", half=false,
                   tooltip={"Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected."} },
@@ -30,6 +31,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
         },
 		{
 			title = "BEAST MASTERY BUILD - 31/20/0",
+			id="beast-mastery-build-31-20-0", build="beastMastery", group="damage",
 			controls = {
 				BuildCheck("beastMastery", "Use Beast Mastery (31/20/0)", "Bestial Wrath"),
 				{ type = "info", text = "Uses the tier-list pet build with learned spells through level 60. Selecting Beast Mastery unchecks Marksmanship and Survival while keeping their other saved settings. Keeps the active pet and its Call/Revive/Mend controls. Talents, gear and pet autocast settings are not changed." },
@@ -40,7 +42,8 @@ AL.RegisterSimpleClassUI("HUNTER", {
 			},
 		},
 		{
-			title = "BEAST MASTERY BURST & AREA DAMAGE",
+			title = "BEAST MASTERY BURST",
+			id="beast-mastery-burst-area-damage", build="beastMastery", group="burst",
 			controls = {
 				{ key = "bestialWrath", label = "Burst: Bestial Wrath", spell = "Bestial Wrath" },
 				{ key = "intimidation", label = "Burst: optional Intimidation", spell = "Intimidation" },
@@ -48,6 +51,11 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ key = "beastBerserking", label = "Burst: learned Berserking", spell = "Berserking" },
 				{ type = "slider", key = "beastBurstMinMana", label = "Beast Mastery Burst minimum mana", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 				{ type = "info", text = "Requires Burst On, combat, each ability's checkbox, enough mana and the shared minimum target-health setting. Bestial Wrath and Intimidation need a confirmed living pet engaged with the selected target. Rapid Fire is paired with a stationary Aimed Shot; its shared checkbox and the Blood Fury checkbox also apply. Intimidation defaults OFF because spending mana and delaying regular shots can lower damage. All four added spells support Universal icons 1-10 in the Spells tab." },
+            },
+        },
+        {
+            title="BEAST MASTERY AREA DAMAGE", id="beast-mastery-area-damage", build="beastMastery", group="aoe",
+            controls={
 				{ type = "slider", key = "beastAoEMinMana", label = "Beast Mastery AoE minimum mana", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 				{ type = "slider", key = "beastVolleyMinEnemies", label = "Beast Mastery Volley minimum enemies", min = 2, max = 5, step = 1, default = 4 },
 				{ type = "info", text = "Multi-Shot requires AoE On and enough confirmed engaged enemies. Optional Volley also requires its shared checkbox, mana setting and the higher of the shared enemy count and its own count (four by default). Volley keeps its existing OFF default, uses normal ground placement and completes its channel." },
@@ -55,6 +63,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 		},
 		{
 			title = "MARKSMANSHIP BUILD - 5/31/15",
+			id="marksmanship-build-5-31-15", build="marksmanship", group="damage",
 			controls = {
 				BuildCheck("marksmanship", "Use Marksmanship (5/31/15)", "Sniper Shot"),
 				{ type = "info", text = "Selects learned ranged priorities through level 60: Aimed Shot, Stings and Sniper Shot between primary shots, then Arcane Shot and Auto Shot. Build selections are exclusive; your saved options are kept. Talents and equipment are not changed." },
@@ -68,6 +77,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 		},
 		{
 			title = "SURVIVAL BUILD - 5/11/35",
+			id="survival-build-5-11-35", build="survival", group="damage",
 			controls = {
 				BuildCheck("survival", "Use Survival (5/11/35)", "Strider Kick"),
 				{ type = "info", text = "Uses the default melee Survival priorities with learned spells through level 60. Prefers Aspect of the Beast when learned. Ranged attacks remain available when the target is outside melee. Talents and equipment are not changed." },
@@ -84,6 +94,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 		},
 		{
 			title = { en = "PET MANAGEMENT", fr = "GESTION DU FAMILIER", pt = "GERENCIAR MASCOTE", es = "GESTIÓN DE MASCOTA", de = "BEGLEITER-VERWALTUNG", zh = "宠物管理" },
+			id="pet-management", group="preparation",
 			controls = {
 				{ key = "callpet", label = { en = "Call or revive pet", fr = "Appeler ou ranimer le familier", pt = "Chamar ou reviver mascote", es = "Llamar o revivir mascota", de = "Begleiter rufen oder wiederbeleben", zh = "召唤或复活宠物" }, spell = "Call Pet" },
 				{ key = "mendpet", label = { en = "Mend Pet", fr = "Soigner le familier", pt = "Curar mascote", es = "Curar mascota", de = "Mend Pet", zh = "治疗宠物" }, spell = "Mend Pet" },
@@ -93,6 +104,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 		},
 		{
 			title = { en = "PREPARATION & OPENING", fr = "PREPARATION ET OUVERTURE", pt = "PREPARAÇÃO E ABERTURA", es = "PREPARACIÓN Y APERTURA", de = "VORBEREITUNG & ERÖFFNUNG", zh = "准备与开场" },
+			id="preparation-opening", group="preparation",
 			controls = {
 				{ key = "aspect", half = false, label = { en = "Combat Aspect upkeep", fr = "Maintenir l'Aspect de combat", pt = "Manter Aspecto de combate", es = "Mantener Aspecto de combate", de = "Kampfaspekt halten", zh = "保持战斗守护" }, spell = "Aspect of the Hawk" },
 				{ key = "trueshot", label = "Maintain learned Trueshot Aura (BM/MM)", spell = "Trueshot Aura" },
@@ -107,6 +119,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 		},
 		{
 			title = { en = "RANGED ROTATION", fr = "ROTATION A DISTANCE", pt = "ROTAÇÃO À DISTÂNCIA", es = "ROTACIÓN A DISTANCIA", de = "FERNKAMPF-ROTATION", zh = "远程循环" },
+			id="ranged-rotation", group="damage",
 			controls = {
 				{ key = "sting", label = "Serpent Sting", spell = "Serpent Sting" },
 				{ key = "scorpid", label = { en = "Prefer Scorpid Sting", fr = "Preferer Scorpid Sting", pt = "Preferir Scorpid Sting", es = "Preferir Scorpid Sting", de = "Scorpid Sting bevorzugen", zh = "优先Scorpid Sting" }, spell = "Scorpid Sting" },
@@ -121,6 +134,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 		},
 		{
 			title = { en = "DEAD ZONE & MELEE", fr = "ZONE MORTE ET CORPS A CORPS", pt = "ZONA MORTA E CORPO A CORPO", es = "ZONA MUERTA Y CUERPO A CUERPO", de = "TOTE ZONE & NAHKAMPF", zh = "死区与近战" },
+			id="dead-zone-melee", group="damage",
 			controls = {
 				{ key = "survivalMelee", half = false, label = { en = "Survival melee override", fr = "Priorite melee Survie", pt = "Prioridade corpo a corpo Sobrevivência", es = "Prioridad cuerpo a cuerpo Supervivencia", de = "Überleben: Nahkampf bevorzugen", zh = "生存专精近战优先" } },
 				{ type = "info", text = {
@@ -138,19 +152,16 @@ AL.RegisterSimpleClassUI("HUNTER", {
 			},
 		},
 		{
-			title = { en = "AOE & BURST", fr = "AOE ET BURST", pt = "AOE E BURST", es = "AOE Y BURST", de = "AOE & BURST", zh = "AOE与BURST" },
+			title = { en = "AREA DAMAGE", fr = "AOE ET BURST", pt = "AOE E BURST", es = "AOE Y BURST", de = "AOE & BURST", zh = "AOE与BURST" },
+			id="aoe-burst", group="aoe",
 			controls = {
 				{ key = "aoe", label = { en = "Enable AoE mode", fr = "Activer l'AoE Multi-Shot", pt = "Ativar AoE Multi-Shot", es = "Activar AoE Multi-Shot", de = "Multi-Shot AoE aktivieren", zh = "启用Multi-Shot AoE" }, spell = "Multi-Shot" },
+				{ type = "slider", key = "aoeMinEnemies", label = { en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Enemigos mínimos", de = "Mindestanzahl Gegner", zh = "最少敌人数" },
+					min = 2, max = 5, step = 1, default = 2, half = true },
 				{ key = "explosiveTrap", label = "Survival: Explosive Trap AoE", spell = "Explosive Trap" },
 				{ key = "volley", label = "Volley at range (all builds)", spell = "Volley" },
 				{ type = "slider", key = "volleyMinMana", label = "Volley minimum mana", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 				{ type = "info", text = "Explosive Trap requires AoE On and enough engaged enemies in melee, and shares its cooldown with Immolation Trap. Optional Volley is ground-targeted, requires AoE On and a stationary player, and defaults OFF." },
-				{ key = "bloodFury", label = "Blood Fury during Burst", spell = "Blood Fury" },
-				{ type = "slider", key = "aoeMinEnemies", label = { en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Enemigos mínimos", de = "Mindestanzahl Gegner", zh = "最少敌人数" },
-					min = 2, max = 5, step = 1, default = 2, half = true },
-				{ key = "rapidfire", label = { en = "Rapid Fire during Burst", fr = "Rapid Fire pendant le Burst", pt = "Rapid Fire durante o Burst", es = "Rapid Fire durante el Burst", de = "Rapid Fire während Burst", zh = "Burst期间Rapid Fire" }, spell = "Rapid Fire" },
-				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Burst: Mindestgesundheit des Ziels", zh = "Burst目标最低生命值" },
-					min = 0, max = 100, step = 5, default = 40, suffix = " %", half = true },
 				{ type = "info", text = {
 					en = "Multi-Shot requires the selected number of confirmed enemies. An unknown count does not enable AoE.",
 					fr = "Multi-Shot nécessite le nombre choisi d'ennemis confirmés. Un nombre inconnu ne déclenche pas l'AoE.",
@@ -159,6 +170,16 @@ AL.RegisterSimpleClassUI("HUNTER", {
 					de = "Multi-Shot benötigt die gewählte Anzahl bestätigter Gegner. Eine unbekannte Anzahl aktiviert kein AoE.",
 					zh = "Multi-Shot需要达到所选的已确认敌人数。未知数量不会启用AoE。",
 				} },
+
+            },
+        },
+        {
+            title="BURST LIMITS", id="burst-limits", group="burst",
+            controls={
+				{ key = "bloodFury", label = "Blood Fury during Burst", spell = "Blood Fury" },
+				{ key = "rapidfire", label = { en = "Rapid Fire during Burst", fr = "Rapid Fire pendant le Burst", pt = "Rapid Fire durante o Burst", es = "Rapid Fire durante el Burst", de = "Rapid Fire während Burst", zh = "Burst期间Rapid Fire" }, spell = "Rapid Fire" },
+				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Burst: Mindestgesundheit des Ziels", zh = "Burst目标最低生命值" },
+					min = 0, max = 100, step = 5, default = 40, suffix = " %", half = true },
 			},
 		},
 	},

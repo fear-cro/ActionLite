@@ -4,23 +4,22 @@ local L = AL.L
 -- ============================================================================
 -- ActionLITE - Display.lua - v0.14.5
 -- ----------------------------------------------------------------------------
--- Icone de recommandation, mini-icone et commandes slash.
--- Coloration de portee identique pour chaque suggestion et les deux icones.
+-- Recommendation icon, mini icons and slash commands.
+-- Consistent range coloring for each suggestion across all three icons.
 -- ============================================================================
 
+local MAIN_SIZE = 44
+local idleIcon = "Interface\\Icons\\INV_Sword_27"
 local f = CreateFrame("Frame", "ActionLiteFrame", UIParent, "BackdropTemplate")
 AL.frame = f
-f:SetSize(56, 56)
+f:SetSize(MAIN_SIZE, MAIN_SIZE)
 f:SetPoint("CENTER", 0, 180)
 f:SetClampedToScreen(true)
 f:SetBackdrop({
-	bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-	tile = true, tileSize = 16, edgeSize = 12,
-	insets = { left = 3, right = 3, top = 3, bottom = 3 },
+	bgFile = AL.WHITE,
+	tile = false,
 })
-f:SetBackdropColor(0, 0, 0, 0.75)
-f:SetBackdropBorderColor(AL.BABY_R, AL.BABY_G, AL.BABY_B)
+f:SetBackdropColor(0.03, 0.04, 0.06, 0.92)
 f:SetMovable(true)
 f:RegisterForDrag("LeftButton")
 
@@ -30,18 +29,17 @@ function AL.ApplyLock()
 	if AL.ApplyToggles then AL.ApplyToggles() end
 end
 
--- nobg reste prioritaire : c'est l'interrupteur "afficher le fond".
--- bgAlpha regle l'opacite lorsque le fond est affiche.
+-- nobg takes priority: it is the "show background" switch.
+-- bgAlpha controls opacity when the background is shown.
 function AL.ApplyStyle()
 	local s = AL.S()
 	local alpha = 0
 	if not s.nobg then
-		alpha = tonumber(s.bgAlpha) or 0.75
+		alpha = tonumber(s.bgAlpha) or 0.92
 		if alpha < 0 then alpha = 0 end
 		if alpha > 1 then alpha = 1 end
 	end
-	f:SetBackdropColor(0, 0, 0, alpha)
-	f:SetBackdropBorderColor(AL.BABY_R, AL.BABY_G, AL.BABY_B, s.nobg and 0 or 1)
+	f:SetBackdropColor(0.03, 0.04, 0.06, alpha)
 	f:SetScale(tonumber(s.scale) or 1)
 end
 
@@ -61,7 +59,7 @@ f:SetScript("OnDragStop", function(self)
 	ActionLiteDB.pos = { point, relPoint, x, y }
 end)
 
--- la poignee d'angle redimensionne l'icone ; l'echelle vit dans le profil
+-- The corner grip resizes the icon; its scale is stored in the profile.
 local grip = CreateFrame("Button", nil, f)
 grip:SetSize(12, 12)
 grip:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -84,7 +82,7 @@ grip:SetScript("OnUpdate", function()
 	local cx = GetCursorPosition()
 	local es = f:GetEffectiveScale()
 	local leftPx, topPx = f:GetLeft() * es, f:GetTop() * es
-	local scale = math.max(0.5, math.min(2, (cx - leftPx) / 56 / UIParent:GetEffectiveScale()))
+	local scale = math.max(0.5, math.min(2, (cx - leftPx) / MAIN_SIZE / UIParent:GetEffectiveScale()))
 	AL.S().scale = scale
 	f:SetScale(scale)
 	es = f:GetEffectiveScale()
@@ -93,8 +91,7 @@ grip:SetScript("OnUpdate", function()
 end)
 
 local icon = f:CreateTexture(nil, "ARTWORK")
-icon:SetSize(44, 44)
-icon:SetPoint("CENTER")
+icon:SetAllPoints(f)
 icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
 
@@ -102,40 +99,39 @@ icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 -- percentage; the protected value is fed directly into a Blizzard ColorCurve
 -- and never inspected by Lua.
 local priestHealOverlay = f:CreateTexture(nil, "OVERLAY")
-priestHealOverlay:SetSize(44, 44)
-priestHealOverlay:SetPoint("CENTER")
+priestHealOverlay:SetAllPoints(icon)
 priestHealOverlay:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 priestHealOverlay:SetVertexColor(1, 1, 1, 0)
 
 local rogueFinisherOverlay = f:CreateTexture(nil, "OVERLAY")
-rogueFinisherOverlay:SetSize(44, 44)
-rogueFinisherOverlay:SetPoint("CENTER")
+rogueFinisherOverlay:SetAllPoints(icon)
 rogueFinisherOverlay:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 rogueFinisherOverlay:SetVertexColor(1, 1, 1, 0)
 
 local priestHealthCurves = {}
-local function PriestHealthVisibilityCurve(threshold)
-	if priestHealthCurves[threshold] then return priestHealthCurves[threshold] end
+local function PriestHealthVisibilityCurve(threshold, inverse)
+	local key = tostring(threshold) .. (inverse and ":inverse" or ":heal")
+	if priestHealthCurves[key] then return priestHealthCurves[key] end
 	if not C_CurveUtil or type(C_CurveUtil.CreateColorCurve) ~= "function" or type(CreateColor) ~= "function" then return nil end
 	local ok, curve = pcall(C_CurveUtil.CreateColorCurve)
 	if not ok or not curve then return nil end
 	pcall(curve.SetType, curve, Enum and Enum.LuaCurveType and Enum.LuaCurveType.Step or 1)
 	local cut = math.max(0, math.min(100, threshold)) / 100
-	if not pcall(curve.AddPoint, curve, 0.0, CreateColor(1, 1, 1, 1)) then return nil end
-	if not pcall(curve.AddPoint, curve, cut, CreateColor(1, 1, 1, 0)) then return nil end
-	if not pcall(curve.AddPoint, curve, 1.0, CreateColor(1, 1, 1, 0)) then return nil end
-	priestHealthCurves[threshold] = curve
+	if not pcall(curve.AddPoint, curve, 0.0, CreateColor(1, 1, 1, inverse and 0 or 1)) then return nil end
+	if not pcall(curve.AddPoint, curve, cut, CreateColor(1, 1, 1, inverse and 1 or 0)) then return nil end
+	if not pcall(curve.AddPoint, curve, 1.0, CreateColor(1, 1, 1, inverse and 1 or 0)) then return nil end
+	priestHealthCurves[key] = curve
 	return curve
 end
 
-local function ApplySecretHealthVisibility(texture, threshold)
-	local curve = PriestHealthVisibilityCurve(threshold)
+local function ApplySecretHealthVisibility(texture, threshold, inverse)
+	local curve = PriestHealthVisibilityCurve(threshold, inverse)
 	if not texture or not curve or type(UnitHealthPercent) ~= "function" then return false end
 	local ok, color = pcall(UnitHealthPercent, "player", true, curve)
 	if not ok or not color then return false end
 	return pcall(function()
 		local r, g, b, a = color:GetRGBA()
-		texture:SetVertexColor(r, g, b, a)
+		if inverse then texture:SetAlpha(a) else texture:SetVertexColor(r, g, b, a) end
 	end)
 end
 
@@ -148,7 +144,7 @@ local function PriestSecretHealVisual()
 	return spell, threshold, reason
 end
 
--- au-dessus du balayage de recharge, sinon le texte passe dessous
+-- Above the cooldown swipe; otherwise the text is covered.
 local swipe
 do
 	local ok, cd = pcall(CreateFrame, "Cooldown", nil, f, "CooldownFrameTemplate")
@@ -163,6 +159,54 @@ end
 local hud = CreateFrame("Frame", nil, f)
 hud:SetAllPoints(icon)
 hud:SetFrameLevel((f:GetFrameLevel() or 1) + 4)
+
+local function CreateDrinkReminder(parent)
+	local text = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	text:SetPoint("BOTTOM", f, "TOP", 0, 6)
+	text:SetJustifyH("CENTER")
+	text:SetTextColor(1, 0.9, 0.5, 1)
+	text:SetShadowColor(0, 0, 0, 1)
+	text:SetShadowOffset(1, -1)
+	text:SetText("LOW MANA - DRINK")
+	text:Hide()
+	return text
+end
+
+local function DrinkReminderAllowed()
+	local ok, combat = pcall(UnitAffectingCombat, "player")
+	if not ok or issecretvalue and issecretvalue(combat) then return false end
+	return combat == false
+end
+
+local drinkReminder = CreateDrinkReminder(hud)
+
+-- A reminder is independent of the recommendation. It cannot consume an
+-- action, hide a combat opener, or replace either mini icon.
+local function UpdateDrinkReminder()
+	drinkReminder:Hide()
+	local s = AL.S()
+	if not s.drink or not DrinkReminderAllowed() then return end
+	if AL.playerClass == "DRUID" then
+		local ok, kind = pcall(UnitPowerType, "player")
+		if not ok or issecretvalue and issecretvalue(kind) or kind ~= 0 then return end
+	end
+	local threshold = tonumber(s.drinkMana) or ((AL.playerClass == "PRIEST" or AL.playerClass == "MAGE") and 35 or 30)
+	threshold = math.max(0, math.min(80, threshold))
+	local ok, alpha = AL.ResourceIntervalAlpha("power", "player", 0, 0, AL.ResourceThresholdCut(threshold, true))
+	if ok and pcall(drinkReminder.SetAlpha, drinkReminder, alpha) then drinkReminder:Show(); return end
+	local mana = AL.ManaPercent()
+	if type(mana) ~= "number" or issecretvalue and issecretvalue(mana) then
+		local rotation = AL.rotations and AL.rotations[AL.playerClass]
+		if rotation and type(rotation.ManaPercent) == "function" then
+			local read, value = pcall(rotation.ManaPercent)
+			if read and not (issecretvalue and issecretvalue(value)) then mana = value end
+		end
+	end
+	if type(mana) == "number" and not (issecretvalue and issecretvalue(mana)) then
+		drinkReminder:SetAlpha(1)
+		drinkReminder:SetShown(mana <= threshold)
+	end
+end
 
 local keyText = hud:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 keyText:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -1, -2)
@@ -206,12 +250,12 @@ local function QuickToggle(index, caption, tipKey, isOn, onClick)
 	local bg = b:CreateTexture(nil, "BORDER")
 	bg:SetPoint("TOPLEFT", 1, -1)
 	bg:SetPoint("BOTTOMRIGHT", -1, 1)
-	bg:SetColorTexture(0, 0, 0, 0.8)
+	bg:SetColorTexture(0.035, 0.045, 0.065, 0.92)
 	local hover = b:CreateTexture(nil, "HIGHLIGHT")
 	hover:SetPoint("TOPLEFT", 1, -1)
 	hover:SetPoint("BOTTOMRIGHT", -1, 1)
-	hover:SetColorTexture(1, 1, 1, 0.12)
-	-- coche = repere d'etat qui ne depend pas de la couleur
+	hover:SetColorTexture(1, 1, 1, 0.07)
+	-- The checkmark indicates state without depending on color.
 	local check = b:CreateTexture(nil, "OVERLAY")
 	check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
 	check:SetSize(14, 14)
@@ -223,8 +267,13 @@ local function QuickToggle(index, caption, tipKey, isOn, onClick)
 		local compact = ActionLiteDB and ActionLiteDB.togglesHidden == true or false
 		if b.compact ~= compact then
 			b:ClearAllPoints()
-			b:SetPoint("TOPLEFT", f, "TOPRIGHT", 3,
-				-(index - 1) * (compact and COMPACT_TOGGLE_PX + COMPACT_TOGGLE_GAP or 28))
+			if compact then
+				-- Center the square pair on the main icon's vertical midpoint.
+				local centerY = (1.5 - index) * (COMPACT_TOGGLE_PX + COMPACT_TOGGLE_GAP)
+				b:SetPoint("LEFT", f, "RIGHT", 3, centerY)
+			else
+				b:SetPoint("TOPLEFT", f, "TOPRIGHT", 3, -(index - 1) * 28)
+			end
 			b.compact = compact
 		end
 		label:SetShown(not compact)
@@ -239,7 +288,7 @@ local function QuickToggle(index, caption, tipKey, isOn, onClick)
 			local pad = on and 14 or 0
 			label:SetPoint("CENTER", pad / 2, 0)
 			b:SetSize(math.max(38, math.ceil((label:GetStringWidth() or 0) + 12 + pad)), 24)
-			bg:SetColorTexture(0, 0, 0, 0.8)
+			bg:SetColorTexture(0.035, 0.045, 0.065, 0.92)
 			if on then
 				local r, g, bl = AL.GlowColor()
 				edge:SetColorTexture(r, g, bl, 1)
@@ -286,76 +335,64 @@ function AL.ApplyToggles()
 	end
 end
 
--- Role actif des classes disposant de plusieurs moteurs. La valeur vient du
--- meme profil que celui lu par la rotation afin que l'etiquette ne diverge pas.
-local roleText = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-roleText:SetPoint("BOTTOM", f, "TOP", 0, 3)
-roleText:SetShadowColor(0, 0, 0, 1)
-roleText:SetShadowOffset(1, -1)
-local lastRole
-function AL.UpdateRoleText()
-	local role
-	if AL.playerClass == "WARRIOR" then
-		role = AL.S().warriorRole == "TANK" and "TANK" or "DPS"
-	elseif AL.playerClass == "PALADIN" then
-		role = AL.S().paladinRole == "TANK" and "TANK" or "DPS"
-	elseif AL.playerClass == "SHAMAN" then
-		role = AL.S().shamanRole == "ELEMENTAL" and "ELEMENTAL" or "ENHANCEMENT"
-	else
-		roleText:Hide()
-		lastRole = nil
-		return
-	end
-	if role ~= lastRole then
-		lastRole = role
-		if role == "TANK" then
-			roleText:SetText("|cff4da6ffTANK|r")
-		elseif role == "ELEMENTAL" then
-			roleText:SetText("|cff33ccffELEMENTAL|r")
-		elseif role == "ENHANCEMENT" then
-			roleText:SetText("|cffffcc00ENHANCEMENT|r")
-		else
-			roleText:SetText("|cffffcc00DPS|r")
-		end
-	end
-	roleText:Show()
-end
-AL.UpdateRoleText()
-
--- Mini-icone : suggestion sans bordure ancree en haut a gauche de l'ecran,
--- dimensionnee en pixels physiques pour rester nette a toute echelle
+-- Mini icons: borderless suggestions anchored at the screen's top left,
+-- sized in physical pixels to stay sharp at every UI scale.
 local MINI_PX, MINI_X, MINI_Y = 18, 19, 7
+-- Two icon widths remain empty between the original output and Unit1 output.
+local MINI2_X = MINI_X + (MINI_PX * 3)
 local mini = CreateFrame("Frame", "ActionLiteMiniFrame", UIParent)
--- Keep the corner signal above full-screen low-health warning effects.
-mini:SetFrameStrata("TOOLTIP")
-mini:SetFrameLevel(100)
+local mini2 = CreateFrame("Frame", "ActionLiteMiniFrame2", UIParent)
+for _, frame in ipairs({ mini, mini2 }) do
+	-- Keep both corner signals above full-screen low-health warning effects.
+	frame:SetFrameStrata("TOOLTIP")
+	frame:SetFrameLevel(100)
+end
 local miniTex = mini:CreateTexture(nil, "OVERLAY")
 miniTex:SetAllPoints(mini)
 miniTex:Hide()
+local miniTex2 = mini2:CreateTexture(nil, "OVERLAY")
+miniTex2:SetAllPoints(mini2)
+miniTex2:Hide()
+AL.miniFrame, AL.miniTexture = mini, miniTex
+AL.miniFrame2, AL.miniTexture2 = mini2, miniTex2
+
 local miniPriestHealTex = mini:CreateTexture(nil, "OVERLAY")
 miniPriestHealTex:SetAllPoints(mini)
 miniPriestHealTex:SetVertexColor(1, 1, 1, 0)
+local miniPriestHealTex2 = mini2:CreateTexture(nil, "OVERLAY")
+miniPriestHealTex2:SetAllPoints(mini2)
+miniPriestHealTex2:SetVertexColor(1, 1, 1, 0)
 local miniRogueFinisherTex = mini:CreateTexture(nil, "OVERLAY")
 miniRogueFinisherTex:SetAllPoints(mini)
 miniRogueFinisherTex:SetVertexColor(1, 1, 1, 0)
 
--- EllesmereUI hooks every SetTexture to turn pixel snapping off, which blurs the pixel-sized icon
-local snapOn = miniTex.IsSnappingToPixelGrid and miniTex:IsSnappingToPixelGrid()
-local snapBias = miniTex.GetTexelSnappingBias and miniTex:GetTexelSnappingBias()
+-- Restore each texture's own pixel settings after addons that hook SetTexture.
+local sharpDefaults = setmetatable({}, { __mode = "k" })
 local function SetSharpTexture(tex, path)
+	local sharp = sharpDefaults[tex]
+	if not sharp then
+		sharp = { snap = tex.IsSnappingToPixelGrid and tex:IsSnappingToPixelGrid(),
+			bias = tex.GetTexelSnappingBias and tex:GetTexelSnappingBias() }
+		sharpDefaults[tex] = sharp
+	end
 	tex:SetTexture(path)
-	if snapOn ~= nil and tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(snapOn) end
-	if snapBias ~= nil and tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(snapBias) end
+	if sharp.snap ~= nil and tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(sharp.snap) end
+	if sharp.bias ~= nil and tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(sharp.bias) end
 end
 
 local miniH, miniE = 0, 0
+local function PlaceMinis(px)
+	for index, frame in ipairs({ mini, mini2 }) do
+		frame:SetSize(MINI_PX * px, MINI_PX * px)
+		frame:ClearAllPoints()
+		frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", (index == 2 and MINI2_X or MINI_X) * px, MINI_Y * px)
+	end
+end
 local function LayoutMini(force)
 	if not GetPhysicalScreenSize then
 		if force or miniH ~= -1 then
 			miniH = -1
-			mini:SetSize(MINI_PX, MINI_PX)
-			mini:ClearAllPoints()
-			mini:SetPoint("TOPLEFT", UIParent, "TOPLEFT", MINI_X, MINI_Y)
+			PlaceMinis(1)
 		end
 		return
 	end
@@ -364,20 +401,19 @@ local function LayoutMini(force)
 	if type(h) ~= "number" or h <= 0 or type(e) ~= "number" or e <= 0 then return end
 	if not force and h == miniH and e == miniE then return end
 	miniH, miniE = h, e
-	-- 768 est la hauteur d'ecran virtuelle de WoW : conversion pixels -> unites
-	local px = 768 / (h * e)
-	mini:SetSize(MINI_PX * px, MINI_PX * px)
-	mini:ClearAllPoints()
-	mini:SetPoint("TOPLEFT", UIParent, "TOPLEFT", MINI_X * px, MINI_Y * px)
+	-- WoW's virtual screen height is 768 units; convert physical pixels to units.
+	PlaceMinis(768 / (h * e))
 end
 LayoutMini()
 
 function AL.ApplyMini()
-	mini:SetMovable(false)
-	mini:EnableMouse(false)
-	mini:SetScale(1)
-	mini:SetAlpha(1)
-	mini:Show()
+	for _, frame in ipairs({ mini, mini2 }) do
+		frame:SetMovable(false)
+		frame:EnableMouse(false)
+		frame:SetScale(1)
+		frame:SetAlpha(1)
+		frame:Show()
+	end
 	LayoutMini(true)
 end
 
@@ -419,7 +455,7 @@ local function UpdateKeybind(spell)
 	end
 end
 
--- AL.CooldownRemaining compte en secondes entieres (time()) : 1.5 s de tolerance avant relance
+-- AL.CooldownRemaining counts whole seconds (time()): allow 1.5 seconds before restarting.
 local swipeSpell, swipeEnd = nil, 0
 local function UpdateSwipe(spell)
 	if not swipe then return end
@@ -445,7 +481,7 @@ local rogueVisualRows = {}
 local function RogueVisualRow(index, parent, small)
 	local pair = rogueVisualRows[index]
 	if not pair then pair = {}; rogueVisualRows[index] = pair end
-	local key = small and "mini" or "main"
+	local key = small and (parent == mini2 and "mini2" or "mini") or "main"
 	if pair[key] then return pair[key] end
 	local row = { nodes = {} }
 	local host = parent
@@ -457,9 +493,8 @@ local function RogueVisualRow(index, parent, small)
 	end
 	row.root = row.nodes[1]
 	row.tex = host:CreateTexture(nil, "OVERLAY")
-	if small then row.tex:SetAllPoints(parent)
-	else
-		row.tex:SetSize(44, 44); row.tex:SetPoint("CENTER", parent, "CENTER")
+	row.tex:SetAllPoints(parent)
+	if not small then
 		row.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 		row.key = host:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 		row.key:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -1, -2)
@@ -475,10 +510,11 @@ local function ResetRogueSecretVisual()
 	for _, pair in ipairs(rogueVisualRows) do
 		if pair.main then pair.main.root:Hide() end
 		if pair.mini then pair.mini.root:Hide() end
+		if pair.mini2 then pair.mini2.root:Hide() end
 	end
 	rogueFinisherOverlay:SetTexture(nil); miniRogueFinisherTex:SetTexture(nil)
 	rogueFinisherOverlay:SetVertexColor(1, 1, 1, 0); miniRogueFinisherTex:SetVertexColor(1, 1, 1, 0)
-	icon:SetAlpha(1); miniTex:SetAlpha(1); keyText:SetAlpha(1)
+	icon:SetAlpha(1); miniTex:SetAlpha(1); miniTex2:SetAlpha(1); keyText:SetAlpha(1)
 	rogueFinisherKey:Hide()
 	AL.rogueSecretVisual, AL.rotationSecretVisual = nil, nil
 end
@@ -495,9 +531,10 @@ local function UpdateRogueSecretVisual(spell, reason)
 		return
 	end
 	for index, decision in ipairs(plan.rows) do
-		local main, small = RogueVisualRow(index, f, false), RogueVisualRow(index, mini, true)
+		local output = AL.MiniFor(decision.spell) == 2 and mini2 or mini
+		local main, small = RogueVisualRow(index, f, false), RogueVisualRow(index, output, true)
 		local texture = decision.spell and (AL.IconFor(decision.spell) or AL.SpellTexture(decision.spell))
-			or "Interface\\Icons\\Spell_Nature_TimeStop"
+			or "Interface\\Icons\\INV_Stone_WeightStone_07"
 		local r, g, b = 1, 1, 1
 		if decision.spell and not AL.S().norange and AL.InRange(decision.spell) == false then r, g, b = 1, 0.25, 0.25 end
 		SetSharpTexture(main.tex, texture); SetSharpTexture(small.tex, texture)
@@ -510,26 +547,29 @@ local function UpdateRogueSecretVisual(spell, reason)
 	end
 	-- Base and conditional rows share the same masks, so icons, keys and action
 	-- highlights cannot disagree about a higher-priority defensive cooldown.
-	icon:SetAlpha(0); miniTex:SetAlpha(0); keyText:SetAlpha(0)
+	icon:SetAlpha(0); miniTex:SetAlpha(0); miniTex2:SetAlpha(0); keyText:SetAlpha(0)
 	AL.rotationSecretVisual = { plan = plan, values = values, spells = plan.spells,
 		baseSpell = spell, baseReason = reason, at = GetTime() }
 	AL.rogueSecretVisual = AL.playerClass == "ROGUE" and AL.rotationSecretVisual or nil
 
 end
 
-local idleIcon = "Interface\\Icons\\INV_Sword_27"
 -- Dedicated wait/pooling visual. It is not a spell suggestion and therefore
 -- never produces an action-bar glow.
-local poolingIcon = "Interface\\Icons\\Spell_Nature_TimeStop"
--- pilote separe : les suggestions continuent d'alimenter la mini-icone meme
--- lorsque l'icone principale est masquee
+local poolingIcon = "Interface\\Icons\\INV_Stone_WeightStone_07"
+-- Separate driver: suggestions keep updating the mini icons even
+-- when the main icon is hidden.
 local driver = CreateFrame("Frame")
+driver:RegisterEvent("PLAYER_REGEN_DISABLED")
+driver:SetScript("OnEvent", function()
+	drinkReminder:Hide()
+end)
 local elapsed = 0
+local lastVisualError
 driver:SetScript("OnUpdate", function(_, dt)
 	elapsed = elapsed + dt
 	if elapsed < 0.15 then return end
 	elapsed = 0
-	AL.UpdateRoleText()
 	local spell, reason = AL.NextSpell()
 	AL.lastSuggestion = spell
 	local tex, r, g, b = nil, 1, 1, 1
@@ -538,39 +578,51 @@ driver:SetScript("OnUpdate", function(_, dt)
 		if not AL.S().norange and AL.InRange(spell) == false then r, g, b = 1, 0.25, 0.25 end
 	elseif reason == "Channeling" then
 		tex = poolingIcon
-	elseif reason == "Drink" then
-		tex = "Interface\\Icons\\INV_Drink_07"
 	end
 	SetSharpTexture(icon, tex or idleIcon)
 	icon:SetVertexColor(r, g, b)
 	LayoutMini()
-	miniTex:SetShown(tex ~= nil)
-	if tex then
-		SetSharpTexture(miniTex, tex)
-		miniTex:SetVertexColor(r, g, b)
-	end
-
-	local healSpell, healThreshold = PriestSecretHealVisual()
-	if healSpell and healThreshold then
-		local healTexture = AL.IconFor(healSpell) or AL.SpellTexture(healSpell) or "Interface\\Icons\\INV_Misc_QuestionMark"
-		SetSharpTexture(priestHealOverlay, healTexture)
-		SetSharpTexture(miniPriestHealTex, healTexture)
-		if not ApplySecretHealthVisibility(priestHealOverlay, healThreshold) then priestHealOverlay:SetVertexColor(1,1,1,0) end
-		if not ApplySecretHealthVisibility(miniPriestHealTex, healThreshold) then miniPriestHealTex:SetVertexColor(1,1,1,0) end
-	else
-		priestHealOverlay:SetTexture(nil)
-		miniPriestHealTex:SetTexture(nil)
-		priestHealOverlay:SetVertexColor(1,1,1,0)
-		miniPriestHealTex:SetVertexColor(1,1,1,0)
+	local output = AL.MiniFor(spell)
+	for index, texture in ipairs({ miniTex, miniTex2 }) do
+		local visible = tex ~= nil and output == index
+		texture:SetShown(visible)
+		SetSharpTexture(texture, visible and tex or nil)
+		texture:SetVertexColor(r, g, b)
 	end
 
 	if AL.UpdateGlow then pcall(AL.UpdateGlow, spell) end
 	pcall(UpdateKeybind, spell)
 	pcall(UpdateCombo)
 	pcall(UpdateSwipe, spell)
-	local visualOK = pcall(UpdateRogueSecretVisual, spell, reason)
+	local visualOK, visualError = pcall(UpdateRogueSecretVisual, spell, reason)
 	if not visualOK then
 		ResetRogueSecretVisual()
+		local message = type(visualError) == "string" and not (issecretvalue and issecretvalue(visualError))
+			and visualError or "Protected rotation display failure"
+		if message ~= lastVisualError and AL.Debug and AL.Debug.CaptureError then
+			lastVisualError = message
+			AL.Debug.CaptureError("Rotation display: " .. message, "rotation display")
+		end
+	end
+	UpdateDrinkReminder()
+
+	-- Legacy Priest healing still uses protected health masks. Its Unit1
+	-- overlay must also mask the original mini's underlying damage suggestion.
+	for _, texture in ipairs({ priestHealOverlay, miniPriestHealTex, miniPriestHealTex2 }) do
+		SetSharpTexture(texture, nil)
+		texture:SetVertexColor(1, 1, 1, 0)
+	end
+	local healSpell, healThreshold = PriestSecretHealVisual()
+	if not AL.rotationSecretVisual and healSpell and healThreshold then
+		local healTexture = AL.IconFor(healSpell) or AL.SpellTexture(healSpell) or "Interface\\Icons\\INV_Misc_QuestionMark"
+		local healMini = AL.MiniFor(healSpell) == 2 and miniPriestHealTex2 or miniPriestHealTex
+		SetSharpTexture(priestHealOverlay, healTexture)
+		SetSharpTexture(healMini, healTexture)
+		if not ApplySecretHealthVisibility(priestHealOverlay, healThreshold) then priestHealOverlay:SetVertexColor(1, 1, 1, 0) end
+		if ApplySecretHealthVisibility(healMini, healThreshold) then
+			ApplySecretHealthVisibility(miniTex, healThreshold, true)
+			ApplySecretHealthVisibility(miniTex2, healThreshold, true)
+		end
 	end
 	for _, b in ipairs(toggles) do
 		local compact = ActionLiteDB and ActionLiteDB.togglesHidden == true or false
@@ -592,10 +644,10 @@ f:SetScript("OnEvent", function(self, event)
 	if event == "PLAYER_ENTERING_WORLD" then
 		ActionLiteDB = ActionLiteDB or {}
 		ActionLiteDB.profiles = ActionLiteDB.profiles or {}
-		-- valeurs globales ajoutees en 0.6.0, sans ecraser les anciennes
+		-- Global values added in 0.6.0 without overwriting existing values.
 		if AL.FillDBDefaults then AL.FillDBDefaults() end
-		-- on ouvre toujours le menu sur la classe jouee ; la liste peut ensuite
-		-- consulter les autres profils
+		-- Always open the menu on the player's class; the dropdown can then
+		-- inspect other profiles.
 		ActionLiteDB.activeProfile = AL.playerClass
 		AL.FillDefaults(AL.Profile(AL.playerClass), AL.playerClass)
 		AL.RestoreSelfBuffs()
@@ -616,13 +668,13 @@ f:SetScript("OnEvent", function(self, event)
 		AL.ScanSpellbook()
 		return
 	end
-	-- apprendre reellement un sort peut annuler une mise en liste noire
+	-- Actually learning a spell can remove it from the blacklist.
 	if event == "LEARNED_SPELL_IN_TAB" and AL.unlearned then wipe(AL.unlearned) end
 	if not (C_Timer and C_Timer.After) then
 		AL.ScanSpellbook()
 		return
 	end
-	-- SPELLS_CHANGED arrive en rafale (quete rendue, niveau) : un seul scan une fois calme
+	-- SPELLS_CHANGED arrives in bursts (quest turn-in, level-up): scan once after it settles.
 	scanToken = scanToken + 1
 	local token = scanToken
 	C_Timer.After(SCAN_DELAY, function()

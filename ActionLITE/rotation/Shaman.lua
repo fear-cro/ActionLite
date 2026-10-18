@@ -45,9 +45,9 @@ do
 local ADDON, AL = ...
 
 -- WoW Forever Shaman Enhancement / Elemental leveling 1-30 - v0.14.6
--- Cible : beta 1.60.1.69913
--- Statut : validation client requise pour les couts, rangs et talents.
--- Les valeurs protegees restent inconnues et ne sont jamais assimilees a zero.
+-- Target: beta 1.60.1.69913.
+-- Status: client validation required for costs, ranks and talents.
+-- Protected values stay unknown and are never treated as zero.
 
 local A = _G.Action
 
@@ -89,9 +89,9 @@ local M = {
 	},
 }
 
--- IDs de rang 1 utilises pour le scan et les icones. Leur presence ne prouve
--- pas le niveau d'apprentissage Forever ; les garde-fous ci-dessous restent
--- LIKELY jusqu'a verification dans le build cible.
+-- Rank-one IDs used for scans and icons. Their presence does not prove
+-- Forever's learning level; the safeguards below remain
+-- LIKELY until checked in the target build.
 M.spells = {
 	{ 2008, "Ancestral Spirit" },
 	{ 556, "Astral Recall" },
@@ -129,9 +129,9 @@ M.spells = {
 	{ 8232, "Windfury Weapon" },
 }
 
--- Niveaux historiques conserves comme reference seulement. Ils ne pilotent
--- plus la rotation : Forever peut les modifier. Le scan du grimoire et le
--- rejet FUTURESPELL du Core determinent les sorts reellement disponibles.
+-- Historical levels retained only as references. They no longer drive
+-- the rotation: Forever can change them. Spellbook scans and Core's
+-- FUTURESPELL rejection determine which spells are actually available.
 local REFERENCE_LEVELS = {
 	["Lightning Bolt"] = 1,
 	["Healing Wave"] = 1,
@@ -184,9 +184,9 @@ local WEAPON_ENCHANTS = {
 	["Rockbiter Weapon"] = true,
 	["Flametongue Weapon"] = true,
 }
--- IDs d'enchantement temporaire recuperes du profil Shaman TBC de reference.
--- Reference seulement : les IDs Forever peuvent differer. Un ID inconnu
--- ne prouve pas un enchantement incorrect ; un cast confirme reste prioritaire.
+-- Temporary weapon-enchant IDs taken from the reference TBC Shaman profile.
+-- Reference only: Forever IDs can differ. An unknown ID
+-- does not prove the enchant is wrong; a confirmed cast takes priority.
 local WEAPON_ENCHANT_IDS = {
 	["Windfury Weapon"] = {
 		[283] = true, [284] = true, [525] = true, [1669] = true,
@@ -212,9 +212,9 @@ for element, names in pairs(TOTEM_GROUPS) do
 	for _, name in ipairs(names) do TOTEM_ELEMENT[name] = element end
 end
 
--- Durees de repli LIKELY : GetTotemInfo reste toujours prioritaire. Les
--- valeurs volontairement conservatrices evitent la boucle de suggestion si
--- Forever protege temporairement l'etat des totems.
+-- LIKELY fallback durations: GetTotemInfo always takes priority. These
+-- deliberately conservative values prevent repeated suggestions when
+-- Forever temporarily protects totem state.
 local TOTEM_FALLBACK = {
 	["Searing Totem"] = 30,
 	["Magma Totem"] = 20,
@@ -236,12 +236,12 @@ local trackedWeapon, trackedWeaponUntil, trackedWeaponCastAt, trackedWeaponIdent
 local trackedWeaponObservation = {}
 local shockLockUntil, shockCastAt = 0, nil
 
--- Rotation complete restauree apres confirmation du raccourci Eclair incorrect.
--- Lightning Bolt reste direct ; Attack est seulement un repli au contact.
+-- Full rotation restored after the incorrect Lightning Bolt binding was confirmed.
+-- Lightning Bolt stays direct; Attack is only a melee-range fallback.
 
--- Rockbiter : 60 minutes rapportees par le joueur (build exact a confirmer).
--- Meme duree de repli LIKELY pour Flametongue et Windfury, a valider en jeu.
--- Une absence jamais observee ne peut pas annuler un cast confirme.
+-- Rockbiter: 60 minutes reported by the player (exact build to be confirmed).
+-- The same LIKELY fallback duration for Flametongue and Windfury needs in-game validation.
+-- An absence that was never observed cannot cancel a confirmed cast.
 local WEAPON_ENCHANT_FALLBACK_DURATION = 60 * 60
 
 
@@ -1084,9 +1084,10 @@ local function MaintainCombatTotems(s, role, targetHP, snapshot)
     if Enabled(s,"searing") and not ActiveTotemFrom("FIRE",snapshot) then Offer("Searing Totem", "Fire totem", gates) end
 end
 
-local function AoETotem(s, mana, count, snapshot)
+local function AoETotem(s, mana, count, snapshot, targetHP)
     if not Enabled(s,"aoe") or not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
-    local gates = { ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false) }
+    local gates = { ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false),
+        HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
     if Enabled(s,"firenova") and not snapshot["Fire Nova Totem"] and not snapshot["?FIRE"] then Offer("Fire Nova Totem", "AoE", gates) end
     if Enabled(s,"magma") and not snapshot["Magma Totem"] and not snapshot["Fire Nova Totem"] and not snapshot["?FIRE"] then
         Offer("Magma Totem", "AoE", gates)
@@ -1139,9 +1140,6 @@ function M.NextSpell(s, inCombat, hostile)
             end
         end
         Maintenance(s,role,inCombat,moving)
-        if not inCombat and Enabled(s,"drink") then
-            AddAction(nil,"Drink",{ ManaGate(mana,SettingNumber(s,"drinkMana",30,0,80),true,true) })
-        end
         if hostile then
             local melee = InMelee()
             if not inCombat then
@@ -1153,7 +1151,7 @@ function M.NextSpell(s, inCombat, hostile)
                 Burst(s,role,targetHP)
                 local snapshot = TotemSnapshot()
                 local count = Enabled(s,"aoe") and EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5)) or nil
-                AoETotem(s,mana,count,snapshot)
+                AoETotem(s,mana,count,snapshot,targetHP)
                 MaintainCombatTotems(s,role,targetHP,snapshot)
                 Damage(s,role,mana,targetHP,moving)
             end
@@ -1398,8 +1396,8 @@ local ADDON, AL = ...
 -- WoW Forever Shaman Elemental 31/7/13 / Enhancement 18/33/0 - v0.17.4
 -- Elemental reference: MythicSim 0025d73986ee, client 1.60.1.70338.
 -- Reference Enhancement : Forever 1.60.1.70338, MythicSim 944a791060db.
--- Statut : validation client requise pour les couts, rangs et talents.
--- Les valeurs protegees restent inconnues et ne sont jamais assimilees a zero.
+-- Status: client validation required for costs, ranks and talents.
+-- Protected values stay unknown and are never treated as zero.
 
 local A = _G.Action
 
@@ -1452,9 +1450,9 @@ local M = {
 	},
 }
 
--- IDs de rang 1 utilises pour le scan et les icones. Leur presence ne prouve
--- pas le niveau d'apprentissage Forever ; les garde-fous ci-dessous restent
--- LIKELY jusqu'a verification dans le build cible.
+-- Rank-one IDs used for scans and icons. Their presence does not prove
+-- Forever's learning level; the safeguards below remain
+-- LIKELY until checked in the target build.
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
@@ -1541,9 +1539,9 @@ M.spells = {
 	{ 8512, "Windfury Totem" },
 }
 
--- Niveaux historiques conserves comme reference seulement. Ils ne pilotent
--- plus la rotation : Forever peut les modifier. Le scan du grimoire et le
--- rejet FUTURESPELL du Core determinent les sorts reellement disponibles.
+-- Historical levels retained only as references. They no longer drive
+-- the rotation: Forever can change them. Spellbook scans and Core's
+-- FUTURESPELL rejection determine which spells are actually available.
 local REFERENCE_LEVELS = {
 	["Lightning Bolt"] = 1,
 	["Healing Wave"] = 1,
@@ -1596,9 +1594,9 @@ local WEAPON_ENCHANTS = {
 	["Rockbiter Weapon"] = true,
 	["Flametongue Weapon"] = true,
 }
--- IDs d'enchantement temporaire recuperes du profil Shaman TBC de reference.
--- Reference seulement : les IDs Forever peuvent differer. Un ID inconnu
--- ne prouve pas un enchantement incorrect ; un cast confirme reste prioritaire.
+-- Temporary weapon-enchant IDs taken from the reference TBC Shaman profile.
+-- Reference only: Forever IDs can differ. An unknown ID
+-- does not prove the enchant is wrong; a confirmed cast takes priority.
 local WEAPON_ENCHANT_IDS = {
 	["Windfury Weapon"] = {
 		[283] = true, [284] = true, [525] = true, [1669] = true,
@@ -1625,9 +1623,9 @@ for element, names in pairs(TOTEM_GROUPS) do
 	for _, name in ipairs(names) do TOTEM_ELEMENT[name] = element end
 end
 
--- Durees de repli LIKELY : GetTotemInfo reste toujours prioritaire. Les
--- valeurs volontairement conservatrices evitent la boucle de suggestion si
--- Forever protege temporairement l'etat des totems.
+-- LIKELY fallback durations: GetTotemInfo always takes priority. These
+-- deliberately conservative values prevent repeated suggestions when
+-- Forever temporarily protects totem state.
 local TOTEM_FALLBACK = {
 	["Searing Totem"] = 30,
 	["Magma Totem"] = 20,
@@ -1651,12 +1649,12 @@ local trackedWeapon, trackedWeaponUntil, trackedWeaponCastAt, trackedWeaponIdent
 local trackedWeaponObservation = {}
 local shockLockUntil, shockCastAt = 0, nil
 
--- Rotation complete restauree apres confirmation du raccourci Eclair incorrect.
--- Lightning Bolt reste direct ; Attack est seulement un repli au contact.
+-- Full rotation restored after the incorrect Lightning Bolt binding was confirmed.
+-- Lightning Bolt stays direct; Attack is only a melee-range fallback.
 
--- Rockbiter : 60 minutes rapportees par le joueur (build exact a confirmer).
--- Meme duree de repli LIKELY pour Flametongue et Windfury, a valider en jeu.
--- Une absence jamais observee ne peut pas annuler un cast confirme.
+-- Rockbiter: 60 minutes reported by the player (exact build to be confirmed).
+-- The same LIKELY fallback duration for Flametongue and Windfury needs in-game validation.
+-- An absence that was never observed cannot cancel a confirmed cast.
 local WEAPON_ENCHANT_FALLBACK_DURATION = 60 * 60
 
 
@@ -2642,9 +2640,10 @@ local function MaintainCombatTotems(s, role, targetHP, snapshot)
     if Enabled(s,"searing") and not ActiveTotemFrom("FIRE",snapshot) then Offer("Searing Totem", "Fire totem", gates) end
 end
 
-local function AoETotem(s, mana, count, snapshot)
+local function AoETotem(s, mana, count, snapshot, targetHP)
     if not Enabled(s,"aoe") or not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
-    local gates = { ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false) }
+    local gates = { ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false),
+        HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
     if AL.DPS60 and AL.DPS60.Active() then
         if Enabled(s,"firenova") then Offer("Fire Nova", "AoE Fire Nova", gates) end
         if not PlayerMoving() then Offer("Chain Lightning", "AoE chain", gates) end
@@ -2959,9 +2958,6 @@ function M.NextSpell(s, inCombat, hostile)
             end
         end
         Maintenance(s,role,inCombat,moving)
-        if not inCombat and Enabled(s,"drink") then
-            AddAction(nil,"Drink",{ ManaGate(mana,SettingNumber(s,"drinkMana",30,0,80),true,true) })
-        end
         if hostile then
             local melee = InMelee()
             if Enabled(s,"elemental") then
@@ -2979,7 +2975,7 @@ function M.NextSpell(s, inCombat, hostile)
                 Burst(s,role,targetHP)
                 local snapshot = TotemSnapshot()
                 local count = Enabled(s,"aoe") and EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5)) or nil
-                AoETotem(s,mana,count,snapshot)
+                AoETotem(s,mana,count,snapshot,targetHP)
                 MaintainCombatTotems(s,role,targetHP,snapshot)
                 Damage(s,role,mana,targetHP,moving)
             end

@@ -45,8 +45,8 @@ do
 local ADDON, AL = ...
 
 -- WoW Forever Hunter leveling 1-30 - v0.9.4
--- Cible : beta 1.60.1.69913
--- Donnees : extraction client 1.60.1.69876 et rotation de reference Hunter.
+-- Target: beta 1.60.1.69913.
+-- Data: client extraction 1.60.1.69876 and the reference Hunter rotation.
 -- Statut : LIKELY jusqu'a validation directe de chaque mecanique dans Forever.
 
 local A = _G.Action
@@ -80,7 +80,7 @@ local M = {
 	},
 }
 
--- IDs de rang 1 utilises pour identifier les sorts et fournir leurs icones.
+-- Rank-one IDs used to identify spells and supply their icons.
 M.spells = {
 	{ 19434, "Aimed Shot" },
 	{ 3044, "Arcane Shot" },
@@ -113,7 +113,7 @@ M.spells = {
 	{ 2974, "Wing Clip" },
 }
 
--- Le spellbook Forever peut exposer des sorts avant leur apprentissage reel.
+-- Forever's spellbook can expose spells before they are actually learned.
 local MINLEVEL = {
 	["Auto Shot"] = 1,
 	["Raptor Strike"] = 1,
@@ -690,7 +690,7 @@ for _, event in ipairs({ "PLAYER_DEAD", "PLAYER_ENTERING_WORLD", "START_AUTOREPE
     "STOP_AUTOREPEAT_SPELL", "UNIT_PET", "UNIT_SPELLCAST_CHANNEL_STOP", "COMBAT_LOG_EVENT_UNFILTERED",
     "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_SPECIALIZATION_CHANGED",
     "PLAYER_REGEN_ENABLED", "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING" }) do
-    pcall(tracker.RegisterEvent, tracker, event)
+    if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(tracker.RegisterEvent, tracker, event) end
 end
 tracker:SetScript("OnEvent", function(_, event, unit)
     if event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED"
@@ -740,7 +740,6 @@ function M.NextSpell(s, inCombat, hostile)
             elseif petStatus == "MISSING" then Offer("Call Pet", "pet missing") end
         end
         Mend(s, petUp, "heal pet")
-        if s.drink then AddAction(nil, "Drink", { ManaGate(manaPercent, SettingNumber(s, "drinkMana", 30, 0, 80), true) }) end
         if hostile then
             Mark(s, targetHP, petUp and "mark and send pet" or "mark")
             if UseMelee(s) then MeleeRotation(s, petUp)
@@ -969,7 +968,7 @@ local M = {
 	},
 }
 
--- IDs de rang 1 utilises pour identifier les sorts et fournir leurs icones.
+-- Rank-one IDs used to identify spells and supply their icons.
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
@@ -1053,7 +1052,7 @@ M.spells = {
 	{ 2974, "Wing Clip" },
 }
 
--- Le spellbook Forever peut exposer des sorts avant leur apprentissage reel.
+-- Forever's spellbook can expose spells before they are actually learned.
 local MINLEVEL = {
 	["Bestial Wrath"] = 40,
 	["Intimidation"] = 30,
@@ -2158,7 +2157,7 @@ for _, event in ipairs({ "PLAYER_DEAD", "PLAYER_ENTERING_WORLD", "START_AUTOREPE
     "STOP_AUTOREPEAT_SPELL", "UNIT_PET", "UNIT_SPELLCAST_CHANNEL_STOP", "COMBAT_LOG_EVENT_UNFILTERED",
     "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_SPECIALIZATION_CHANGED",
     "PLAYER_REGEN_ENABLED", "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING" }) do
-    pcall(tracker.RegisterEvent, tracker, event)
+    if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(tracker.RegisterEvent, tracker, event) end
 end
 tracker:SetScript("OnEvent", function(_, event, unit)
     if event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED"
@@ -2213,7 +2212,6 @@ function M.NextSpell(s, inCombat, hostile)
             elseif petStatus == "MISSING" then Offer("Call Pet", "pet missing") end
         end
         Mend(s, petUp, "heal pet")
-        if s.drink then AddAction(nil, "Drink", { ManaGate(manaPercent, SettingNumber(s, "drinkMana", 30, 0, 80), true) }) end
         if hostile then
             Mark(s, targetHP, petUp and "mark and send pet" or "mark")
             if UseMelee(s) then MeleeRotation(s, petUp, manaPercent, targetHP, false)

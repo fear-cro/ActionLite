@@ -3,11 +3,11 @@ local ADDON, AL = ...
 -- ============================================================================
 -- ActionLITE - Glow.lua
 -- ----------------------------------------------------------------------------
--- Surligne sur les barres d'action chaque bouton qui porte le sort suggere.
--- Notre propre texture : la lueur de proc de Blizzard n'est jamais touchee.
+-- Highlights each action-bar button that holds the suggested spell.
+-- Uses our own texture: Blizzard's proc glow is never modified.
 -- ============================================================================
 
--- prefixe, nombre, commande de raccourci (nil = pas de raccourci Blizzard)
+-- prefix, count, binding command (nil = no Blizzard binding)
 local BAR_BUTTONS = {
 	{ "ActionButton", 12, "ACTIONBUTTON" }, { "BonusActionButton", 12, "ACTIONBUTTON" },
 	{ "MultiBarBottomLeftButton", 12, "MULTIACTIONBAR1BUTTON" },
@@ -20,7 +20,7 @@ local BAR_BUTTONS = {
 for bar = 1, 10 do BAR_BUTTONS[#BAR_BUTTONS + 1] = { "ElvUI_Bar" .. bar .. "Button", 12 } end
 local STANCE_BUTTONS = 10
 
--- emplacements Classic : 1-12 et 13-24 pages principales, puis barres multiples
+-- Classic slots: 1-12 and 13-24 are main pages, followed by multibars
 local SLOT_COMMANDS = {
 	{ 1, 24, "ACTIONBUTTON" }, { 25, 36, "MULTIACTIONBAR3BUTTON" }, { 37, 48, "MULTIACTIONBAR4BUTTON" },
 	{ 49, 60, "MULTIACTIONBAR2BUTTON" }, { 61, 72, "MULTIACTIONBAR1BUTTON" }, { 73, 120, "ACTIONBUTTON" },
@@ -34,7 +34,7 @@ local function SpellNameOf(id)
 	if ok and type(name) == "string" and not Secret(name) and name ~= "" then return name end
 end
 
--- ---------------------------------------------------------------- couleur
+-- ---------------------------------------------------------------- color
 local function ValidColor(c)
 	if type(c) ~= "table" then return false end
 	for i = 1, 3 do
@@ -61,7 +61,7 @@ function AL.GlowColor()
 	return AL.BABY_R, AL.BABY_G, AL.BABY_B
 end
 
--- ---------------------------------------------------------------- lecture des boutons
+-- ---------------------------------------------------------------- reading buttons
 local function ActionSlot(btn)
 	local slot = btn.action
 	if type(slot) ~= "number" and btn._state_type == "action" then slot = btn._state_action end
@@ -122,7 +122,7 @@ local function ActionSpellNames(slot)
 	return MacroSpellNames(id)
 end
 
--- l'ancienne API renvoie (icone, nom, actif, utilisable), la recente (icone, actif, utilisable, id)
+-- The old API returns (icon, name, active, usable); the new API returns (icon, active, usable, id).
 local function StanceName(i)
 	if type(GetShapeshiftFormInfo) ~= "function" then return nil end
 	local ok, _, a, _, d = pcall(GetShapeshiftFormInfo, i)
@@ -259,7 +259,7 @@ local function EnsureMap()
 	return true
 end
 
--- ---------------------------------------------------------------- raccourcis
+-- ---------------------------------------------------------------- key bindings
 local MODIFIERS = { SHIFT = "S", CTRL = "C", ALT = "A", STRG = "C", META = "M" }
 
 --- Short keybind label: SHIFT-1 -> S1, BUTTON4 -> M4, NUMPAD5 -> N5.

@@ -45,8 +45,8 @@ do
 local ADDON, AL = ...
 
 -- WoW Forever Rogue Combat leveling 1-30
--- Cible : beta 1.60.1.69913
--- Les valeurs protegees ne sont jamais assimilees a zero.
+-- Target: beta 1.60.1.69913.
+-- Protected values are never treated as zero.
 
 local A = _G.Action
 
@@ -79,7 +79,7 @@ local M = {
 	},
 }
 
--- IDs de rang 1 pour le scan, les icones et le menu Sorts.
+-- Rank-one IDs for scans, icons and the Spells menu.
 M.spells = {
 	{ 8676, "Ambush" },
 	{ 53, "Backstab" },
@@ -105,9 +105,9 @@ M.spells = {
 	{ 1856, "Vanish" },
 }
 
--- Sorts de classe verifies par niveau. Les talents Riposte et Blade Flurry
--- restent volontairement gates uniquement par AL.known : leur niveau depend
--- de l'investissement en talents et ne doit pas etre invente en dur.
+-- Class spells verified by level. Riposte and Blade Flurry talents
+-- are deliberately gated only by AL.known: their learning level depends
+-- on talent investment and must never be hard-coded speculatively.
 local MINLEVEL = {
 	["Sinister Strike"] = 1,
 	["Eviscerate"] = 1,
@@ -911,7 +911,7 @@ local ADDON, AL = ...
 
 -- ActionLITE Rogue 0.16.3: Assassination 38/11/2, Subtlety, Combat and leveling 1-60.
 -- Combat reference: MythicSim Forever 0025d73986ee (1.60.1.70338).
--- Les valeurs protegees ne sont jamais assimilees a zero.
+-- Protected values are never treated as zero.
 
 local A = _G.Action
 
@@ -960,7 +960,7 @@ local M = {
 	},
 }
 
--- IDs de rang 1 pour le scan, les icones et le menu Sorts.
+-- Rank-one IDs for scans, icons and the Spells menu.
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
@@ -1035,9 +1035,9 @@ M.spells = {
 	{ 1310703, "Venom" },
 }
 
--- Sorts de classe verifies par niveau. Les talents Riposte et Blade Flurry
--- restent volontairement gates uniquement par AL.known : leur niveau depend
--- de l'investissement en talents et ne doit pas etre invente en dur.
+-- Class spells verified by level. Riposte and Blade Flurry talents
+-- are deliberately gated only by AL.known: their learning level depends
+-- on talent investment and must never be hard-coded speculatively.
 local MINLEVEL = {
 	["Sinister Strike"] = 1,
 	["Eviscerate"] = 1,
@@ -2132,7 +2132,7 @@ if AL.playerClass == "ROGUE" and CreateFrame then
 	local stateFrame = CreateFrame("Frame")
 	for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_AURA", "PLAYER_DEAD", "SPELLS_CHANGED",
 		"PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "PLAYER_REGEN_ENABLED", "COMBAT_LOG_EVENT_UNFILTERED" }) do
-		pcall(stateFrame.RegisterEvent, stateFrame, event)
+		if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then pcall(stateFrame.RegisterEvent, stateFrame, event) end
 	end
 	stateFrame:SetScript("OnEvent", function(_, event, unit, target, guid)
 		if event == "UNIT_SPELLCAST_SENT" then

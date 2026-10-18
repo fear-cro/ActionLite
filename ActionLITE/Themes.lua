@@ -3,9 +3,9 @@ local ADDON, AL = ...
 -- ============================================================================
 -- ActionLITE - Themes.lua
 -- ----------------------------------------------------------------------------
--- Themes predefinis, theme personnalise enregistre, et tiroir d'edition qui
--- s'ouvre a droite de la fenetre d'options. Toute modification est appliquee
--- en direct via UI.ApplyTheme.
+-- Preset themes, a saved custom theme and an editor drawer that
+-- opens to the right of the options window. Every change is applied
+-- immediately through UI.ApplyTheme.
 -- ============================================================================
 
 local UI = AL.UI
@@ -113,7 +113,7 @@ local PRESET_BY_ID = {}
 for _, p in ipairs(PRESETS) do PRESET_BY_ID[p.id] = p end
 
 -- --------------------------------------------------------------------------
--- Persistance : meme double copie que la langue (voir Localization.lua).
+-- Persistence uses the same redundant copy as the language (see Localization.lua).
 -- --------------------------------------------------------------------------
 local function Saved()
 	ActionLiteDB = ActionLiteDB or {}
@@ -149,7 +149,7 @@ local function SelectPreset(id)
 	UI.ApplyTheme(CurrentColors(st))
 end
 
--- Premier changement de couleur : le theme courant devient le theme perso.
+-- The first color change turns the current theme into the custom theme.
 local function EnsureCustom()
 	local st = Saved()
 	if st.preset ~= "CUSTOM" or not st.custom then
@@ -160,7 +160,7 @@ local function EnsureCustom()
 end
 
 -- --------------------------------------------------------------------------
--- Tiroir
+-- Drawer
 -- --------------------------------------------------------------------------
 local DRAWER_W = 300
 local WHEEL = 128
@@ -257,7 +257,7 @@ function AL.BuildThemeDrawer(menu, toggleButton)
 	PresetRow("CUSTOM", L("THEME_CUSTOM"), nil)
 	UI.Info(presetCard, L("THEME_CUSTOM_HELP"), { color = THEME.textFaint })
 
-	-- Une seule mise a jour par image, meme si plusieurs curseurs bougent.
+	-- Only one update per frame, even when several sliders move.
 	local dirty = false
 	drawer:SetScript("OnUpdate", function()
 		if not dirty then return end
@@ -533,7 +533,7 @@ function AL.BuildThemeDrawer(menu, toggleButton)
 	return drawer
 end
 
--- Bouton rond de l'en-tete : pastille aux couleurs du theme courant.
+-- Round header button: a swatch showing the current theme's colors.
 function AL.ThemeButton(parent)
 	local b = CreateFrame("Button", nil, parent)
 	b:SetSize(18, 18)

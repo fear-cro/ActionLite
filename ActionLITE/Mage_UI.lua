@@ -11,227 +11,14 @@ local function ChooseBuild(key,...)
 	end
 end
 
-local function Text(value)
-	if type(value) ~= "table" then return tostring(value or "") end
-	local language = AL.GetUILanguage and AL.GetUILanguage() or "en"
-	return value[language] or value.en or value.fr or ""
-end
-
-local function SpellMap(rotation)
-	local map = {}
-	for _, entry in ipairs((rotation and rotation.spells) or {}) do
-		map[entry[2]] = entry[1]
-	end
-	return map
-end
-
-local function KnownSpells(rotation)
-	local known, total = 0, 0
-	for _, entry in ipairs((rotation and rotation.spells) or {}) do
-		total = total + 1
-		if AL.known and AL.known[entry[2]] then known = known + 1 end
-	end
-	return known, total
-end
-
-local function BuildControl(card, control, ui, spellIDs, rotation)
-	if control.type == "slider" then
-		return ui.Slider(card, {
-			profileKey = control.key,
-			label = Text(control.label),
-			min = control.min,
-			max = control.max,
-			step = control.step or 1,
-			suffix = Text(control.suffix),
-			half = control.half,
-			format = control.format,
-			get = function()
-				local raw = ui.Profile()[control.key]
-                local value = not (issecretvalue and issecretvalue(raw)) and tonumber(raw) or nil
-                if not value or value ~= value or value == math.huge or value == -math.huge then value = control.default or control.min end
-                return math.max(control.min, math.min(control.max, math.floor(value + 0.5)))
-			end,
-			set = function(value) ui.Profile()[control.key] = value end,
-			tooltip = control.tooltip and {
-				Text(control.tooltip[1]), Text(control.tooltip[2]),
-			} or nil,
-		})
-	end
-
-	if control.type == "dropdown" then
-		local options = {}
-		for i, option in ipairs(control.options or {}) do
-			options[i] = { label = Text(option.label), value = option.value }
-		end
-		return ui.StackDropdown(card, {
-			profileKey = control.key,
-			caption = Text(control.label),
-			options = options,
-			get = function()
-				local value = ui.Profile()[control.key]
-				if not (issecretvalue and issecretvalue(value)) then
-                    for _, option in ipairs(control.options or {}) do if value == option.value then return value end end
-                end
-                return control.default
-			end,
-			set = function(value) ui.Profile()[control.key] = value end,
-			onSelect = ui.Repaint,
-			half = control.half,
-		})
-	end
-
-	if control.type == "info" then
-		return ui.Info(card, Text(control.text))
-	end
-
-	if control.type == "dynamic_info" then
-		local row = ui.Info(card, "")
-		local elapsed = 0
-
-		local function Refresh()
-			local value = ""
-			if type(control.getText) == "function" then
-				local ok, result = pcall(control.getText)
-				if ok then
-					value = tostring(result or "")
-				else
-					value = "unavailable"
-				end
-			else
-				value = Text(control.text)
-			end
-			row:SetText(value)
-		end
-
-		row:SetScript("OnUpdate", function(_, delta)
-			elapsed = elapsed + delta
-			if elapsed < (control.interval or 0.20) then return end
-			elapsed = 0
-			Refresh()
-		end)
-
-		Refresh()
-		return row
-	end
-
-	local originalChange = control.onChange
-	local changed = originalChange
-	for _, key in ipairs(rotation and rotation.buildKeys or {}) do
-		if key == control.key then
-			changed = function()
-				local profile = ui.Profile()
-				rotation.SetBuild(key, profile[key] == true, profile)
-				if originalChange then originalChange() end
-				if ui.Repaint then ui.Repaint() end
-			end
-			break
-		end
-	end
-	local icon
-	if control.spell then
-		icon = ui.SpellIcon(control.spell, spellIDs[control.spell])
-	end
-	return ui.SettingCheck(card, control.key, {
-		label = Text(control.label or control.spell or control.key),
-		icon = icon,
-		half = control.half ~= false,
-		onChange = changed,
-		tooltip = control.tooltip and {
-			Text(control.tooltip[1]), Text(control.tooltip[2]),
-		} or nil,
-	})
-end
-
-local function RegisterMageUI(token, config, version)
-	if type(token) ~= "string" or type(config) ~= "table" then return end
-	if type(AL.RegisterClassUI) ~= "function" then return end
-
-	AL.RegisterClassUI(token, function(page, ui)
-		local rotation = AL.rotations and AL.rotations[token]
-		if rotation and rotation.NormalizeBuild then rotation.NormalizeBuild(ui.Profile()) end
-		local spellIDs = SpellMap(rotation)
-		local stack = ui.Body(page)
-		local theme = ui.Theme
-		local steel = { 0.72, 0.62, 0.50, 1 }
-
-		local head = ui.Card(stack, Text(config.title), Text(config.subtitle))
-		local rowA = ui.BadgeRow(head, 3)
-		local rowB = ui.BadgeRow(head, 2)
-		local badges = {
-			level = rowA.badges[1],
-			spells = rowA.badges[2],
-			state = rowA.badges[3],
-			aoe = rowB.badges[1],
-			burst = rowB.badges[2],
-		}
-
-		if AL.DPS60 then AL.DPS60.BuildUI(token, stack, ui) end
-		for _, cardDef in ipairs(config.cards or {}) do
-			local card = ui.Card(stack, Text(cardDef.title), Text(cardDef.subtitle))
-			for _, control in ipairs(cardDef.controls or {}) do
-				BuildControl(card, control, ui, spellIDs, rotation)
-			end
-		end
-
-		local linkCard = ui.Card(stack,
-			Text({ en = "ROTATION LINK", fr = "LIAISON ROTATION", pt = "VÍNCULO DA ROTAÇÃO", es = "VÍNCULO DE ROTACIÓN", de = "ROTATIONS-LINK", zh = "循环联动" }))
-		ui.Info(linkCard, Text({
-			en = "Every control on this page writes directly to this class profile. The combat rotation reads the same values.",
-			fr = "Chaque controle de cette page ecrit directement dans le profil de cette classe. La rotation de combat lit les memes valeurs.",
-			pt = "Cada controle desta página grava diretamente no perfil desta classe. A rotação de combate lê os mesmos valores.",
-			es = "Cada control de esta página escribe directamente en el perfil de esta clase. La rotación de combate lee los mismos valores.",
-			de = "Jede Einstellung auf dieser Seite schreibt direkt in dieses Klassenprofil. Die Kampfrotation liest dieselben Werte.",
-			zh = "本页的每个控件都直接写入该职业配置。战斗循环读取相同的数值。",
-		}))
-
-		local last = {}
-		local function SetBadge(key, value, color)
-			if last[key] == value then return end
-			last[key] = value
-			badges[key]:SetBadge(value, color)
-		end
-
-		local function Paint()
-			local profile = ui.Profile()
-			local known, total = KnownSpells(rotation)
-			local ok, level = pcall(function() return UnitLevel and UnitLevel("player") end)
-            if not ok or (issecretvalue and issecretvalue(level)) or type(level) ~= "number" then level = "?" end
-			SetBadge("level", AL.L("LEVEL") .. " " .. tostring(level), steel)
-			SetBadge("spells", tostring(known) .. "/" .. tostring(total) .. " " .. AL.L("SPELLS"):upper(), steel)
-			SetBadge("state", rotation and AL.L("ROTATION_LOADED") or AL.L("NO_ROTATION"),
-				rotation and theme.ok or theme.danger)
-			if config.aoeKey then
-				SetBadge("aoe", profile[config.aoeKey] and AL.L("AOE_ON") or AL.L("AOE_OFF"),
-					profile[config.aoeKey] and theme.ok or theme.textFaint)
-			else
-				SetBadge("aoe", Text({ en = "SINGLE TARGET", fr = "CIBLE UNIQUE", pt = "ALVO ÚNICO", es = "OBJETIVO ÚNICO", de = "EINZELZIEL", zh = "单体目标" }), theme.textFaint)
-			end
-			SetBadge("burst", AL.burst and AL.L("BURST_ON") or AL.L("BURST_OFF"),
-				AL.burst and theme.gold or theme.textFaint)
-			rowA:Layout()
-			rowB:Layout()
-		end
-
-		ui.Paint(Paint)
-		Paint()
-		local elapsed = 0
-		page:SetScript("OnUpdate", function(_, delta)
-			elapsed = elapsed + delta
-			if elapsed < 0.20 then return end
-			elapsed = 0
-			Paint()
-		end)
-	end, version)
-end
-
-
-RegisterMageUI("MAGE", {
+AL.RegisterSimpleClassUI("MAGE", {
 	title = { en = "MAGE - LEVELING", fr = "MAGE - PROGRESSION", pt = "MAGO - EVOLUÇÃO", es = "MAGO - SUBIDA", de = "MAGIER - LEVELN", zh = "法师 - 升级" },
 	subtitle = { en = "Level 1-60 - Frost, Fire, Arcane and Frostfire builds, learned spells and wand control", fr = "Niveaux 1-60 - Feu, Arcane et Givrefeu", pt = "Níveis 1-60 - Fogo, Arcano e Fogo Gélido", es = "Niveles 1-60 - Fuego, Arcano y Pirofrío", de = "Stufe 1-60 - Feuer, Arkan und Frostfeuer", zh = "1-60级 - 火焰、奥术与霜火" },
 	aoeKey = "aoe",
 	cards = {
         {
             title = "LEVELING ROTATION",
+            id="leveling-rotation", build="leveling", group="damage",
             controls = {
                 { key="leveling", label="Leveling Rotation", spell="Frostbolt", half=false,
                   tooltip={"Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected."} },
@@ -239,25 +26,32 @@ RegisterMageUI("MAGE", {
         },
 		{
 			title = "FROST BUILD - 16/3/32",
+			id="frost-build-16-3-32", build="frost", group="damage",
 			controls = {
 				{ key = "frost", label = "Use Frost (16/3/32)", half = false, spell = "Frostbolt", onChange = ChooseBuild("frost","fire","arcane","frostfire","primaryFire") },
 				{ type = "info", text = "Selects the tier-list Frost build using learned spells through level 60. Unchecks the other builds and keeps their saved options and icon choices. Does not change talents or gear. Select Leveling Rotation to use the original rotation." },
 				{ key = "frostMissiles", label = "Use confirmed Missile Barrage", spell = "Arcane Missiles" },
+				{ key = "frostBlast", label = "Use Frost Blast as a quick slow opener", spell = "Frost Blast" },
 				{ key = "frostFireBlast", label = "Use Fire Blast while moving", spell = "Fire Blast" },
 				{ type = "info", text = "Normal priority: Ice Lance against a confirmed frozen target or with Fingers of Frost, confirmed Missile Barrage, then Frostbolt. The shared Ice Lance checkbox applies. Fire Blast is a moving fallback and needs its shared checkbox and mana setting. Wand mana and target-health settings keep priority; existing casts and channels finish." },
 			},
 		},
 		{
-			title = "FROST BURST & AREA DAMAGE",
+			title = "FROST BURST",
+			id="frost-burst-area-damage", build="frost", group="burst",
 			controls = {
 				{ key = "frostColdSnap", label = "Burst: Cold Snap for close AoE", spell = "Cold Snap", half = false },
 				{ key = "frostEureka", label = "Burst: learned Eureka!", spell = "Eureka!" },
 				{ key = "frostBerserking", label = "Burst: learned Berserking", spell = "Berserking" },
 				{ type = "slider", key = "frostBurstMinMana", label = "Frost Burst minimum mana", min = 0, max = 100, step = 5, default = 40, suffix = " %" },
 				{ type = "info", text = "Requires Frost selected, Burst On, combat, enough mana and the shared minimum target-health setting. Cold Snap is used only with AoE On, enough close engaged enemies, and an enabled, affordable Cone of Cold already on cooldown. Its ten-minute cooldown is saved during ordinary ranged single-target damage. Manual queueing remains available." },
+            },
+        },
+        {
+            title="FROST AREA DAMAGE", id="frost-area-damage", build="frost", group="aoe",
+            controls={
 				{ key = "frostCone", label = "AoE: close Cone of Cold", spell = "Cone of Cold" },
 				{ key = "frostWinterChill", label = "AoE: build own Winter's Chill before Cone", spell = "Cone of Cold" },
-				{ key = "frostBlast", label = "Use Frost Blast as a quick slow opener", spell = "Frost Blast" },
 				{ key = "frostBlizzard", label = "AoE: ranged Blizzard", spell = "Blizzard" },
 				{ type = "slider", key = "frostBlizzardMinEnemies", label = "Frost Blizzard minimum enemies", min = 2, max = 8, step = 1, default = 4 },
 				{ key = "frostExplosion", label = "AoE: optional close Arcane Explosion", spell = "Arcane Explosion", half = false },
@@ -266,6 +60,7 @@ RegisterMageUI("MAGE", {
 		},
 		{
 			title = "FROST DEFENSE",
+			id="frost-defense", build="frost", group="survival",
 			controls = {
 				{ key = "frostBarrier", label = "Use Ice Barrier", spell = "Ice Barrier" },
 				{ type = "slider", key = "frostBarrierHP", label = "Ice Barrier at/below player health", min = 1, max = 100, step = 1, default = 70, suffix = " %" },
@@ -275,6 +70,7 @@ RegisterMageUI("MAGE", {
 		},
 		{
 			title = "FIRE BUILD - 16/31/4",
+			id="fire-build-16-31-4", build="fire", group="damage",
 			controls = {
 				{ key = "fire", label = "Use Fire (16/31/4)", half = false, spell = "Fireball", onChange = ChooseBuild("fire","arcane","frostfire","primaryFire","frost") },
 				{ type = "info", text = "The live tier-list Fire reference, using learned spells through level 60. Selecting Fire unchecks Frost, Arcane, Frostfire and the older fire-primary option while preserving their other settings. Build selection does not change talents or gear. Leveling Rotation retains the original rotation." },
@@ -288,13 +84,19 @@ RegisterMageUI("MAGE", {
 			},
 		},
 		{
-			title = "FIRE BURST & AREA DAMAGE",
+			title = "FIRE BURST",
+			id="fire-burst-area-damage", build="fire", group="burst",
 			controls = {
 				{ key = "fireCombustion", label = "Burst: Combustion", spell = "Combustion" },
 				{ key = "fireEureka", label = "Burst: learned Eureka!", spell = "Eureka!" },
 				{ key = "fireBerserking", label = "Burst: learned Berserking", spell = "Berserking" },
 				{ type = "slider", key = "fireBurstMinMana", label = "Fire Burst minimum mana", min = 0, max = 100, step = 5, default = 40, suffix = " %" },
 				{ type = "info", text = "Requires Fire selected, Burst On, combat, the shared minimum target-health slider, enough mana and eligible damage. Enabled Scorch upkeep precedes Combustion. Its three-minute cooldown starts when consumed, and it shares a cooldown with Presence of Mind. Readable buffs, cooldowns or confirmed fire crits establish consumption; unknown crits are never counted. Normal damage continues while the buff is active." },
+            },
+        },
+        {
+            title="FIRE AREA DAMAGE", id="fire-area-damage", build="fire", group="aoe",
+            controls={
 				{ key = "fireFlamestrike", label = "AoE: Flamestrike", spell = "Flamestrike" },
 				{ key = "fireBlizzard", label = "AoE: ranged Blizzard", spell = "Blizzard" },
 				{ type = "info", text = "Area spells require AoE On and the shared engaged-enemy count/mana settings. Flamestrike waits eight seconds before refresh, with ranged Blizzard between casts. Cone of Cold and Arcane Explosion require enough confirmed close enemies. Ground spells use normal placement; existing casts and channels finish. Combustion is available in the existing Spells tab for Universal icons 1-10." },
@@ -302,6 +104,7 @@ RegisterMageUI("MAGE", {
 		},
 		{
 			title = "FROSTFIRE BUILD - 0/29/22",
+			id="frostfire-build-0-29-22", build="frostfire", group="damage",
 			controls = {
 				{ key = "frostfire", label = "Use Frostfire (0/29/22)", half = false, spell = "Frostfire Bolt", onChange = ChooseBuild("frostfire","arcane","primaryFire","fire","frost") },
 				{ type = "info", text = "Experimental tier-list hybrid. Selecting Frostfire unchecks the other builds while preserving their settings. Uses learned spells through level 60; before Frostfire Bolt is learned, it falls back to learned Fireball/Frostbolt. Selecting a build does not change talents or gear." },
@@ -314,12 +117,18 @@ RegisterMageUI("MAGE", {
 			},
 		},
 		{
-			title = "FROSTFIRE BURST & AREA DAMAGE",
+			title = "FROSTFIRE BURST",
+			id="frostfire-burst-area-damage", build="frostfire", group="burst",
 			controls = {
 				{ key = "frostfireEureka", label = "Burst: learned Eureka!", spell = "Eureka!" },
 				{ key = "frostfireBerserking", label = "Burst: learned Berserking", spell = "Berserking" },
 				{ type = "slider", key = "frostfireBurstMinMana", label = "Frostfire Burst minimum mana", min = 0, max = 100, step = 5, default = 40, suffix = " %" },
 				{ type = "info", text = "Racials require Burst On, combat, the existing Burst target-health setting, enough mana and an available damage spell. Single-target Scorch upkeep is completed first; an eligible AoE branch can use Burst directly. The default 0/29/22 build does not learn Combustion, Arcane Power or Presence of Mind." },
+            },
+        },
+        {
+            title="FROSTFIRE AREA DAMAGE", id="frostfire-area-damage", build="frostfire", group="aoe",
+            controls={
 				{ key = "frostfireFlamestrike", label = "AoE: Flamestrike", spell = "Flamestrike" },
 				{ key = "frostfireBlizzard", label = "AoE: ranged Blizzard", spell = "Blizzard" },
 				{ type = "info", text = "Requires AoE On and the shared enemy-count and mana settings. Flamestrike refreshes after eight seconds, then ranged Blizzard continues while stationary. Both use normal ground targeting. Cone of Cold and Arcane Explosion require enough confirmed close enemies. Active casts and channels finish normally." },
@@ -327,6 +136,7 @@ RegisterMageUI("MAGE", {
 		},
 		{
 			title = "ARCANE BUILD - 35/11/5",
+			id="arcane-build-35-11-5", build="arcane", group="damage",
 			controls = {
 				{ key = "arcane", label = "Use Arcane (35/11/5)", half = false, spell = "Arcane Blast", onChange = ChooseBuild("arcane","primaryFire","frostfire","fire","frost") },
 				{ type = "info", text = "Uses the live tier preset with learned spells through level 60: build the fifteen-second Arcane Blast buff, use confirmed Missile Barrage, then Arcane Wrath on cooldown and Arcane Missiles filler. Other spells retain the buff. Unchecks Frostfire and the fire-primary option while preserving their other settings. Talents and gear are not changed." },
@@ -339,7 +149,8 @@ RegisterMageUI("MAGE", {
 			},
 		},
 		{
-			title = "ARCANE BURST & AREA DAMAGE",
+			title = "ARCANE BURST",
+			id="arcane-burst-area-damage", build="arcane", group="burst",
 			controls = {
 				{ key = "arcanePower", label = "Burst: Arcane Power", spell = "Arcane Power" },
 				{ key = "presenceOfMind", label = "Burst: Presence of Mind", spell = "Presence of Mind" },
@@ -348,12 +159,18 @@ RegisterMageUI("MAGE", {
 				{ key = "arcaneBerserking", label = "Burst: learned Berserking", spell = "Berserking" },
 				{ type = "slider", key = "arcaneBurstMinMana", label = "Arcane Burst minimum mana", min = 0, max = 100, step = 5, default = 40, suffix = " %" },
 				{ type = "info", text = "Requires Burst On, the existing Burst target-health slider, mana and an eligible damage spell. Presence of Mind prepares a learned Pyroblast at four charges. Automatic Pyroblast requires an active Presence of Mind; ordinary six-second Pyroblasts are not used. Racials require the actual learned spell." },
+            },
+        },
+        {
+            title="ARCANE AREA DAMAGE", id="arcane-area-damage", build="arcane", group="aoe",
+            controls={
 				{ key = "arcaneBlizzard", label = "AoE: optional ranged Blizzard", half = false, spell = "Blizzard" },
 				{ type = "info", text = "Cone of Cold and Arcane Explosion require AoE On and enough confirmed close enemies. Ranged Blizzard also requires its checkbox, standing still and confirmed ranged enemies; it defaults OFF and uses normal ground targeting. AoE uses the existing enemy-count and mana sliders." },
 			},
 		},
 		{
-			title = { en = "PRIMARY SPELL", fr = "SORT PRINCIPAL", pt = "FEITIÇO PRINCIPAL", es = "HECHIZO PRINCIPAL", de = "HAUPTZAUBER", zh = "主要法术" },
+			title = { en = "LEVELING AND FALLBACK SPELLS", fr = "SORT PRINCIPAL", pt = "FEITIÇO PRINCIPAL", es = "HECHIZO PRINCIPAL", de = "HAUPTZAUBER", zh = "主要法术" },
+			id="primary-spell", group="advanced", collapsed=true,
 			subtitle = {
 				en = "Auto uses Frostbolt first. Every choice falls back to another learned nuke.",
 				fr = "Auto choisit Frostbolt en premier. Chaque choix se replie sur un autre sort appris.",
@@ -372,26 +189,40 @@ RegisterMageUI("MAGE", {
 				} },
 				{ key = "primaryFire", onChange = ChooseBuild("primaryFire","arcane","frostfire","fire","frost"), label = { en = "Primarily use fire spells", fr = "Utiliser principalement les sorts de feu", pt = "Usar principalmente feitiços de fogo", es = "Usar principalmente hechizos de fuego", de = "Hauptsächlich Feuerzauber verwenden", zh = "主要使用火焰法术" }, spell = "Fireball", tooltip = {
 					{ en = "Fire-primary rotation", fr = "Rotation principalement Feu", pt = "Rotação principal de Fogo", es = "Rotación principalmente de Fuego", de = "Feuerpriorisierte Rotation", zh = "火焰优先循环" },
-					{ en = "Disables Frostbolt priority. Uses Fireball and Fire Blast, and recommends Flamestrike when AoE is enabled and its enemy-count and mana settings are met.", fr = "Désactive la priorité de Frostbolt. Utilise Fireball et Fire Blast, et recommande Flamestrike si l’AoE est activée et que les seuils d’ennemis et de mana sont atteints.", pt = "Desativa a prioridade de Frostbolt. Usa Fireball e Fire Blast e recomenda Flamestrike quando o AoE está ativado e os limites de inimigos e mana são atendidos.", es = "Desactiva la prioridad de Frostbolt. Usa Fireball y Fire Blast y recomienda Flamestrike cuando el AoE está activado y se cumplen los límites de enemigos y maná.", de = "Deaktiviert die Frostbolt-Priorität. Verwendet Fireball und Fire Blast und empfiehlt Flamestrike, wenn AoE aktiviert ist und die Gegner- und Mana-Schwellen erreicht sind.", zh = "禁用 Frostbolt 优先级。使用 Fireball 和 Fire Blast。启用 AoE 且达到敌人数和法力阈值时推荐 Flamestrike。" }
+					{ en = "Switches to Leveling Rotation with fire priority. Uses Fireball and Fire Blast, and recommends Flamestrike when AoE is enabled and its enemy-count and mana settings are met.", fr = "Désactive la priorité de Frostbolt. Utilise Fireball et Fire Blast, et recommande Flamestrike si l’AoE est activée et que les seuils d’ennemis et de mana sont atteints.", pt = "Desativa a prioridade de Frostbolt. Usa Fireball e Fire Blast e recomenda Flamestrike quando o AoE está ativado e os limites de inimigos e mana são atendidos.", es = "Desactiva la prioridad de Frostbolt. Usa Fireball y Fire Blast y recomienda Flamestrike cuando el AoE está activado y se cumplen los límites de enemigos y maná.", de = "Deaktiviert die Frostbolt-Priorität. Verwendet Fireball und Fire Blast und empfiehlt Flamestrike, wenn AoE aktiviert ist und die Gegner- und Mana-Schwellen erreicht sind.", zh = "禁用 Frostbolt 优先级。使用 Fireball 和 Fire Blast。启用 AoE 且达到敌人数和法力阈值时推荐 Flamestrike。" }
 				} },
+            },
+        },
+        {
+            title="PREPARATION", id="preparation", group="preparation",
+            controls={
 				{ key = "buffs", label = { en = "Maintain intellect and armor", fr = "Maintenir intelligence et armure", pt = "Manter intelecto e armadura", es = "Mantener intelecto y armadura", de = "Intelligenz und Rüstung halten", zh = "保持智力和护甲" }, spell = "Arcane Intellect" },
 				{ key = "conjure", label = { en = "Conjure missing water, food and gem", fr = "Conjurer eau, nourriture et gemme manquantes", pt = "Conjurar água, comida e gema que faltam", es = "Conjurar agua, comida y gema faltantes", de = "Wasser, Essen und Edelstein herbeizaubern", zh = "制造缺少的水、食物和宝石" }, spell = "Conjure Water" },
 			},
 		},
 		{
 			title = { en = "MANA & WAND", fr = "MANA ET BAGUETTE", pt = "MANA E VARINHA", es = "MANÁ Y VARITA", de = "MANA & ZAUBERSTAB", zh = "法力值与魔杖" },
+			id="mana-wand", group="resources",
 			controls = {
 				{ key = "drink", label = { en = "Drink reminder", fr = "Rappel de boisson", pt = "Lembrete de bebida", es = "Recordatorio de bebida", de = "Trink-Erinnerung", zh = "喝水提醒" } },
 				{ type = "slider", key = "drinkMana", label = { en = "Drink below mana", fr = "Boire sous ce niveau de mana", pt = "Beber com mana abaixo de", es = "Beber con maná bajo", de = "Trinken unter Mana", zh = "法力值低于时喝水" }, min = 0, max = 80, step = 5, default = 35, suffix = " %" },
 				{ key = "evocation", label = "Evocation", spell = "Evocation" },
 				{ type = "slider", key = "evocationMana", label = { en = "Evocation below mana", fr = "Evocation sous ce niveau de mana", pt = "Evocation com mana abaixo de", es = "Evocation con maná bajo", de = "Evocation unter Mana", zh = "法力值低于时Evocation" }, min = 0, max = 60, step = 5, default = 15, suffix = " %" },
-				{ key = "wand", label = { en = "Use wand to conserve mana", fr = "Utiliser la baguette pour economiser le mana", pt = "Usar varinha para poupar mana", es = "Usar varita para ahorrar maná", de = "Zauberstab nutzen, um Mana zu sparen", zh = "使用魔杖节省法力值" }, spell = "Shoot" },
-				{ type = "slider", key = "wandMana", label = { en = "Shoot instead of damage spells at/below mana", fr = "Shoot au lieu des sorts de dégâts à ce mana ou moins", pt = "Shoot em vez de feitiços de dano neste mana ou menos", es = "Shoot en vez de hechizos de daño con este maná o menos", de = "Shoot statt Schadenszaubern ab diesem Mana oder weniger", zh = "法力低于或等于此值时用 Shoot 代替伤害法术" }, min = 0, max = 95, step = 5, default = 25, suffix = " %", tooltip = { { en = "Wand mana hard gate", fr = "Seuil strict de mana pour la baguette", pt = "Limite rígida de mana da varinha", es = "Límite estricto de maná para la varita", de = "Harte Mana-Grenze für den Zauberstab", zh = "魔杖法力硬性阈值" }, { en = "At or below this mana, offensive Mage damage spells are blocked and Shoot is recommended while stationary.", fr = "À ce niveau de mana ou en dessous, les sorts de dégâts offensifs sont bloqués et Shoot est conseillé à l'arrêt.", pt = "Neste valor de mana ou abaixo, feitiços ofensivos são bloqueados e Shoot é recomendado parado.", es = "Con este maná o menos, los hechizos ofensivos se bloquean y se recomienda Shoot al estar quieto.", de = "Bei diesem Mana oder weniger werden offensive Schadenszauber blockiert und im Stand Shoot empfohlen.", zh = "法力值低于或等于此阈值时阻止进攻伤害法术，并在静止时推荐 Shoot。" } } },
+				{ key = "wand", icon = "Interface\\Icons\\INV_Wand_01", label = { en = "Use wand to conserve mana", fr = "Utiliser la baguette pour economiser le mana", pt = "Usar varinha para poupar mana", es = "Usar varita para ahorrar maná", de = "Zauberstab nutzen, um Mana zu sparen", zh = "使用魔杖节省法力值" }, spell = "Shoot" },
+				{ type = "slider", key = "wandMana", icon = "Interface\\Icons\\INV_Wand_01", label = {
+					en = "Wand / Shoot below mana threshold:",
+					fr = "Baguette / Shoot sous ce seuil de mana:",
+					pt = "Varinha / Shoot abaixo do limite de mana:",
+					es = "Varita / Shoot bajo el umbral de maná:",
+					de = "Zauberstab / Shoot unter der Mana-Schwelle:",
+					zh = "法力低于阈值时使用魔杖 / Shoot："
+				}, min = 0, max = 95, step = 5, default = 25, suffix = " %", tooltip = { { en = "Wand mana hard gate", fr = "Seuil strict de mana pour la baguette", pt = "Limite rígida de mana da varinha", es = "Límite estricto de maná para la varita", de = "Harte Mana-Grenze für den Zauberstab", zh = "魔杖法力硬性阈值" }, { en = "At or below this mana, offensive Mage damage spells are blocked and Shoot is recommended while stationary.", fr = "À ce niveau de mana ou en dessous, les sorts de dégâts offensifs sont bloqués et Shoot est conseillé à l'arrêt.", pt = "Neste valor de mana ou abaixo, feitiços ofensivos são bloqueados e Shoot é recomendado parado.", es = "Con este maná o menos, los hechizos ofensivos se bloquean y se recomienda Shoot al estar quieto.", de = "Bei diesem Mana oder weniger werden offensive Schadenszauber blockiert und im Stand Shoot empfohlen.", zh = "法力值低于或等于此阈值时阻止进攻伤害法术，并在静止时推荐 Shoot。" } } },
 				{ type = "slider", key = "wandTargetHP", label = { en = "Wand below target health", fr = "Baguette sous la vie cible", pt = "Varinha com vida do alvo abaixo de", es = "Varita con salud del objetivo baja", de = "Zauberstab unter Zielgesundheit", zh = "目标生命值低于时用魔杖" }, min = 0, max = 80, step = 5, default = 20, suffix = " % HP" },
 			},
 		},
 		{
 			title = { en = "RANGED COMBAT & CONTROL", fr = "COMBAT DISTANCE ET CONTROLE", pt = "COMBATE À DISTÂNCIA E CONTROLE", es = "COMBATE A DISTANCIA Y CONTROL", de = "FERNKAMPF & KONTROLLE", zh = "远程战斗与控制" },
+			id="ranged-combat-control", group="damage",
 			subtitle = {
 				en = "Range is checked from the learned spell rank: red out of range, normal color when castable.",
 				fr = "La portee est verifiee avec le rang appris : rouge hors portee, couleur normale quand le sort est lancable.",
@@ -406,11 +237,11 @@ RegisterMageUI("MAGE", {
 				{ key = "fireblast", label = { en = "Fire Blast on the move and on cooldown", fr = "Fire Blast en mouvement et des que disponible", pt = "Fire Blast em movimento e quando disponível", es = "Fire Blast en movimiento y al estar disponible", de = "Fire Blast in Bewegung und sobald bereit", zh = "移动中及冷却结束时Fire Blast" }, spell = "Fire Blast" },
 				{ type = "slider", key = "fireBlastMinMana", label = { en = "Fire Blast minimum mana", fr = "Mana minimum Fire Blast", pt = "Mana mínima Fire Blast", es = "Maná mínimo Fire Blast", de = "Fire Blast Mindestmana", zh = "Fire Blast最低法力值" }, min = 0, max = 100, step = 5, default = 25, suffix = " %" },
 				{ key = "icelance", label = { en = "Ice Lance on frozen targets", fr = "Ice Lance sur les cibles gelees", pt = "Ice Lance em alvos congelados", es = "Ice Lance en objetivos congelados", de = "Ice Lance auf eingefrorene Ziele", zh = "对冰冻目标Ice Lance" }, spell = "Ice Lance" },
-				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Burst: Mindestgesundheit des Ziels", zh = "Burst目标最低生命值" }, min = 0, max = 100, step = 5, default = 40, suffix = " % HP" },
 			},
 		},
 		{
 			title = { en = "SURVIVAL", fr = "SURVIE", pt = "SOBREVIVÊNCIA", es = "SUPERVIVENCIA", de = "ÜBERLEBEN", zh = "生存" },
+			id="survival", group="survival",
 			controls = {
 				{ key = "iceblock", label = { en = "Emergency Ice Block", fr = "Ice Block d'urgence", pt = "Ice Block de emergência", es = "Ice Block de emergencia", de = "Ice Block im Notfall", zh = "紧急Ice Block" }, spell = "Ice Block" },
 				{ type = "slider", key = "iceBlockHP", label = { en = "Ice Block health threshold", fr = "Seuil de vie Ice Block", pt = "Limite de vida Ice Block", es = "Umbral de salud Ice Block", de = "Ice Block Gesundheitsschwelle", zh = "Ice Block生命值阈值" }, min = 1, max = 60, step = 1, default = 18, suffix = " % HP" },
@@ -421,6 +252,7 @@ RegisterMageUI("MAGE", {
 		},
 		{
 			title = { en = "CONFIRMED AOE", fr = "AOE CONFIRMEE", pt = "AOE CONFIRMADO", es = "AOE CONFIRMADO", de = "BESTÄTIGTES AOE", zh = "确认的AOE" },
+			id="confirmed-aoe", group="aoe",
 			subtitle = {
 				en = "AoE requires the selected number of confirmed enemies and minimum mana, including in Fire-primary mode.",
 				fr = "L’AoE nécessite le nombre choisi d’ennemis confirmés et le mana minimum, y compris en mode Feu.",
@@ -435,5 +267,8 @@ RegisterMageUI("MAGE", {
 				{ type = "slider", key = "aoeMinMana", label = { en = "AoE minimum mana", fr = "Mana minimum AoE", pt = "Mana mínima AoE", es = "Maná mínimo AoE", de = "AoE Mindestmana", zh = "AoE最低法力值" }, min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 			},
 		},
+        { title="BURST LIMITS", id="burst-limits", group="burst", controls={
+				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Burst: Mindestgesundheit des Ziels", zh = "Burst目标最低生命值" }, min = 0, max = 100, step = 5, default = 40, suffix = " % HP" },
+        } },
 	},
 }, "0.20.4")

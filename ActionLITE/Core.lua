@@ -1,12 +1,13 @@
 local ADDON, AL = ...
+AL.buildId = "1.0.25-no-spell-reminders-20261018"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
 local trackedRotationClass = trackedComboClass or AL.playerClass == "HUNTER" or AL.playerClass == "PALADIN" or AL.playerClass == "MAGE" or AL.playerClass == "SHAMAN"
 local trackedCastClass = AL.playerClass == "WARLOCK" or trackedRotationClass
-local preciseCooldownClass = AL.playerClass == "PALADIN" or AL.playerClass == "MAGE" or AL.playerClass == "SHAMAN"
+local preciseCooldownClass = AL.playerClass == "PALADIN" or AL.playerClass == "MAGE" or AL.playerClass == "SHAMAN" or AL.playerClass == "PRIEST"
 AL.CLASS_TOKENS = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
-AL.BABY_R, AL.BABY_G, AL.BABY_B = 0.54, 0.81, 0.94
+AL.BABY_R, AL.BABY_G, AL.BABY_B = 0.38, 0.67, 0.96
 AL.WHITE = "Interface\\Buttons\\WHITE8X8"
 
 AL.defaults = {
@@ -69,8 +70,49 @@ end
 
 -- Class rotations live in rotation\<Class>.lua and register themselves here
 AL.rotations = {}
+-- Corrected default artwork is shared by menu controls and recommendation
+-- displays. Saved Universal assignments still take priority during combat.
+AL.SpellTextureOverrides = {
+	DRUID = { ["Lifebloom"] = 134206 },
+	PALADIN = {
+		["Blessing of Kings"] = 135995,
+		["Blessing of Light"] = 135943,
+		["Blessing of Might"] = 135906,
+		["Blessing of Wisdom"] = 135970,
+	},
+	PRIEST = {
+		["Devouring Plague"] = 136123,
+		["Power Word: Fortitude"] = 135987,
+		["Vampiric Touch"] = 135978,
+	},
+	ROGUE = { ["Mutilate"] = 132304 },
+	SHAMAN = { ["Totemic Projection"] = 310733 },
+	WARLOCK = { ["Curse of the Elements"] = 136130 },
+	WARRIOR = { ["Raging Blow"] = 132215, ["Victory Rush"] = 132342 },
+}
+local fixedTextures, fixedTexturesByID = {}, {}
+for _, spells in pairs(AL.SpellTextureOverrides) do
+	for name, texture in pairs(spells) do fixedTextures[name] = texture end
+end
+
 function AL.RegisterRotation(token, module)
 	AL.rotations[token] = module
+	-- Keep listed spells available for artwork selection and manual queues.
+	-- Zero is an unresolved reference: ScanSpellbook replaces it only after
+	-- the live book confirms a learned spell, never with an invented spell ID.
+	local entries = module.spells
+	if type(entries) ~= "table" then return end
+	for name, texture in pairs(AL.SpellTextureOverrides[token] or {}) do
+		local found
+		for _, entry in ipairs(entries) do
+			if entry[2] == name then
+				found = true
+				if type(entry[1]) == "number" and entry[1] > 0 then fixedTexturesByID[entry[1]] = texture end
+				break
+			end
+		end
+		if not found then entries[#entries + 1] = { 0, name } end
+	end
 end
 
 -- Class-specific menu pages live in <Class>_UI.lua. Keeping this registry
@@ -97,6 +139,7 @@ function AL.FillDefaults(p, token)
 	end
 	p.spells = p.spells or {}
 	p.version = p.version or "1.0"
+	if AL.NormalizeIconAssignments then AL.NormalizeIconAssignments(p) end
 end
 
 function AL.Profile(token)
@@ -180,12 +223,92 @@ function AL.SpellName(spell)
 end
 
 function AL.SpellTexture(spell)
+	if not (issecretvalue and issecretvalue(spell)) then
+		local name = spell
+		if type(spell) == "number" then
+			if fixedTexturesByID[spell] then return fixedTexturesByID[spell] end
+			name = AL.castSpellNamesByID and AL.castSpellNamesByID[spell]
+		end
+		if name and AL.englishNames then name = AL.englishNames[name] or name end
+		local fixed = name and fixedTextures[name]
+		if fixed then return fixed end
+	end
 	if GetSpellTexture then return GetSpellTexture(spell) end
 	return C_Spell.GetSpellTexture(spell)
 end
 
--- Interchangeable icons offered per spell in the Spells tab
-AL.UNIVERSAL_ICONS = { 133667, 133663, 133658, 133653, 133650, 133648, 133646, 133643, 133639, 133632 }
+-- Keep the original Universal numbers stable; 8 and 9 are no longer supported.
+AL.UNIVERSAL_ICONS = { [1] = 133667, [2] = 133663, [3] = 133658, [4] = 133653,
+	[5] = 133650, [6] = 133648, [7] = 133646, [10] = 133632 }
+AL.UNIVERSAL_CHOICES = {}
+local universalTextures = {}
+for _, output in ipairs({ 1, 2 }) do
+	for _, number in ipairs({ 1, 2, 3, 4, 5, 6, 7, 10 }) do
+		local texture = AL.UNIVERSAL_ICONS[number]
+		universalTextures[texture] = true
+		AL.UNIVERSAL_CHOICES[#AL.UNIVERSAL_CHOICES + 1] = {
+			number = number, texture = texture, mini = output,
+			label = output == 2 and ("Universal%d Unit1"):format(number) or nil,
+		}
+	end
+end
+
+-- Both sets use the same artwork. Store their destination separately so an
+-- original spell or Universal assignment can never be mistaken for Unit1.
+function AL.MiniFor(spell, prof)
+	local p = prof or AL.S()
+	local texture = p.icons and p.icons[spell]
+	if texture and universalTextures[texture] and p.iconTargets and p.iconTargets[spell] == 2 then return 2 end
+	return 1
+end
+
+function AL.IconChoice(spell, prof)
+	local p = prof or AL.S()
+	local texture = p.icons and p.icons[spell]
+	local output = AL.MiniFor(spell, p)
+	for _, choice in ipairs(AL.UNIVERSAL_CHOICES) do
+		if choice.texture == texture and choice.mini == output then return choice end
+	end
+end
+
+-- Reserve each Universal choice once per class profile and mini destination.
+-- Disabled and unlearned spells keep their assignments until explicitly changed.
+function AL.IconChoiceOwner(spell, choice, prof)
+	if not choice then return end
+	local p = prof or AL.S()
+	local owner
+	for other, texture in pairs(p.icons or {}) do
+		if other ~= spell and texture == choice.texture and AL.MiniFor(other, p) == choice.mini
+			and (not owner or other < owner) then owner = other end
+	end
+	return owner
+end
+
+function AL.SetIconChoice(spell, choice, prof)
+	local p = prof or AL.S()
+	local owner = AL.IconChoiceOwner(spell, choice, p)
+	if owner then return false, owner end
+	p.icons = p.icons or {}
+	p.iconTargets = p.iconTargets or {}
+	p.icons[spell] = choice and choice.texture or nil
+	p.iconTargets[spell] = choice and choice.mini == 2 and 2 or nil
+	return true
+end
+
+function AL.NormalizeIconAssignments(p)
+	if type(p.icons) ~= "table" then return end
+	for spell, texture in pairs(p.icons) do
+		if texture == 133643 or texture == 133639 then
+			p.icons[spell] = nil
+			if type(p.iconTargets) == "table" then p.iconTargets[spell] = nil end
+		end
+	end
+	if type(p.iconTargets) == "table" then
+		for spell in pairs(p.iconTargets) do
+			if not universalTextures[p.icons[spell]] then p.iconTargets[spell] = nil end
+		end
+	end
+end
 
 -- Melee auto-attack has no proper spell texture; every class shows a sword
 AL.IconOverrides = AL.IconOverrides or {}
@@ -300,9 +423,9 @@ function AL.OkReady(name)
 end
 
 -- ptype: 1 = rage, 3 = energy
--- Forever peut rendre UnitPower(player, type) secret alors que la lecture de
--- la ressource principale sans type reste exploitable. On essaie donc les
--- sources connues sans jamais effectuer de calcul sur une valeur secrete.
+-- Forever can protect UnitPower(player, type) while leaving the
+-- untyped primary-resource read usable. Try the
+-- known sources without ever calculating with a secret value.
 local function SafePowerCall(reader, ...)
 	if type(reader) ~= "function" then return nil end
 	local ok, value = pcall(reader, ...)
@@ -349,8 +472,8 @@ local function PowerFromFontString(fontString, knownMaximum)
 	return nil
 end
 
--- Forever peut masquer UnitPower tout en laissant la barre du joueur se mettre
--- a jour. Lire cette barre est un repli d'affichage, jamais une estimation.
+-- Forever can hide UnitPower while still allowing the player's bar to
+-- update. Reading that bar is a display fallback, never an estimate.
 local function RageFromPlayerFrame()
 	local bar = _G.PlayerFrameManaBar
 	local value = PowerFromStatusBar(bar)
@@ -377,7 +500,7 @@ end
 function AL.Power(ptype)
 	local currentType = SafePowerCall(UnitPowerType, "player")
 
-	-- Methode utilisee par Action.Unit(player):Power().
+	-- Method used by Action.Unit(player):Power().
 	if ptype == nil or currentType == nil or currentType == ptype then
 		local value = SafePowerCall(UnitPower, "player")
 		if value ~= nil then return value end
@@ -386,7 +509,7 @@ function AL.Power(ptype)
 	local value = SafePowerCall(UnitPower, "player", ptype)
 	if value ~= nil then return value end
 
-	-- Dernier essai via le cache Action lorsqu'il est disponible.
+	-- Last attempt through Action's cache when available.
 	local A = _G.Action
 	if A and A.Unit then
 		local ok, unit = pcall(A.Unit, "player")
@@ -396,15 +519,15 @@ function AL.Power(ptype)
 		end
 	end
 
-	-- Sur Warrior, la barre d'interface peut rester lisible lorsque UnitPower
-	-- devient secret en combat.
+	-- For Warrior, the UI bar can stay readable when UnitPower
+	-- becomes secret in combat.
 	if ptype == 1 and AL.playerClass == "WARRIOR" then
 		value = RageFromPlayerFrame()
 		if value ~= nil then return value end
 	end
 
-	-- La rage revient a zero hors combat sur Forever. En combat, nil reste
-	-- volontairement inconnu afin de ne pas autoriser une depense a tort.
+	-- Rage returns to zero outside combat on Forever. In combat, nil
+	-- deliberately means unknown, so spending is not incorrectly authorized.
 	if ptype == 1 and UnitAffectingCombat then
 		local ok, inCombat = pcall(UnitAffectingCombat, "player")
 		if ok and not (issecretvalue and issecretvalue(inCombat)) and inCombat == false then
@@ -450,9 +573,9 @@ function AL.TrackComboCast(name)
 	end
 end
 
--- UNIT_SPELLCAST_SUCCEEDED signifie que le bouton a ete accepte, pas que
--- l'attaque a touche. Le journal de combat arrive ensuite avec SPELL_MISSED :
--- on restaure alors exactement l'etat precedant le builder ou le finisher.
+-- UNIT_SPELLCAST_SUCCEEDED means the button was accepted, not that
+-- the attack landed. The combat log follows with SPELL_MISSED:
+-- then restore exactly the state preceding the builder or finisher.
 function AL.RestoreComboPointsOnMiss(name)
 	local pending = pendingComboCast
 	if not pending or pending.name ~= name or GetTime() - pending.at > 3 then return false end
@@ -526,6 +649,60 @@ function AL.ManaPercent()
 	return nil
 end
 
+-- Resource curves control display visibility without inspecting protected mana
+-- or health. The returned alpha is passed straight to a frame or texture.
+local resourceCurves, resourceCurveFactory, resourceProbe = {}, nil, nil
+local resourceFailures = {}
+function AL.ResourceDebugState() return { failures = resourceFailures, buildId = AL.buildId } end
+function AL.ResourceIntervalAlpha(kind, unit, powerType, low, high)
+	local factory = C_CurveUtil and C_CurveUtil.CreateColorCurve
+	local reader
+	if kind == "power" then reader = UnitPowerPercent else reader = UnitHealthPercent end
+	if type(factory) ~= "function" or type(reader) ~= "function" or type(CreateColor) ~= "function" then return false end
+	local ok, alpha = pcall(function()
+		if resourceCurveFactory ~= factory then resourceCurves, resourceCurveFactory = {}, factory end
+		local key = tostring(low) .. ":" .. tostring(high)
+		local curve = resourceCurves[key]
+		if not curve then
+			curve = factory()
+			curve:SetType(Enum and Enum.LuaCurveType and Enum.LuaCurveType.Step or 1)
+			curve:AddPoint(0, CreateColor(1, 1, 1, low == 0 and 1 or 0))
+			if low > 0 and low <= 1 then curve:AddPoint(low, CreateColor(1, 1, 1, 1)) end
+			if high <= 1 then curve:AddPoint(high, CreateColor(1, 1, 1, 0)) end
+			if low ~= 1 and high ~= 1 then curve:AddPoint(1, CreateColor(1, 1, 1, low <= 1 and high > 1 and 1 or 0)) end
+			resourceCurves[key] = curve
+		end
+		local color
+		if kind == "power" then color = reader(unit, powerType, false, curve)
+		else color = reader(unit, false, curve) end
+		local _, _, _, value = color:GetRGBA()
+		if not (issecretvalue and issecretvalue(value)) and type(value) ~= "number" then error("Resource display alpha unavailable") end
+		if not resourceProbe then resourceProbe = CreateFrame("Frame"); resourceProbe:Hide() end
+		resourceProbe:SetAlpha(value)
+		return value
+	end)
+	if ok then return true, alpha end
+	local message = type(alpha) == "string" and not (issecretvalue and issecretvalue(alpha)) and alpha or "Protected resource display failure"
+	local key = kind .. ":" .. tostring(unit)
+	local previous = resourceFailures[key]
+	resourceFailures[key] = { message = message, at = GetTime(), low = low, high = high,
+		count = previous and previous.count + 1 or 1 }
+	if (not previous or previous.message ~= message) and AL.Debug and AL.Debug.CaptureError then
+		AL.Debug.CaptureError("Resource display (" .. key .. "): " .. message, "resource display")
+	end
+	return false
+end
+
+-- Step curves use single-precision boundaries. Moving an inclusive upper
+-- threshold to the next float includes the slider's exact percentage.
+function AL.ResourceThresholdCut(percent, inclusive)
+	local cut = math.max(0, math.min(100, percent)) / 100
+	if not inclusive then return cut end
+	if cut <= 0 then return 2^-149 end
+	local step = 2^(math.floor(math.log(cut) / math.log(2)) - 23)
+	return (math.floor(cut / step + 0.5) + 1) * step
+end
+
 -- Diagnostics for Priest tracked-mana fallback. Values remain nil when Forever
 -- protects them; callers must not treat nil as zero or full mana.
 function AL.ManaDebugSources()
@@ -543,8 +720,8 @@ function AL.ManaDebugSources()
 	}
 end
 
--- Les rotations marquent leurs sorts lances sur soi : une cible ennemie
--- selectionnee ne doit jamais colorer un soin ou un buff personnel en rouge.
+-- Rotations mark their self-cast spells: selecting an enemy
+-- must never turn a personal heal or buff red for being out of range.
 AL.selfCastSpells = AL.selfCastSpells or {}
 
 -- true = in range, false = out of range, nil = unknown/no target
@@ -564,7 +741,7 @@ function AL.InRange(spell)
 		if result ~= nil then return result end
 	end
 	if type(IsSpellInRange) == "function" then
-		-- L'ancienne signature numerique attend un INDEX du grimoire, pas un SpellID.
+		-- The legacy numeric signature expects a spellbook INDEX, not a SpellID.
 		if ref and ref.index then
 			local result = Normalize(pcall(IsSpellInRange, ref.index, BOOKTYPE_SPELL or "spell", "target"))
 			if result ~= nil then return result end
@@ -590,9 +767,9 @@ local function BookItemName(i)
 	return C_SpellBook.GetSpellBookItemName(i, Enum.SpellBookSpellBank.Player)
 end
 
--- Reference exacte du rang appris pour la portee. L'ancienne API attend un
--- index de grimoire tandis que C_Spell attend un SpellID : conserver les deux
--- evite de confondre l'ID classique d'un rang avec l'objet reel de Forever.
+-- Exact learned-rank reference for range checks. The old API expects a
+-- spellbook index while C_Spell expects a SpellID: keeping both
+-- avoids confusing a classic rank ID with Forever's actual spell.
 local function BookItemSpellID(i)
 	if GetSpellBookItemInfo then
 		local _, spellID = GetSpellBookItemInfo(i, BOOKTYPE_SPELL or "spell")
@@ -992,10 +1169,17 @@ if trackedCastClass then
 		end
 	end
 end
+if AL.playerClass == "PRIEST" then
+	if not pcall(debuffFrame.RegisterUnitEvent, debuffFrame, "UNIT_SPELLCAST_FAILED_QUIET", "player") then
+		pcall(debuffFrame.RegisterEvent, debuffFrame, "UNIT_SPELLCAST_FAILED_QUIET")
+	end
+end
 if not pcall(debuffFrame.RegisterUnitEvent, debuffFrame, "UNIT_AURA", "player", "target") then
 	pcall(debuffFrame.RegisterEvent, debuffFrame, "UNIT_AURA")
 end
-pcall(debuffFrame.RegisterEvent, debuffFrame, "COMBAT_LOG_EVENT_UNFILTERED")
+if type(CombatLogGetCurrentEventInfo) == "function" then
+	pcall(debuffFrame.RegisterEvent, debuffFrame, "COMBAT_LOG_EVENT_UNFILTERED")
+end
 pcall(debuffFrame.RegisterEvent, debuffFrame, "UI_ERROR_MESSAGE")
 
 -- best-effort spell-name extraction across client arg layouts and secret values
@@ -1080,9 +1264,9 @@ local function HasReadableCastID(arg3, arg4)
 		or (type(arg4) == "number" and not (issecretvalue and issecretvalue(arg4)))
 end
 
--- Identite LIKELY si les IDs sont secrets : memoriser uniquement une
--- suggestion autorisee par la rotation Warlock sur SENT (DoT ou mana).
--- SUCCEEDED doit confirmer ce meme lancement avant de creer un timer.
+-- LIKELY identity when IDs are secret: remember only a suggestion
+-- authorized by the Warlock rotation on SENT (DoT or mana).
+-- SUCCEEDED must confirm that same cast before creating a timer.
 local function SuggestedWarlockSpell()
 	if AL.playerClass ~= "WARLOCK" then return nil end
 	local name = AL.lastSuggestion
@@ -1143,7 +1327,7 @@ local function CastMatches(sent, succeededGUID)
 	if not sent or GetTime() - sent.t >= CAST_PENDING_WINDOW then return false end
 	local guid = ReadCastGUID(succeededGUID)
 	if sent.castGUID and guid and sent.castGUID ~= guid then return false end
-	-- Sans GUID lisible aux deux bouts, limiter la supposition a cinq secondes.
+	-- Without readable GUIDs at both ends, limit the inference to five seconds.
 	if (not sent.castGUID or not guid) and GetTime() - sent.t >= 5 then return false end
 	return true
 end
@@ -1156,7 +1340,7 @@ local function SentMatches(sent, succeededGUID)
 	return true
 end
 
--- Sort en cours d'incantation du joueur, connu par UNIT_SPELLCAST_START meme si UnitCastingInfo est secret.
+-- The player's current cast, tracked by UNIT_SPELLCAST_START even if UnitCastingInfo is secret.
 local casting
 local function CastEnds()
 	if type(UnitCastingInfo) ~= "function" then return nil end
@@ -1175,8 +1359,8 @@ end
 local lastSent
 local pendingCasts = {}
 
--- Un sort peut etre mis en file pendant qu'un autre finit son incantation.
--- Garder leur contexte par GUID au lieu d'ecraser le lancement precedent.
+-- A spell can be queued while another is finishing its cast.
+-- Keep their contexts by GUID rather than overwriting the previous cast.
 local function PrunePendingCasts()
 	local now = GetTime()
 	for guid, sent in pairs(pendingCasts) do
@@ -1340,7 +1524,7 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 			local actual = EnglishCastName(arg2, arg3, arg4) or ReadPlayerCastName()
 			local n = actual or (sent and sent.name)
 				or (casting and (not guid or casting.castGUID == guid) and casting.name)
-			-- Une identite lisible corrige la supposition memorisee sur SENT.
+			-- A readable identity corrects the inference saved on SENT.
 			if sent and actual then sent.name, sent.inferred = actual, false end
 			-- LIKELY: 3 s when the end time is secret; STOP/SUCCEEDED clear it sooner
 			if n then casting = { name = n, castGUID = guid, ends = CastEnds() or GetTime() + 3 } end
@@ -1381,20 +1565,29 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		ComboRotationHook("OnCastResult", name, event, castMatches and sent or nil)
 		ForgetSent(sent)
 	else
+		-- Priest also needs cached learned IDs: modern success events omit arg4,
+		-- and live spell-name lookup can be unavailable during combat.
+		local ResolveName = AL.playerClass == "PRIEST" and CastName or LegacyCastName
 		if event == "UNIT_SPELLCAST_SENT" then
-			local n = LegacyCastName(arg2, arg3, arg4)
-			if n then legacyLastSent = { name = n, t = GetTime() } end
+			local n = ResolveName(arg2, arg3, arg4)
+			if n then legacyLastSent = { name = n, t = GetTime(),
+				guid = AL.playerClass == "PRIEST" and ReadCastGUID(arg3) or nil } end
 			return
 		end
 		-- a failed attempt (out of range etc.) must not be blamed for a later success
-		if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" then
-			legacyLastSent = nil
+		local guid = AL.playerClass == "PRIEST" and ReadCastGUID(arg2) or nil
+		local matches = not guid or not legacyLastSent or not legacyLastSent.guid or guid == legacyLastSent.guid
+		if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET" or event == "UNIT_SPELLCAST_INTERRUPTED" then
+			if matches then legacyLastSent = nil end
 			return
 		end
-		name = LegacyCastName(arg2, arg3, arg4)
+		if event ~= "UNIT_SPELLCAST_SUCCEEDED" then return end
+		name = ResolveName(arg2, arg3, arg4)
 		-- SUCCEEDED payload unreadable (secret spellID): trust the last SENT name once
-		if not name and legacyLastSent and GetTime() - legacyLastSent.t < 5 then name = legacyLastSent.name end
-		legacyLastSent = nil
+		local canInfer = AL.playerClass ~= "PRIEST" or not HasReadableCastID(arg3, arg4)
+			and legacyLastSent and ((guid and guid == legacyLastSent.guid) or (not guid and not legacyLastSent.guid))
+		if not name and canInfer and legacyLastSent and GetTime() - legacyLastSent.t < 5 then name = legacyLastSent.name end
+		if matches then legacyLastSent = nil end
 	end
 	if ActionLiteDB and ActionLiteDB.debug and AL.Log then
 		-- Keep protected event values inside the guarded logger. Formatting the
@@ -1425,8 +1618,8 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if AL.playerClass == "PALADIN" and PALADIN_SEALS[name] then sdur = paladinSealDurations[name] or sdur end
 	local alias = CAST_BUFF_ALIASES[name]
 	if alias then buffName, sdur = alias[1], alias[2] end
-	-- Repli LIKELY lorsque Forever protege les auras : les durees classiques
-	-- varient avec les points depenses. Un tooltip lisible reste prioritaire.
+	-- LIKELY fallback when Forever protects auras: classic durations
+	-- vary with points spent. A readable tooltip still takes priority.
 	if name == "Slice and Dice" and AL.playerClass == "ROGUE" then
 		local points = math.max(1, math.min(5, spentCombo or 1))
 		sdur = rogueSliceDurations[points] or (6 + 3 * points)
@@ -1599,11 +1792,17 @@ function AL.IsReady(spell)
 			return not (issecretvalue and issecretvalue(value)) and type(value) == "number"
 				and value == value and value > -math.huge and value < math.huge
 		end
-		if Finite(start) and Finite(duration) and start >= 0 and duration >= 0 then
-			return start == 0 or duration <= 1.5 or start + duration <= GetTime()
-		end
 		local expiration = cdExpires[spell]
 		local precise = preciseCooldowns[spell]
+		if Finite(start) and Finite(duration) and start >= 0 and duration >= 0 then
+			-- An empty/GCD-only API result must not erase a confirmed Fade.
+			-- A readable spell cooldown can still refine its actual expiration.
+			if AL.playerClass == "PRIEST" and spell == "Fade" and precise and precise.epoch == expiration then
+				if start > 0 and duration > 1.5 then precise.ends = start + duration end
+				return precise.ends <= GetTime()
+			end
+			return start == 0 or duration <= 1.5 or start + duration <= GetTime()
+		end
 		if precise and precise.epoch == expiration then return precise.ends <= GetTime() end
 		return not expiration or expiration <= time()
 	end
@@ -1712,14 +1911,26 @@ function AL.ScanSpellbook()
 					AL.localNames[english], AL.englishNames[loc] = loc, english
 				end
 			end
-			-- Les IDs de base declares par la rotation servent de repli pour un
-			-- sort confirme appris, sans remplacer une identite lue dans le livre.
+			-- Base IDs declared by the rotation provide a fallback for a
+			-- confirmed learned spell, without replacing an identity read from the book.
 			if type(id) == "number" and id > 0 and AL.known[english] and not AL.castSpellNamesByID[id] then
 				AL.castSpellNamesByID[id] = english
 			end
 		end
 		WarlockManaHook("RefreshManaCache")
 		RefreshRogueSliceDurations()
+	end
+	-- Cache every readable learned rank for callers that request artwork by ID.
+	for name, texture in pairs(AL.SpellTextureOverrides[AL.playerClass] or {}) do
+		local ref = AL.rangeSpellRefs[name]
+		local id = ref and ref.id
+		if AL.known[name] and type(id) == "number" and not (issecretvalue and issecretvalue(id)) and id > 0 then
+			fixedTexturesByID[id] = texture
+			local module = AL.rotations[AL.playerClass]
+			for _, entry in ipairs(module and module.spells or {}) do
+				if entry[1] == 0 and entry[2] == name then entry[1] = id; break end
+			end
+		end
 	end
 end
 
