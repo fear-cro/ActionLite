@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 
--- ActionLITE Druid v0.12.4: original Leveling plus optional talent builds.
+-- ActionLITE Druid v0.13.0: original Leveling, optional builds and grouped healing.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -691,6 +691,7 @@ M.spells = {
 	{ 8921, "Moonfire" },
 	{ 24858, "Moonkin Form" },
 	{ 16689, "Nature's Grasp" },
+	{ 17116, "Nature's Swiftness" },
 	{ 5215, "Prowl" },
 	{ 407995, "Primal Bite" },
 	{ 1822, "Rake" },
@@ -703,10 +704,13 @@ M.spells = {
 	{ 1322605, "Shifting Power" },
 	{ 2908, "Soothe Animal" },
 	{ 2912, "Starfire" },
+	{ 18562, "Swiftmend" },
 	{ 779, "Swipe" },
 	{ 467, "Thorns" },
 	{ 5217, "Tiger's Fury" },
 	{ 5225, "Track Humanoids" },
+	{ 740, "Tranquility" },
+	{ 0, "Wild Growth" },
 	{ 5176, "Wrath" },
 }
 
@@ -2420,7 +2424,7 @@ end
 
 if AL.selfCastSpells then
     for _, name in ipairs({ "Mark of the Wild", "Thorns", "Rejuvenation", "Healing Touch", "Regrowth",
-        "Bear Form", "Dire Bear Form", "Cat Form", "Moonkin Form", "Prowl", "Enrage", "Tiger's Fury", "Dash", "Berserking", "Shifting Power", "Berserk", "Elune's Light", "Innervate", "Barkskin", "Frenzied Regeneration", "Challenging Roar" }) do
+        "Bear Form", "Dire Bear Form", "Cat Form", "Moonkin Form", "Prowl", "Enrage", "Tiger's Fury", "Dash", "Berserking", "Shifting Power", "Berserk", "Elune's Light", "Nature's Swiftness", "Tranquility", "Innervate", "Barkskin", "Frenzied Regeneration", "Challenging Roar" }) do
         AL.selfCastSpells[name] = true
     end
 end
@@ -2527,5 +2531,380 @@ AL.RegisterRotation("DRUID", M)
             end
         end
     end
+
+    -- =====================================================================
+    -- Restoration Healing Rotation provider
+    -- ---------------------------------------------------------------------
+    -- Forever can protect group health and aura data in combat. The shared
+    -- HealingEngine evaluates health with protected display masks; this
+    -- provider only uses public roster facts and timers from successful casts.
+    -- =====================================================================
+    local healState = {
+        effects = {}, cooldowns = {}, enemy = {}, pendingRejuvenation = nil,
+        mp5LockUntil = 0, natureSwiftnessUntil = 0, natureSwiftnessUnit = nil,
+        lastHeal = nil,
+    }
+
+    local function HENow()
+        local ok, value = pcall(GetTime)
+        return ok and type(value) == "number" and value or 0
+    end
+    local function HESecret(value)
+        if type(issecretvalue) ~= "function" then return false end
+        local ok, secret = pcall(issecretvalue, value)
+        return not ok or secret == true
+    end
+    local function HEBool(func, ...)
+        if type(func) ~= "function" then return nil end
+        local ok, value = pcall(func, ...)
+        if not ok or HESecret(value) then return nil end
+        if value == true or value == 1 then return true end
+        if value == false or value == 0 then return false end
+    end
+    local function HEExists(unit)
+        return HEBool(UnitExists, unit) == true
+    end
+    local function HEGroupUnits()
+        local units, raid = {}, false
+        for index = 1, 40 do
+            if HEExists("raid" .. index) then raid = true; break end
+        end
+        if raid then
+            for index = 1, 40 do
+                local unit = "raid" .. index
+                if HEExists(unit) then units[#units + 1] = unit end
+            end
+        else
+            for index = 1, 4 do
+                local unit = "party" .. index
+                if HEExists(unit) then units[#units + 1] = unit end
+            end
+            units[#units + 1] = "player"
+        end
+        return units
+    end
+    local function HEGroupUnitFor(source)
+        if not HEExists(source) or type(UnitIsUnit) ~= "function" then return nil end
+        local assist = HEBool(UnitCanAssist, "player", source)
+        local friend = HEBool(UnitIsFriend, "player", source)
+        if assist ~= true and friend ~= true then return nil end
+        for _, unit in ipairs(HEGroupUnits()) do
+            if HEBool(UnitIsUnit, source, unit) == true then return unit end
+        end
+    end
+    local function HEGrouped()
+        local engine = root.HealingEngine
+        if engine and type(engine.IsGrouped) == "function" then
+            local ok, grouped = pcall(engine.IsGrouped, engine)
+            if ok and grouped == true then return true end
+        end
+        for index = 1, 4 do if HEExists("party" .. index) then return true end end
+        for index = 1, 40 do if HEExists("raid" .. index) then return true end end
+        return false
+    end
+    local function HEHealingUnit()
+        local profile = root.S and root.S() or {}
+        if profile.healingEngine == true and HEGrouped() then
+            -- An explicitly selected friendly unit wins. Automatic healing
+            -- leaves the enemy targeted and puts the chosen ally in focus.
+            return HEGroupUnitFor("target") or HEGroupUnitFor("focus")
+        end
+        return "player"
+    end
+    local function HEEffectActive(unit, spell)
+        local effects = type(unit) == "string" and healState.effects[unit]
+        local expiration = effects and effects[spell]
+        if type(expiration) == "number" and expiration > HENow() then return true end
+        if effects then effects[spell] = nil end
+        return false
+    end
+    local function HESetEffect(unit, spell, duration)
+        if type(unit) ~= "string" or type(duration) ~= "number" then return end
+        healState.effects[unit] = healState.effects[unit] or {}
+        healState.effects[unit][spell] = HENow() + duration
+    end
+    local function HECooldownReady(spell)
+        local expiration = healState.cooldowns[spell]
+        return type(expiration) ~= "number" or expiration <= HENow()
+    end
+    local function HEAvailable(spell, profile)
+        if type(spell) ~= "string" or spell == "" then return false end
+        if root.known and not root.known[spell] then return false end
+        if root.Allowed then
+            local ok, allowed = pcall(root.Allowed, spell, profile)
+            if not ok or allowed == false then return false end
+        end
+        if not HECooldownReady(spell) then return false end
+        if root.IsReady then
+            local ok, ready = pcall(root.IsReady, spell)
+            if not ok or ready == false then return false end
+        end
+        if root.SpellUsable then
+            local ok, usable = pcall(root.SpellUsable, spell)
+            if ok and usable == false then return false end
+        end
+        return true
+    end
+    local function HEManaPercent()
+        if type(root.ManaPercent) ~= "function" then return nil end
+        local ok, value = pcall(root.ManaPercent)
+        if not ok or HESecret(value) or type(value) ~= "number" or value ~= value
+            or value == math.huge or value == -math.huge then return nil end
+        return value
+    end
+    local function HEEatingOrDrinking()
+        if type(root.HasBuff) ~= "function" then return false end
+        local okFood, food = pcall(root.HasBuff, "player", "Food")
+        local okDrink, drink = pcall(root.HasBuff, "player", "Drink")
+        return (okFood and food == true) or (okDrink and drink == true)
+    end
+    local function HEPendingRejuvenation()
+        local pending = healState.pendingRejuvenation
+        if not pending or pending.expires <= HENow()
+            or HEEffectActive(pending.unit, "Rejuvenation") then
+            healState.pendingRejuvenation = nil
+            return nil
+        end
+        return pending
+    end
+    local function HEMoonfireDuration()
+        local reference = root.rangeSpellRefs and root.rangeSpellRefs["Moonfire"]
+        local id = reference and reference.id
+        if not HESecret(id) and type(id) == "number" and id ~= 8921 then return 12 end
+        return 9
+    end
+
+    local oldHealingTargetChanged = advanced.OnTargetChanged
+    function advanced.OnTargetChanged(...)
+        local result = oldHealingTargetChanged and oldHealingTargetChanged(...) or nil
+        healState.enemy = {}
+        return result
+    end
+
+    local oldHealingCastResult = advanced.OnCastResult
+    function advanced.OnCastResult(name, event, sent)
+        local result = oldHealingCastResult and oldHealingCastResult(name, event, sent) or nil
+        if event ~= "UNIT_SPELLCAST_SUCCEEDED" or type(name) ~= "string" or HESecret(name) then
+            return result
+        end
+        local now, unit = HENow(), HEHealingUnit()
+        if name == "Rejuvenation" then
+            HESetEffect(unit, name, 12)
+            if healState.pendingRejuvenation
+                and (not unit or healState.pendingRejuvenation.unit == unit) then
+                healState.pendingRejuvenation = nil
+            end
+            healState.mp5LockUntil = now + 5
+            healState.lastHeal = { spell = name, unit = unit, at = now }
+        elseif name == "Regrowth" then
+            HESetEffect(unit, name, 21)
+            healState.mp5LockUntil = now + 5
+            healState.lastHeal = { spell = name, unit = unit, at = now }
+            if unit and root.known and root.known["Rejuvenation"]
+                and not HEEffectActive(unit, "Rejuvenation") then
+                healState.pendingRejuvenation = { unit = unit, expires = now + 4.5 }
+            end
+        elseif name == "Healing Touch" then
+            healState.mp5LockUntil = now + 5
+            healState.lastHeal = { spell = name, unit = unit, at = now }
+            if unit and root.known and root.known["Rejuvenation"]
+                and not HEEffectActive(unit, "Rejuvenation") then
+                healState.pendingRejuvenation = { unit = unit, expires = now + 4.5 }
+            end
+            if healState.natureSwiftnessUntil > now then
+                healState.natureSwiftnessUntil, healState.natureSwiftnessUnit = 0, nil
+            end
+        elseif name == "Swiftmend" then
+            healState.cooldowns[name] = now + 15
+            healState.mp5LockUntil = now + 5
+            healState.lastHeal = { spell = name, unit = unit, at = now }
+        elseif name == "Tranquility" or name == "Wild Growth" then
+            healState.mp5LockUntil = now + 5
+            healState.lastHeal = { spell = name, unit = unit, at = now }
+        elseif name == "Nature's Swiftness" then
+            healState.cooldowns[name] = now + 180
+            healState.natureSwiftnessUntil = now + 10
+            healState.natureSwiftnessUnit = unit
+        elseif name == "Elune's Light" then
+            healState.cooldowns[name] = now + 180
+        elseif name == "Thorns" then
+            HESetEffect(unit, name, 600)
+        elseif name == "Mark of the Wild" then
+            HESetEffect(unit, name, 1800)
+        elseif name == "Faerie Fire" then
+            healState.enemy[name] = now + 40
+        elseif name == "Moonfire" then
+            healState.enemy[name] = now + HEMoonfireDuration()
+        end
+        return result
+    end
+
+    function advanced.HealingEngineDamagePlan(profile, context)
+        if type(context) ~= "table" or context.enemyCombat ~= true then return false end
+        if HENow() < healState.mp5LockUntil or HEPendingRejuvenation() then return false end
+        local classification = context.targetClassification
+        local elite = classification == "elite" or classification == "rareelite"
+            or classification == "worldboss"
+        local now = HENow()
+        if elite and (healState.enemy["Faerie Fire"] or 0) <= now
+            and HEAvailable("Faerie Fire", profile) then
+            return { spell = "Faerie Fire", reason = "Healing Rotation: elite Faerie Fire" }
+        end
+        if (healState.enemy["Moonfire"] or 0) <= now and HEAvailable("Moonfire", profile) then
+            return { spell = "Moonfire", reason = "Healing Rotation: high-mana Moonfire" }
+        end
+        return false
+    end
+
+    function advanced.HealingEnginePlan(profile, context)
+        if type(profile) ~= "table" or type(context) ~= "table" then return nil end
+        local now = HENow()
+        local manual
+        if context.manualTarget then
+            if not context.inCombat then
+                if HEEatingOrDrinking() then
+                    manual = false
+                elseif profile.buffs ~= false
+                    and not HEEffectActive(context.manualTarget, "Mark of the Wild")
+                    and HEAvailable("Mark of the Wild", profile) then
+                    manual = {
+                        spell = "Mark of the Wild", reason = "Healing Rotation: selected ally Mark of the Wild",
+                        visibility = "always",
+                    }
+                else
+                    local mana = HEManaPercent()
+                    if mana and mana > 80 and HEAvailable("Healing Touch", profile) then
+                        manual = {
+                            spell = "Healing Touch", reason = "Healing Rotation: selected ally top-off",
+                            visibility = "health", threshold = 99,
+                        }
+                    else
+                        manual = false
+                    end
+                end
+            elseif HEEffectActive(context.manualTarget, "Rejuvenation")
+                or HEEffectActive(context.manualTarget, "Regrowth") then
+                if HEAvailable("Swiftmend", profile) then
+                    manual = { spell = "Swiftmend", reason = "Healing Rotation: selected ally Swiftmend" }
+                end
+            end
+            if context.inCombat and not manual then
+                for _, spell in ipairs({ "Healing Touch", "Regrowth", "Rejuvenation" }) do
+                    if HEAvailable(spell, profile) then
+                        manual = { spell = spell, reason = "Healing Rotation: selected ally distress heal" }
+                        break
+                    end
+                end
+                manual = manual or false
+            end
+        end
+
+        -- Outside combat the Druid only acts on an explicitly selected ally.
+        if not context.inCombat then
+            if manual == nil then manual = false end
+            return { manual = manual }
+        end
+
+        local maintenance = {}
+        if profile.thorns ~= false and now >= healState.mp5LockUntil
+            and HEAvailable("Thorns", profile) then
+            maintenance[#maintenance + 1] = {
+                spell = "Thorns", reason = "Healing Rotation: tank Thorns",
+                roles = { TANK = true },
+                unitFilter = function(unit) return not HEEffectActive(unit, "Thorns") end,
+            }
+        end
+
+        local routine = {
+            { spell = "Healing Touch", reason = "Healing Rotation: efficient direct heal" },
+            {
+                spell = "Rejuvenation", reason = "Healing Rotation: tracked Rejuvenation",
+                unitFilter = function(unit) return not HEEffectActive(unit, "Rejuvenation") end,
+            },
+            {
+                spell = "Regrowth", reason = "Healing Rotation: sustained tank healing",
+                roles = { TANK = true },
+                unitFilter = function(unit) return not HEEffectActive(unit, "Regrowth") end,
+            },
+        }
+
+        local emergency
+        if healState.natureSwiftnessUntil > now then
+            emergency = {
+                {
+                    spell = "Healing Touch", reason = "Healing Rotation: Nature's Swiftness Healing Touch",
+                    unit = healState.natureSwiftnessUnit,
+                },
+            }
+        else
+            healState.natureSwiftnessUnit = nil
+            emergency = {
+                { spell = "Healing Touch", reason = "Healing Rotation: emergency Healing Touch" },
+                { spell = "Nature's Swiftness", reason = "Healing Rotation: emergency Nature's Swiftness" },
+                { spell = "Elune's Light", reason = "Healing Rotation: emergency Elune's Light" },
+                {
+                    spell = "Swiftmend", reason = "Healing Rotation: emergency Swiftmend",
+                    unitFilter = function(unit)
+                        return HEEffectActive(unit, "Rejuvenation") or HEEffectActive(unit, "Regrowth")
+                    end,
+                },
+            }
+        end
+
+        local followup = {}
+        local pending = HEPendingRejuvenation()
+        if pending and HEAvailable("Rejuvenation", profile) then
+            followup[1] = {
+                spell = "Rejuvenation", reason = "Healing Rotation: direct-heal Rejuvenation follow-up",
+                unit = pending.unit, visibility = "always",
+            }
+        end
+        return {
+            manual = manual,
+            maintenance = maintenance,
+            routine = routine,
+            emergency = emergency,
+            followup = followup,
+        }
+    end
+
+    function advanced.HealingState()
+        local effects, now = {}, HENow()
+        for unit, spells in pairs(healState.effects) do
+            effects[unit] = {}
+            for spell, expiration in pairs(spells) do
+                effects[unit][spell] = math.max(0, expiration - now)
+            end
+        end
+        local pending = HEPendingRejuvenation()
+        return {
+            provider = "Druid Restoration",
+            effects = effects,
+            pendingRejuvenation = pending and pending.unit or nil,
+            pendingSeconds = pending and math.max(0, pending.expires - now) or 0,
+            mp5LockSeconds = math.max(0, healState.mp5LockUntil - now),
+            natureSwiftnessSeconds = math.max(0, healState.natureSwiftnessUntil - now),
+            lastHeal = healState.lastHeal,
+            faerieFireSeconds = math.max(0, (healState.enemy["Faerie Fire"] or 0) - now),
+            moonfireSeconds = math.max(0, (healState.enemy["Moonfire"] or 0) - now),
+        }
+    end
+
+    local healingEvents = CreateFrame("Frame")
+    for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED" }) do
+        pcall(healingEvents.RegisterEvent, healingEvents, event)
+    end
+    healingEvents:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
+            healState.effects = {}
+            healState.pendingRejuvenation = nil
+            healState.natureSwiftnessUnit = nil
+        end
+        if event == "PLAYER_REGEN_ENABLED" then
+            healState.enemy = {}
+            healState.mp5LockUntil = 0
+        end
+    end)
+
     root.RegisterRotation("DRUID", advanced)
 end

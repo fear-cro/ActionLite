@@ -27,6 +27,7 @@ local ROLE_PRIORITY = { NONE = 1, DAMAGER = 2, HEALER = 3, TANK = 4 }
 local ACTIVE_SLOTS = { 3, 6 }
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local DAMAGE_MANA_THRESHOLD = 80
+local DPS_THRESHOLD_OFFSET = 10
 
 -- These are safe base rules, not the final class healing priorities. A class
 -- provider can replace the selected-ally spell with manual/strongest and will
@@ -180,11 +181,21 @@ function Engine:ManualTargetUnit()
 	return nil
 end
 
-function Engine:EnemyCombatTarget()
-	if SafeBoolean(UnitAffectingCombat, "player") ~= true then return false end
+function Engine:HostileTarget()
 	if not UnitExistsPublic("target") then return false end
 	if SafeBoolean(UnitCanAttack, "player", "target") ~= true then return false end
 	return SafeBoolean(UnitIsDeadOrGhost, "target") == false
+end
+
+function Engine:EnemyCombatTarget()
+	return SafeBoolean(UnitAffectingCombat, "player") == true and self:HostileTarget()
+end
+
+function Engine:TargetClassification()
+	if not self:HostileTarget() or type(UnitClassification) ~= "function" then return nil end
+	local ok, classification = pcall(UnitClassification, "target")
+	if not ok or IsSecret(classification) or type(classification) ~= "string" then return nil end
+	return classification
 end
 
 local function UnitRole(unit)
@@ -242,6 +253,11 @@ function Engine:IsUnitEligible(unit, spell, request)
 	local role = UnitRole(unit)
 	if request and type(request.roles) == "table" and request.roles[role] ~= true then return false end
 	if request and request.includePlayer == false and unit == "player" then return false end
+	if request and type(request.unit) == "string" and request.unit ~= unit then return false end
+	if request and type(request.unitFilter) == "function" then
+		local ok, allowed = pcall(request.unitFilter, unit, role)
+		if not ok or PublicBoolean(allowed) ~= true then return false end
+	end
 	if SpellRange(spell, unit) == false then return false end
 	return true, role
 end
@@ -363,15 +379,43 @@ local function NormalizeRequest(value, category, threshold, profile)
 		local usable = AL.SpellUsable(spell)
 		if usable == false then return nil end
 	end
+	local reason = "HealingEngine " .. tostring(category or "request")
 	return {
 		category = category,
 		spell = spell,
-		reason = type(value.reason) == "string" and value.reason or (category == "emergency"
-			and "HealingEngine emergency" or "HealingEngine routine"),
+		reason = type(value.reason) == "string" and value.reason or reason,
 		threshold = ClampPercent(value.threshold, threshold),
 		includePlayer = value.includePlayer,
 		roles = value.roles,
+		unit = value.unit,
+		unitFilter = value.unitFilter,
+		visibility = value.visibility,
 	}
+end
+
+-- A category may contain one request or an ordered list. Later requests are
+-- drawn later and therefore win when more than one protected condition is
+-- opaque. The singular form remains compatible with the original provider
+-- contract.
+local function NormalizeRequests(value, category, threshold, profile)
+	local requests = {}
+	if type(value) == "string" or (type(value) == "table" and value.spell ~= nil) then
+		local request = NormalizeRequest(value, category, threshold, profile)
+		if request then requests[1] = request end
+		return requests
+	end
+	if type(value) ~= "table" then return requests end
+	for _, item in ipairs(value) do
+		local request = NormalizeRequest(item, category, threshold, profile)
+		if request then requests[#requests + 1] = request end
+	end
+	return requests
+end
+
+function Engine:EffectiveThreshold(percent, role)
+	percent = ClampPercent(percent, 0)
+	if role == "DAMAGER" then percent = percent - DPS_THRESHOLD_OFFSET end
+	return math.max(0, percent)
 end
 
 function Engine:WandAvailable(profile)
@@ -391,8 +435,28 @@ function Engine:StrongestBaseHeal(profile)
 	end
 end
 
-function Engine:DamageRequest(profile)
+function Engine:DamageRequest(profile, context)
 	if not self:EnemyCombatTarget() or self:WandAvailable(profile) then return nil end
+	local rotation = AL.rotations and AL.rotations[AL.playerClass]
+	if rotation and type(rotation.HealingEngineDamagePlan) == "function" then
+		local ok, value = pcall(rotation.HealingEngineDamagePlan, profile, context)
+		if not ok then
+			local message = type(value) == "string" and not IsSecret(value)
+				and value or "Protected healing damage provider failure"
+			if message ~= self.lastDamageProviderError and AL.Debug and AL.Debug.CaptureError then
+				self.lastDamageProviderError = message
+				AL.Debug.CaptureError("HealingEngine damage provider: " .. message, "healing engine")
+			end
+			return nil
+		end
+		-- false explicitly suppresses the generic class fallback. nil keeps it.
+		if value == false then return nil end
+		if value ~= nil then
+			local request = NormalizeRequest(value, "damage", DAMAGE_MANA_THRESHOLD, profile)
+			if request and SpellRange(request.spell, "target") ~= false then return request end
+			return nil
+		end
+	end
 	for _, spell in ipairs(DAMAGE_SPELLS[AL.playerClass] or {}) do
 		if RequestAvailable(spell, profile) and SpellRange(spell, "target") ~= false then
 			local present = false
@@ -402,8 +466,10 @@ function Engine:DamageRequest(profile)
 			end
 			if not present then
 				return {
+					category = "damage",
 					spell = spell,
 					reason = "Healing Rotation: periodic damage above 80% mana",
+					threshold = DAMAGE_MANA_THRESHOLD,
 				}
 			end
 		end
@@ -451,13 +517,20 @@ function Engine:BuildPlan(baseSpell, baseReason)
 	local channeling = AL.PlayerChanneling and AL.PlayerChanneling()
 	if casting or channeling then return nil, settings, "Player cast in progress" end
 	local manualUnit = self:ManualTargetUnit()
+	local inCombat = SafeBoolean(UnitAffectingCombat, "player") == true
+	local hostileTarget = self:HostileTarget()
 	local provider, source = self:ProviderFor(AL.playerClass)
 	local context = {
 		engine = self,
 		settings = settings,
 		manualTarget = manualUnit,
 		grouped = true,
+		inCombat = inCombat,
+		hostileTarget = hostileTarget,
+		enemyCombat = inCombat and hostileTarget,
+		targetClassification = self:TargetClassification(),
 		damageManaThreshold = DAMAGE_MANA_THRESHOLD,
+		dpsThresholdOffset = DPS_THRESHOLD_OFFSET,
 		baseSpell = baseSpell,
 		baseReason = baseReason,
 		known = AL.known,
@@ -489,27 +562,39 @@ function Engine:BuildPlan(baseSpell, baseReason)
 	-- It bypasses health thresholds and every damage row until the user returns
 	-- to an enemy or clears the target.
 	if manualUnit then
-		local manual = NormalizeRequest(supplied.manual or supplied.strongest or supplied.emergency,
-			"manual", 100, profile)
-		if not manual then
+		local manualOwned = supplied.manual ~= nil
+		local manualValue = supplied.manual
+		if not manualOwned then manualValue = supplied.strongest end
+		if manualValue == nil and not manualOwned then
+			local aliases = NormalizeRequests(supplied.emergency, "manual", 100, profile)
+			manualValue = aliases[#aliases]
+		end
+		local manual
+		if supplied.manual ~= false then
+			manual = NormalizeRequest(manualValue, "manual", 100, profile)
+		end
+		if not manual and not manualOwned then
 			manual = NormalizeRequest(self:StrongestBaseHeal(profile), "manual", 100, profile)
 		end
 		if manual then
 			-- The user's explicit target overrides role/include filters intended for
 			-- automatic roster selection.
-			manual.roles, manual.includePlayer = nil, nil
+			manual.roles, manual.includePlayer, manual.unitFilter = nil, nil, nil
+			manual.unit = manualUnit
 			local eligible, role = self:IsUnitEligible(manualUnit, manual.spell, manual)
 			if eligible then
+				local visibility = manual.visibility == "health" and "health" or "always"
 				plan.rows[1] = {
 					unit = manualUnit, role = role, spell = manual.spell,
-					reason = manual.reason, category = "manual", threshold = 100,
-					low = 0, high = 100, band = "selected-ally", priority = math.huge,
-					visibility = "always",
+					reason = manual.reason, category = "manual", threshold = manual.threshold,
+					baseThreshold = manual.threshold, low = 0, high = manual.threshold,
+					band = "selected-ally", priority = math.huge, visibility = visibility,
 				}
 				return plan, settings
 			end
 		end
-		local fallback = NormalizeRequest(self:StrongestBaseHeal(profile), "manual", 100, profile)
+		local fallback = not manualOwned
+			and NormalizeRequest(self:StrongestBaseHeal(profile), "manual", 100, profile) or nil
 		if fallback then
 			local eligible, role = self:IsUnitEligible(manualUnit, fallback.spell, fallback)
 			if eligible then
@@ -525,54 +610,103 @@ function Engine:BuildPlan(baseSpell, baseReason)
 		return nil, settings, "Selected ally; no available direct heal"
 	end
 
-	local damage = self:DamageRequest(profile)
+	local damage = self:DamageRequest(profile, context)
 	if damage then
 		plan.rows[#plan.rows + 1] = {
 			spell = damage.spell, reason = damage.reason, category = "damage",
-			threshold = DAMAGE_MANA_THRESHOLD, low = DAMAGE_MANA_THRESHOLD,
+			threshold = damage.threshold or DAMAGE_MANA_THRESHOLD,
+			baseThreshold = damage.threshold or DAMAGE_MANA_THRESHOLD,
+			low = damage.threshold or DAMAGE_MANA_THRESHOLD,
 			high = 100, band = "high-mana-damage", priority = 0,
 			visibility = "mana-above",
 		}
 	end
+	local routineValue = supplied.routine
+	if routineValue == nil then routineValue = supplied.lowCost end
+	if routineValue == nil then routineValue = supplied.hot end
 	local requests = {
-		routine = NormalizeRequest(supplied.routine or supplied.lowCost or supplied.hot,
-			"routine", settings.initiate, profile),
-		emergency = NormalizeRequest(supplied.emergency,
-			"emergency", settings.emergency, profile),
+		maintenance = NormalizeRequests(supplied.maintenance, "maintenance", 100, profile),
+		routine = NormalizeRequests(routineValue, "routine", settings.initiate, profile),
+		emergency = NormalizeRequests(supplied.emergency, "emergency", settings.emergency, profile),
+		followup = NormalizeRequests(supplied.followup, "followup", 100, profile),
 	}
-	local function AddBand(request, low, high, band)
+	local function AddRow(request, member, low, high, band, visibility, threshold)
+		if visibility == "health" and (not high or high <= 0 or high <= (low or 0)) then return end
+		plan.rows[#plan.rows + 1] = {
+			unit = member.unit,
+			role = member.role,
+			spell = request.spell,
+			reason = request.reason,
+			category = request.category,
+			threshold = threshold or request.threshold,
+			baseThreshold = request.threshold,
+			low = low or 0,
+			high = high or 100,
+			band = band,
+			priority = member.priority,
+			visibility = visibility,
+		}
+	end
+	local function AddStatic(request, band)
+		local visibility = request.visibility == "health" and "health" or "always"
 		for _, member in ipairs(self:BuildRoster(request.spell, request)) do
-			plan.rows[#plan.rows + 1] = {
-				unit = member.unit,
-				role = member.role,
-				spell = request.spell,
-				reason = request.reason,
-				category = request.category,
-				threshold = request.threshold,
-				low = low,
-				high = high,
-				band = band,
-				priority = member.priority,
-				visibility = "health",
-			}
+			local threshold = self:EffectiveThreshold(request.threshold, member.role)
+			AddRow(request, member, 0, visibility == "health" and threshold or 100,
+				band, visibility, threshold)
+		end
+	end
+	for _, request in ipairs(requests.maintenance) do AddStatic(request, "maintenance") end
+
+	local function OrderedCandidates(list)
+		local candidates = {}
+		for requestIndex, request in ipairs(list) do
+			for _, member in ipairs(self:BuildRoster(request.spell, request)) do
+				candidates[#candidates + 1] = {
+					request = request, requestIndex = requestIndex, member = member,
+				}
+			end
+		end
+		table.sort(candidates, function(left, right)
+			if left.member.priority ~= right.member.priority then
+				return left.member.priority < right.member.priority
+			end
+			return left.requestIndex < right.requestIndex
+		end)
+		return candidates
+	end
+	local function AddRoutineBand(list, urgent)
+		for _, candidate in ipairs(OrderedCandidates(list)) do
+			local request, member = candidate.request, candidate.member
+			local high = self:EffectiveThreshold(request.threshold, member.role)
+			local floor = self:EffectiveThreshold(math.min(settings.emergency, request.threshold), member.role)
+			local midpoint = math.floor((floor + high) / 2 + 0.5)
+			if urgent then
+				AddRow(request, member, 0, midpoint, "urgent", "health", high)
+			else
+				AddRow(request, member, midpoint, high, "routine", "health", high)
+			end
+		end
+	end
+	local function AddEmergencyBand(list, critical)
+		for _, candidate in ipairs(OrderedCandidates(list)) do
+			local request, member = candidate.request, candidate.member
+			local high = self:EffectiveThreshold(request.threshold, member.role)
+			local midpoint = math.floor(high / 2 + 0.5)
+			if critical then
+				AddRow(request, member, 0, midpoint, "critical", "health", high)
+			else
+				AddRow(request, member, midpoint, high, "emergency", "health", high)
+			end
 		end
 	end
 	-- Health is secret, so exact Lua sorting is impossible. Two bands per
 	-- category put a substantially lower-health unit above a higher-health unit;
 	-- deterministic role/roster priority resolves ties inside each band.
-	local routine = requests.routine
-	if routine then
-		local routineFloor = math.min(settings.emergency, routine.threshold)
-		local midpoint = math.floor((routineFloor + routine.threshold) / 2 + 0.5)
-		AddBand(routine, midpoint, routine.threshold, "routine")
-		AddBand(routine, 0, midpoint, "urgent")
-	end
-	local emergency = requests.emergency
-	if emergency then
-		local midpoint = math.floor(emergency.threshold / 2 + 0.5)
-		AddBand(emergency, midpoint, emergency.threshold, "emergency")
-		AddBand(emergency, 0, midpoint, "critical")
-	end
+	AddRoutineBand(requests.routine, false)
+	AddRoutineBand(requests.routine, true)
+	AddEmergencyBand(requests.emergency, false)
+	AddEmergencyBand(requests.emergency, true)
+	for _, request in ipairs(requests.followup) do AddStatic(request, "followup") end
 	local status
 	if #plan.rows == 0 then
 		status = providerStatus or (provider and "No eligible healing units" or "Waiting for class healing provider")
@@ -734,6 +868,7 @@ function Engine:ApplyDecision(row, decision, alpha, index)
 	row.decision = {
 		unit = decision.unit, role = decision.role, spell = decision.spell,
 		category = decision.category, threshold = decision.threshold,
+		baseThreshold = decision.baseThreshold,
 		band = decision.band, low = decision.low, high = decision.high,
 		visibility = decision.visibility,
 	}
@@ -751,6 +886,7 @@ function Engine:Update(baseSpell, baseReason)
 		enabled = settings and settings.enabled or false,
 		initiate = settings and settings.initiate or 80,
 		emergency = settings and settings.emergency or 30,
+		dpsThresholdOffset = DPS_THRESHOLD_OFFSET,
 		provider = plan and plan.source or nil,
 		manualTarget = plan and plan.manualTarget or nil,
 		status = status,

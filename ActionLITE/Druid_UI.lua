@@ -35,7 +35,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 				  tooltip = { "Enable Healing Rotation", "Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation." } },
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
-				{ type = "info", text = "The first threshold is reserved for HoTs and efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Selecting a friendly group member requests the strongest available direct heal." },
+				{ type = "info", text = "Tank and healer thresholds use the selected values; known DPS members use each value minus 10 points. Tracks Regrowth and Rejuvenation, follows direct heals with Rejuvenation, protects the five-second mana rule, maintains tank Thorns, and uses Swiftmend, Nature's Swiftness and Elune's Light for emergencies. Selecting a friendly group member requests immediate care; out of combat it can apply Mark of the Wild or top off above 80% mana." },
 			},
 		},
         {

@@ -84,7 +84,9 @@ The Druid, Paladin, Priest and Shaman profiles include these shared settings:
 | `healingInitiateHP` | `80` | Routine threshold for efficient direct heals and HoTs |
 | `healingEmergencyHP` | `30` | Emergency threshold for the largest heals and cooldowns |
 
-The effective emergency threshold is capped at the initiate threshold. The shared healing path only becomes active while the character is in a party or raid. When solo, the checkbox is bypassed and the selected leveling or damage build runs unchanged. With Healing Rotation disabled, its visual rows are cleared and the healing target pixel is Universal Color 0 (black).
+The effective emergency threshold is capped at the initiate threshold. Known `DAMAGER` members use a hard-coded threshold ten percentage points below each selected slider; for example, 80% becomes 70%. Tanks, the healer/player and unassigned roles use the selected values. This offset is part of the engine and has no additional UI setting.
+
+The shared healing path only becomes active while the character is in a party or raid. When solo, the checkbox is bypassed and the selected leveling or damage build runs unchanged. With Healing Rotation disabled, its visual rows are cleared and the healing target pixel is Universal Color 0 (black).
 
 ## Shared Healing Rotation rules
 
@@ -93,7 +95,7 @@ The framework applies these rules before a class provider adds its detailed heal
 1. Selecting a living, friendly party or raid member is an explicit distress signal. The engine immediately emits the provider's `manual` or `strongest` direct heal on A[3] and emits that unit's focus color. If the provider has not defined one yet, the framework uses the class's strongest available normal direct heal. This request does not inspect the selected unit's protected health.
 2. Returning to an enemy or clearing the target ends the selected-ally override.
 3. With a living enemy selected in combat, a healer with a wand equipped uses `Shoot`. The shared wand timer still controls shot and recovery timing.
-4. A healer without a usable wand applies an available periodic-damage spell only while mana is above 80%. Protected mana is evaluated as a display mask and is never compared in Lua.
+4. A healer without a usable wand applies an available periodic-damage spell only while mana is above 80%. Protected mana is evaluated as a display mask and is never compared in Lua. A class can replace or suppress the shared damage request with `HealingEngineDamagePlan`.
 5. Automatic party-healing rows are drawn above the damage recommendation. Their spell art, A[3] output and focus pixel use one protected health alpha, so a visible heal always takes priority over Shoot or periodic damage.
 6. Once predicted health no longer matches a healing band, the healing row and focus color disappear together and the damage recommendation becomes visible again.
 
@@ -107,10 +109,10 @@ Add `HealingEnginePlan` to the class rotation module. It is queried by the displ
 function M.HealingEnginePlan(profile, context)
     if not profile.healingEngine then return nil end
 
-    local routine
+    local routine = {}
     if AL.known["Renew"] and AL.Allowed("Renew", profile)
         and AL.IsReady("Renew") then
-        routine = {
+        routine[#routine + 1] = {
             spell = "Renew",
             reason = "HealingEngine HoT",
         }
@@ -126,9 +128,11 @@ function M.HealingEnginePlan(profile, context)
     end
 
     return {
-		manual = emergency,
+        manual = emergency,
+        maintenance = { spell = "Long Buff", roles = { TANK = true } },
         routine = routine,
         emergency = emergency,
+        followup = { spell = "Required Follow-up", unit = "party1" },
     }
 end
 ```
@@ -144,10 +148,27 @@ Accepted request fields are:
 | `threshold` | number | Optional public override for the category threshold |
 | `includePlayer` | boolean | Defaults to `true`; `false` limits the request to group members |
 | `roles` | table | Optional allow-list such as `{ TANK=true, HEALER=true }` |
+| `unit` | string | Optional exact roster token, used for a tracked follow-up on one unit |
+| `unitFilter` | function | Optional public-only predicate receiving `(unit, role)`; never read protected health inside it |
+| `visibility` | string | `health` uses the request threshold; `always` emits an unmasked maintenance or follow-up request |
 | `requireReady` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns readiness masking |
 | `requireUsable` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns resource masking |
 
-`manual` and `strongest` are aliases for the selected-friendly distress heal; if neither is supplied, `emergency` is used. `routine`, `lowCost` and `hot` are aliases for the routine category. `emergency` is the emergency category. Each automatic category is divided into two client-evaluated health bands. The draw order is high-mana damage, routine, urgent, emergency, then critical. Within a band, the deterministic role order is Tank, Healer, Damager, then None; earlier roster positions win ties. Exact health sorting is unavailable because health is secret, but these bands prevent a substantially healthier unit from covering a more injured unit while retaining stable role priority.
+Every category accepts one request or an ordered request list. Later requests have higher spell priority for the same unit. `manual` and `strongest` are aliases for the selected-friendly distress heal; if neither is supplied, the last available `emergency` request is used. Set `manual = false` when the provider deliberately wants no selected-friendly fallback, such as while eating or below an out-of-combat mana rule. `routine`, `lowCost` and `hot` are aliases for the routine category. `maintenance` is drawn above damage and below health-based healing. `followup` is drawn last for a required cast sequence.
+
+Each automatic health category is divided into two client-evaluated bands. The draw order is high-mana damage, maintenance, routine, urgent, emergency, critical, then follow-up. Within a band, the deterministic role order is Tank, Healer, Damager, then None; later requests win only within the same member priority. Earlier roster positions win remaining ties. Exact health sorting is unavailable because health is secret, but these bands prevent a substantially healthier unit from covering a more injured unit while retaining stable role priority.
+
+`context` includes `settings`, `manualTarget`, `inCombat`, `hostileTarget`, `enemyCombat`, `targetClassification`, `damageManaThreshold` and `dpsThresholdOffset`. A class-specific damage provider uses the same context:
+
+```lua
+function M.HealingEngineDamagePlan(profile, context)
+    if not context.enemyCombat or trackedFiveSecondRule then return false end
+    if trackedDotExpired then
+        return { spell = "Periodic Damage", reason = "Healing Rotation damage" }
+    end
+    return false -- explicitly suppress the generic class fallback
+end
+```
 
 The engine validates friendly roster units, excludes confirmed dead, disconnected, invisible and out-of-range units, and uses predicted health. It sends the selected unit through the Action-compatible pixel at physical position `(163, 0)`:
 
@@ -175,6 +196,18 @@ hotState[unitGUID][spellName] = {
 ```
 
 Use tracked HoTs to avoid immediate reapplication and to decide whether a routine request is useful. Treat calculated healing per tick as an estimate because temporary bonuses, target modifiers, dispels, overwrites and critical ticks may be hidden. The native predicted-health mask remains the final authority for whether a recommendation is visible.
+
+## Druid Healing Rotation provider
+
+The Druid provider implements the first class-specific Healing Rotation:
+
+- Routine tank healing prioritizes tracked Regrowth and Rejuvenation. Other eligible members receive Rejuvenation and Healing Touch according to the initiate threshold.
+- A successful Healing Touch or Regrowth schedules Rejuvenation on the same unit when that HoT is not already tracked. Damage and Thorns requests pause during the five-second mana-recovery window.
+- Emergency healing prioritizes tracked Swiftmend, then Elune's Light, Nature's Swiftness and Healing Touch. Elune's Light is not used outside the emergency category.
+- Successful Rejuvenation, Regrowth, Thorns and Mark of the Wild casts create per-unit expiration timers. Swiftmend does not consume the tracked HoT in Forever.
+- The tank receives tracked Thorns at the start of combat. A selected friendly group member can receive Mark of the Wild out of combat, then a health-masked Healing Touch top-off only above 80% readable mana and while the Druid is not eating or drinking.
+- A living selected elite enemy receives timed Faerie Fire, followed by timed Moonfire. These requests use the shared strict-above-80% mana mask and are suppressed during the mana-recovery window.
+- Dispel, Entangling Roots and Hibernate decisions remain manual because the required combat conditions are not safely observable. Tranquility and Wild Growth are registered for Universal icon assignment and manual queuing; automatic group use waits for a safe multiple-injured-member signal.
 
 ## Universal icons and A slots
 

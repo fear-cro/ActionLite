@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-AL.buildId = "1.1.0-healing-rules-20261029"
+AL.buildId = "1.1.0-druid-healing-20261029"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -855,7 +855,8 @@ local SELF_BUFF_DURATIONS = {
 	["Rapid Fire"] = 15,
 	["Arcane Intellect"] = 1800, ["Frost Armor"] = 1800, ["Ice Armor"] = 1800, ["Mage Armor"] = 1800,
 	["Ice Block"] = 10, ["Mana Shield"] = 60, ["Berserking"] = 10,
-	["Mark of the Wild"] = 1800, ["Thorns"] = 600, ["Rejuvenation"] = 12, ["Tiger's Fury"] = 6,
+	["Mark of the Wild"] = 1800, ["Thorns"] = 600, ["Rejuvenation"] = 12,
+	["Nature's Swiftness"] = 10, ["Elune's Light"] = 15, ["Tiger's Fury"] = 6,
 	["Bear Form"] = 3600, ["Dire Bear Form"] = 3600, ["Prowl"] = 3600, ["Enrage"] = 10, ["Cat Form"] = 3600, ["Aquatic Form"] = 3600, ["Travel Form"] = 3600,
 	["Power Word: Fortitude"] = 1800, ["Inner Fire"] = 600, ["Renew"] = 15, ["Power Word: Shield"] = 30,
 	["Stealth"] = 3600, ["Evasion"] = 15, ["Blade Flurry"] = 15, ["Slice and Dice"] = 12,
@@ -1015,6 +1016,8 @@ local SPELL_COOLDOWNS = {
 	["Gouge"] = 10, ["Kick"] = 10, ["Evasion"] = 300, ["Blade Flurry"] = 120, ["Stealth"] = 10,
 	["Vanish"] = 300, ["Riposte"] = 6,
 	["Charge"] = 15, ["Bloodrage"] = 60, ["Bash"] = 60, ["Enrage"] = 600, ["Tiger's Fury"] = 1,
+	["Swiftmend"] = 15, ["Nature's Swiftness"] = 180, ["Tranquility"] = 300,
+	["Elune's Light"] = 180,
 	["Overpower"] = 5, ["Revenge"] = 5, ["Thunder Clap"] = 4,
 	["Mongoose Bite"] = 5, ["Concussive Shot"] = 12, ["Summon Hawk"] = 6,
 	["Stormstrike"] = 20,
