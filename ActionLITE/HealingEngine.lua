@@ -28,6 +28,36 @@ local ACTIVE_SLOTS = { 3, 6 }
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local DAMAGE_MANA_THRESHOLD = 80
 local DPS_THRESHOLD_OFFSET = 10
+local FIVE_SECOND_RULE = 5
+
+-- Successful healing/support casts start the healer mana-recovery wait. The
+-- engine does not infer this from a recommendation: only a confirmed cast can
+-- suppress wand/DoT damage. Health-based healing remains available during the
+-- wait when a protected health mask says that care is still required.
+local HEALING_CASTS = {
+	DRUID = {
+		["Healing Touch"] = true, ["Regrowth"] = true, ["Rejuvenation"] = true,
+		["Swiftmend"] = true, ["Tranquility"] = true, ["Wild Growth"] = true,
+		["Nature's Swiftness"] = true, ["Elune's Light"] = true, ["Innervate"] = true,
+	},
+	PALADIN = {
+		["Holy Light"] = true, ["Flash of Light"] = true, ["Holy Shock"] = true,
+		["Lay on Hands"] = true, ["Divine Favor"] = true,
+	},
+	PRIEST = {
+		["Lesser Heal"] = true, ["Heal"] = true, ["Greater Heal"] = true,
+		["Flash Heal"] = true, ["Binding Heal"] = true, ["Penance"] = true,
+		["Prayer of Healing"] = true, ["Prayer of Mending"] = true,
+		["Renew"] = true, ["Power Word: Shield"] = true,
+		["Inner Focus"] = true, ["Power Infusion"] = true,
+	},
+	SHAMAN = {
+		["Healing Wave"] = true, ["Lesser Healing Wave"] = true,
+		["Chain Heal"] = true, ["Riptide"] = true, ["Earth Shield"] = true,
+		["Healing Stream Totem"] = true,
+		["Nature's Swiftness"] = true,
+	},
+}
 
 -- These are safe base rules, not the final class healing priorities. A class
 -- provider can replace the selected-ally spell with manual/strongest and will
@@ -137,6 +167,43 @@ end
 function Engine:IsEnabled(profile)
 	local settings = self:GetSettings(profile)
 	return self.SUPPORTED_CLASSES[AL.playerClass] == true and settings.enabled
+end
+
+function Engine:FiveSecondRuleRemaining()
+	local now = GetTime and GetTime() or 0
+	now = PublicNumber(now) or 0
+	local expiration = PublicNumber(self.mp5Until) or 0
+	return math.max(0, expiration - now)
+end
+
+function Engine:FiveSecondRuleActive()
+	return self:FiveSecondRuleRemaining() > 0
+end
+
+-- Core calls this only after UNIT_SPELLCAST_SUCCEEDED has been resolved to a
+-- stable English spell name. Class providers also receive the event so they
+-- can maintain per-unit HoT, shield and sequence timers without reading
+-- protected combat auras.
+function Engine:OnCastSucceeded(spell)
+	if type(spell) ~= "string" or spell == "" or IsSecret(spell) then return end
+	local settings = self:GetSettings()
+	if not self.SUPPORTED_CLASSES[AL.playerClass] or not settings.enabled then return end
+	local now = GetTime and GetTime() or 0
+	now = PublicNumber(now) or 0
+	if HEALING_CASTS[AL.playerClass] and HEALING_CASTS[AL.playerClass][spell] then
+		self.mp5Until = now + FIVE_SECOND_RULE
+		self.lastHealingCast = { spell = spell, at = now }
+	end
+	local rotation = AL.rotations and AL.rotations[AL.playerClass]
+	local observer = rotation and rotation.HealingEngineCastSucceeded
+	if type(observer) == "function" then
+		local ok, message = pcall(observer, spell)
+		if not ok and AL.Debug and AL.Debug.CaptureError then
+			message = type(message) == "string" and not IsSecret(message)
+				and message or "Protected class healing cast observer failure"
+			AL.Debug.CaptureError("HealingEngine cast observer: " .. message, "healing engine")
+		end
+	end
 end
 
 function Engine:RegisterProvider(classToken, provider)
@@ -258,7 +325,8 @@ function Engine:IsUnitEligible(unit, spell, request)
 		local ok, allowed = pcall(request.unitFilter, unit, role)
 		if not ok or PublicBoolean(allowed) ~= true then return false end
 	end
-	if SpellRange(spell, unit) == false then return false end
+	local rangeUnit = request and request.rangeUnit or unit
+	if SpellRange(spell, rangeUnit) == false then return false end
 	return true, role
 end
 
@@ -389,6 +457,7 @@ local function NormalizeRequest(value, category, threshold, profile)
 		roles = value.roles,
 		unit = value.unit,
 		unitFilter = value.unitFilter,
+		rangeUnit = value.rangeUnit,
 		visibility = value.visibility,
 	}
 end
@@ -436,6 +505,7 @@ function Engine:StrongestBaseHeal(profile)
 end
 
 function Engine:DamageRequest(profile, context)
+	if self:FiveSecondRuleActive() then return nil end
 	if not self:EnemyCombatTarget() or self:WandAvailable(profile) then return nil end
 	local rotation = AL.rotations and AL.rotations[AL.playerClass]
 	if rotation and type(rotation.HealingEngineDamagePlan) == "function" then
@@ -490,6 +560,9 @@ function Engine:BaseSuggestion(profile)
 		return nil, "Healing Rotation: selected ally", true
 	end
 	if self:EnemyCombatTarget() then
+		if self:FiveSecondRuleActive() then
+			return nil, "Healing Rotation: five-second mana rule", true
+		end
 		if self:WandAvailable(profile) then
 			return "Shoot", "Healing Rotation: wand damage", true
 		end
@@ -531,6 +604,8 @@ function Engine:BuildPlan(baseSpell, baseReason)
 		targetClassification = self:TargetClassification(),
 		damageManaThreshold = DAMAGE_MANA_THRESHOLD,
 		dpsThresholdOffset = DPS_THRESHOLD_OFFSET,
+		mp5Locked = self:FiveSecondRuleActive(),
+		mp5Seconds = self:FiveSecondRuleRemaining(),
 		baseSpell = baseSpell,
 		baseReason = baseReason,
 		known = AL.known,
@@ -628,6 +703,7 @@ function Engine:BuildPlan(baseSpell, baseReason)
 		maintenance = NormalizeRequests(supplied.maintenance, "maintenance", 100, profile),
 		routine = NormalizeRequests(routineValue, "routine", settings.initiate, profile),
 		emergency = NormalizeRequests(supplied.emergency, "emergency", settings.emergency, profile),
+		critical = NormalizeRequests(supplied.critical, "critical", settings.emergency, profile),
 		followup = NormalizeRequests(supplied.followup, "followup", 100, profile),
 	}
 	local function AddRow(request, member, low, high, band, visibility, threshold)
@@ -706,6 +782,7 @@ function Engine:BuildPlan(baseSpell, baseReason)
 	AddRoutineBand(requests.routine, true)
 	AddEmergencyBand(requests.emergency, false)
 	AddEmergencyBand(requests.emergency, true)
+	for _, request in ipairs(requests.critical) do AddStatic(request, "critical-priority") end
 	for _, request in ipairs(requests.followup) do AddStatic(request, "followup") end
 	local status
 	if #plan.rows == 0 then
@@ -887,6 +964,9 @@ function Engine:Update(baseSpell, baseReason)
 		initiate = settings and settings.initiate or 80,
 		emergency = settings and settings.emergency or 30,
 		dpsThresholdOffset = DPS_THRESHOLD_OFFSET,
+		mp5Locked = self:FiveSecondRuleActive(),
+		mp5Seconds = self:FiveSecondRuleRemaining(),
+		lastHealingCast = self.lastHealingCast,
 		provider = plan and plan.source or nil,
 		manualTarget = plan and plan.manualTarget or nil,
 		status = status,

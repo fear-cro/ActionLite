@@ -1,8 +1,25 @@
 local ADDON, AL = ...
 
+local function HealingSpecCheck(key, label, spell, tooltip)
+	return {
+		key = key, label = label, spell = spell, half = false, tooltip = tooltip,
+		onChange = function()
+			local profile = AL.ES and AL.ES() or (AL.S and AL.S())
+			local rotation = AL.rotations and AL.rotations.PRIEST
+			if profile and rotation and type(rotation.SetHealingSpec) == "function" then
+				rotation.SetHealingSpec(key, profile[key] == true, profile)
+			elseif profile and profile[key] == true then
+				local other = key == "healingDiscipline" and "healingHoly" or "healingDiscipline"
+				profile[other] = false
+			end
+			if AL.UI and AL.UI.Repaint then AL.UI.Repaint() end
+		end,
+	}
+end
+
 AL.RegisterSimpleClassUI("PRIEST", {
 	title = { en = "PRIEST - LEVELING", fr = "PRETRE - PROGRESSION", pt = "SACERDOTE - PROGRESSÃO", es = "SACERDOTE - PROGRESIÓN", de = "PRIESTER - LEVELN", zh = "牧师 - 升级" },
-	subtitle = { en = "Shadow or Smite solo profile - interface 0.29.1", fr = "Profil solo Ombre ou Smite - interface 0.29.1", pt = "Perfil solo Sombra ou Smite - interface 0.29.1", es = "Perfil en solitario Sombra o Smite - interfaz 0.29.1", de = "Solo-Profil Schatten oder Smite - Interface 0.29.1", zh = "暗影或 Smite 单刷配置 - 界面 0.29.1" },
+	subtitle = { en = "Shadow or Smite solo profile - interface 0.30.0", fr = "Profil solo Ombre ou Smite - interface 0.30.0", pt = "Perfil solo Sombra ou Smite - interface 0.30.0", es = "Perfil en solitario Sombra o Smite - interfaz 0.30.0", de = "Solo-Profil Schatten oder Smite - Interface 0.30.0", zh = "暗影或 Smite 单刷配置 - 界面 0.30.0" },
 	aoeKey = "aoe",
 	cards = {
         {
@@ -21,7 +38,13 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				  tooltip = { "Enable Healing Rotation", "Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation." } },
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
-				{ type = "info", text = "The first threshold is reserved for HoTs and efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Selecting a friendly group member requests the strongest available direct heal." },
+				HealingSpecCheck("healingDiscipline", "Discipline Priest", "Penance", {
+					"Discipline Priest", "Selects the Discipline-only party priority: tracked shields, caster Power Infusion, Penance at 20 points below the heal slider, Binding/Flash filler, and Inner Focus with Prayer of Healing for emergencies."
+				}),
+				HealingSpecCheck("healingHoly", "Holy Priest", "Prayer of Mending", {
+					"Holy Priest", "Selects the Holy-only party priority: tracked Renew, efficient Heal, Binding/Flash for larger heals, and Prayer of Mending or Inner Focus with Greater Heal for emergencies."
+				}),
+				{ type = "info", text = "Discipline and Holy are mutually exclusive. Tank and healer thresholds use the selected value; known DPS members use 10 points less. Damage pauses for five seconds after a healing cast. Prayer of Healing stays manual except for Discipline's Inner Focus emergency sequence. Inspiration is a passive critical-heal proc, so direct tank heals are prioritized rather than trying to cast it." },
 			},
 		},
         {
@@ -159,7 +182,7 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Min. Zielgesundheit für Burst", zh = "Burst 最低目标生命值" }, min = 0, max = 100, step = 5, default = 40, suffix = " % HP" },
         } },
 	},
-}, "0.29.1")
+}, "0.30.0")
 
 -- Selecting Smite returns the profile to Leveling Rotation.
 local BuildPriestUI = AL.classUIs and AL.classUIs.PRIEST

@@ -98,6 +98,7 @@ The framework applies these rules before a class provider adds its detailed heal
 4. A healer without a usable wand applies an available periodic-damage spell only while mana is above 80%. Protected mana is evaluated as a display mask and is never compared in Lua. A class can replace or suppress the shared damage request with `HealingEngineDamagePlan`.
 5. Automatic party-healing rows are drawn above the damage recommendation. Their spell art, A[3] output and focus pixel use one protected health alpha, so a visible heal always takes priority over Shoot or periodic damage.
 6. Once predicted health no longer matches a healing band, the healing row and focus color disappear together and the damage recommendation becomes visible again.
+7. A confirmed healing/support cast starts the shared five-second mana rule. Shoot and periodic-damage recommendations pause until that timer expires. Required healing remains available during the timer, but no health-based heal becomes visible unless its protected health band is below the selected slider threshold.
 
 The focus pixel tells the external macro/pixel reader which group unit to focus. ActionLITE does not call a protected targeting or focus function during combat.
 
@@ -132,6 +133,7 @@ function M.HealingEnginePlan(profile, context)
         maintenance = { spell = "Long Buff", roles = { TANK = true } },
         routine = routine,
         emergency = emergency,
+        critical = { spell = "Emergency Cooldown", visibility = "health" },
         followup = { spell = "Required Follow-up", unit = "party1" },
     }
 end
@@ -150,15 +152,16 @@ Accepted request fields are:
 | `roles` | table | Optional allow-list such as `{ TANK=true, HEALER=true }` |
 | `unit` | string | Optional exact roster token, used for a tracked follow-up on one unit |
 | `unitFilter` | function | Optional public-only predicate receiving `(unit, role)`; never read protected health inside it |
+| `rangeUnit` | string | Optional unit used only for the spell-range check; use `player` for a self cooldown whose health condition belongs to an injured member |
 | `visibility` | string | `health` uses the request threshold; `always` emits an unmasked maintenance or follow-up request |
 | `requireReady` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns readiness masking |
 | `requireUsable` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns resource masking |
 
-Every category accepts one request or an ordered request list. Later requests have higher spell priority for the same unit. `manual` and `strongest` are aliases for the selected-friendly distress heal; if neither is supplied, the last available `emergency` request is used. Set `manual = false` when the provider deliberately wants no selected-friendly fallback, such as while eating or below an out-of-combat mana rule. `routine`, `lowCost` and `hot` are aliases for the routine category. `maintenance` is drawn above damage and below health-based healing. `followup` is drawn last for a required cast sequence.
+Every category accepts one request or an ordered request list. Later requests have higher spell priority for the same unit. `manual` and `strongest` are aliases for the selected-friendly distress heal; if neither is supplied, the last available `emergency` request is used. Set `manual = false` when the provider deliberately wants no selected-friendly fallback, such as while eating or below an out-of-combat mana rule. `routine`, `lowCost` and `hot` are aliases for the routine category. `maintenance` is drawn above damage and below health-based healing. `critical` is drawn after the normal emergency bands and should use `visibility = "health"`; it is useful for a cooldown that must win at the emergency slider without changing the threshold of an intermediate heal. `followup` is drawn last for a required cast sequence.
 
 Each automatic health category is divided into two client-evaluated bands. The draw order is high-mana damage, maintenance, routine, urgent, emergency, critical, then follow-up. Within a band, the deterministic role order is Tank, Healer, Damager, then None; later requests win only within the same member priority. Earlier roster positions win remaining ties. Exact health sorting is unavailable because health is secret, but these bands prevent a substantially healthier unit from covering a more injured unit while retaining stable role priority.
 
-`context` includes `settings`, `manualTarget`, `inCombat`, `hostileTarget`, `enemyCombat`, `targetClassification`, `damageManaThreshold` and `dpsThresholdOffset`. A class-specific damage provider uses the same context:
+`context` includes `settings`, `manualTarget`, `inCombat`, `hostileTarget`, `enemyCombat`, `targetClassification`, `damageManaThreshold`, `dpsThresholdOffset`, `mp5Locked` and `mp5Seconds`. A class-specific damage provider uses the same context:
 
 ```lua
 function M.HealingEngineDamagePlan(profile, context)
@@ -209,6 +212,15 @@ The Druid provider implements the first class-specific Healing Rotation:
 - A living selected elite enemy receives timed Faerie Fire, followed by timed Moonfire. These requests use the shared strict-above-80% mana mask and are suppressed during the mana-recovery window.
 - Dispel, Entangling Roots and Hibernate decisions remain manual because the required combat conditions are not safely observable. Tranquility and Wild Growth are registered for Universal icon assignment and manual queuing; automatic group use waits for a safe multiple-injured-member signal.
 
+## Priest Healing Rotation providers
+
+The Priest healing card offers mutually exclusive **Discipline Priest** and **Holy Priest** checkboxes. Both remain gated by **Enable Healing Rotation** and grouped play. With either provider selected, a living enemy selected in combat uses the shared timed `Shoot` recommendation. The shared five-second rule pauses Shoot after a successful healing/support cast.
+
+- Discipline maintains a per-target 30-second Power Word: Shield timer, shields an injured member before its filler, and uses Penance at the initiate-healing slider minus 20 percentage points. A learned Binding Heal replaces Flash Heal as the filler. Power Infusion is limited to a readable friendly caster assigned the Damager role. Emergency group care sequences Inner Focus into Prayer of Healing; Prayer of Healing is otherwise manual.
+- Holy tracks Renew for 15 seconds, uses Heal for routine damage, and uses learned Binding Heal instead of Flash Heal for the larger-heal band halfway between the initiate and emergency thresholds. Emergency care prefers learned Prayer of Mending, then sequences Inner Focus into Greater Heal.
+- Inspiration is a passive talent, not a castable spell. The engine's existing tank role priority gives direct non-periodic tank heals precedence so their critical results can trigger Inspiration.
+- Successful shield, Renew, Power Infusion, Penance and Prayer of Mending casts update conservative per-unit or cooldown timers. These timers prevent immediate recasts when combat aura data is protected.
+
 ## Universal icons and A slots
 
 Original spells and original Universal icons use A[3]. Passive `UniversalN Unit1` textures use A[6]. A provider returns the spell name; `AL.SlotFor(spell)` applies the saved icon assignment. Add new spells to the class spell list so the Spells menu can assign them.
@@ -228,5 +240,6 @@ Before submitting a rotation:
 - Confirm solo play bypasses Healing Rotation even when its checkbox is saved on.
 - Confirm a selected friendly group member immediately produces the direct heal and matching focus color, then clears when an enemy or no target is selected.
 - Confirm wand damage respects the shared shot timer and non-wand periodic damage appears only above 80% mana.
+- Confirm Shoot and periodic damage pause for five seconds after a confirmed healing/support cast, while a unit below a healing threshold can still receive required care.
 - Confirm a healing spell and its target pixel change together, and the pixel returns to black when Healing Rotation is disabled or no provider request is active.
 - Parse every Lua file and review the TOC load order before packaging.

@@ -3094,6 +3094,8 @@ local M = {
         leveling = true,
 		priestRole = "SHADOW",
 		shadow = false,
+		healingDiscipline = false,
+		healingHoly = false,
 		shadowForm = true,
 		shadowMindFlay = true,
 		shadowWordDeath = true,
@@ -3189,6 +3191,7 @@ end
 
 M.spells = {
 	{ 20554, "Berserking" },
+	{ 401937, "Binding Heal" },
 	{ 528, "Cure Disease" },
 	{ 1277324, "Dark Sacrifice" },
 	{ 13908, "Desperate Prayer" },
@@ -3198,6 +3201,8 @@ M.spells = {
 	{ 1259799, "Elune's Light" },
 	{ 1259823, "Eureka!" },
 	{ 586, "Fade" },
+	{ 2061, "Flash Heal" },
+	{ 2060, "Greater Heal" },
 	{ 2054, "Heal" },
 	{ 14914, "Holy Fire" },
 	{ 15237, "Holy Nova" },
@@ -3211,7 +3216,9 @@ M.spells = {
 	{ 402174, "Penance" },
 	{ 1243, "Power Word: Fortitude" },
 	{ 17, "Power Word: Shield" },
+	{ 10060, "Power Infusion" },
 	{ 596, "Prayer of Healing" },
+	{ 401859, "Prayer of Mending" },
 	{ 8122, "Psychic Scream" },
 	{ 139, "Renew" },
 	{ 2006, "Resurrection" },
@@ -3257,6 +3264,8 @@ local MINLEVEL = {
 	["Inner Fire"] = 12,
 	["Psychic Scream"] = 14,
 	["Heal"] = 16,
+	["Flash Heal"] = 20,
+	["Greater Heal"] = 40,
 	["Holy Fire"] = 20,
 	["Dispel Magic"] = 18,
 	["Shackle Undead"] = 20,
@@ -6788,5 +6797,432 @@ AL.RegisterRotation("PRIEST", M)
             end
         end
     end
+
+    -- =====================================================================
+    -- Discipline and Holy Healing Rotation providers
+    -- ---------------------------------------------------------------------
+    -- Group health remains protected in combat. These providers supply only
+    -- public spell/timer priorities; HealingEngine owns the health masks and
+    -- sends the matching friendly unit through the focus pixel.
+    -- =====================================================================
+    local priestHealing = {
+        effects = {}, cooldowns = {}, innerFocusUntil = 0,
+        penanceChannelUntil = 0, lastHeal = nil,
+    }
+
+    local function HPNow()
+        local ok, value = pcall(GetTime)
+        return ok and type(value) == "number" and value or 0
+    end
+    local function HPSecret(value)
+        if type(issecretvalue) ~= "function" then return false end
+        local ok, secret = pcall(issecretvalue, value)
+        return not ok or secret == true
+    end
+    local function HPBool(func, ...)
+        if type(func) ~= "function" then return nil end
+        local ok, value = pcall(func, ...)
+        if not ok or HPSecret(value) then return nil end
+        if value == true or value == 1 then return true end
+        if value == false or value == 0 then return false end
+    end
+    local function HPExists(unit)
+        return HPBool(UnitExists, unit) == true
+    end
+    local function HPRosterUnits()
+        local units, raid = {}, false
+        for index = 1, 40 do
+            if HPExists("raid" .. index) then raid = true; break end
+        end
+        if raid then
+            for index = 1, 40 do
+                local unit = "raid" .. index
+                if HPExists(unit) then units[#units + 1] = unit end
+            end
+        else
+            for index = 1, 4 do
+                local unit = "party" .. index
+                if HPExists(unit) then units[#units + 1] = unit end
+            end
+            units[#units + 1] = "player"
+        end
+        return units
+    end
+    local function HPGroupUnitFor(source)
+        if not HPExists(source) or type(UnitIsUnit) ~= "function" then return nil end
+        local assist = HPBool(UnitCanAssist, "player", source)
+        local friend = HPBool(UnitIsFriend, "player", source)
+        if assist ~= true and friend ~= true then return nil end
+        for _, unit in ipairs(HPRosterUnits()) do
+            if HPBool(UnitIsUnit, source, unit) == true then return unit end
+        end
+    end
+    local function HPHealingUnit()
+        return HPGroupUnitFor("target") or HPGroupUnitFor("focus")
+    end
+    local function HPUnitKey(unit)
+        if type(unit) ~= "string" then return nil end
+        if type(UnitGUID) == "function" then
+            local ok, guid = pcall(UnitGUID, unit)
+            if ok and not HPSecret(guid) and type(guid) == "string" and guid ~= "" then
+                return guid
+            end
+        end
+        return unit
+    end
+    local function HPEffectActive(unit, spell)
+        local key = HPUnitKey(unit)
+        local effects = key and priestHealing.effects[key]
+        local expiration = effects and effects[spell]
+        if type(expiration) == "number" and expiration > HPNow() then return true end
+        if effects then effects[spell] = nil end
+        return false
+    end
+    local function HPSetEffect(unit, spell, duration)
+        local key = HPUnitKey(unit)
+        if not key or type(duration) ~= "number" then return end
+        priestHealing.effects[key] = priestHealing.effects[key] or {}
+        priestHealing.effects[key][spell] = HPNow() + duration
+    end
+    local function HPCooldownReady(spell)
+        local expiration = priestHealing.cooldowns[spell]
+        return type(expiration) ~= "number" or expiration <= HPNow()
+    end
+    local function HPKnown(spell)
+        return not root.known or root.known[spell] == true
+    end
+    local function HPAvailable(spell, profile, ignoreUsable)
+        if type(spell) ~= "string" or spell == "" or not HPKnown(spell) then return false end
+        if root.Allowed then
+            local ok, allowed = pcall(root.Allowed, spell, profile)
+            if not ok or HPSecret(allowed) or allowed == false then return false end
+        end
+        if not HPCooldownReady(spell) then return false end
+        if root.IsReady then
+            local ok, ready = pcall(root.IsReady, spell)
+            if not ok or HPSecret(ready) or ready == false then return false end
+        end
+        if not ignoreUsable and root.SpellUsable then
+            local ok, usable = pcall(root.SpellUsable, spell)
+            if not ok or HPSecret(usable) or usable == false then return false end
+        end
+        return true
+    end
+    local function HPPreferred(profile, spells, ignoreUsable)
+        for _, spell in ipairs(spells) do
+            if HPAvailable(spell, profile, ignoreUsable) then return spell end
+        end
+    end
+    local function HPHealingSpec(profile)
+        if type(profile) ~= "table" then return nil end
+        local discipline = not HPSecret(profile.healingDiscipline)
+            and profile.healingDiscipline == true
+        local holy = not HPSecret(profile.healingHoly) and profile.healingHoly == true
+        if discipline and holy then
+            -- Saved conflicts migrate deterministically to the first control.
+            profile.healingHoly, holy = false, false
+        end
+        if discipline then return "DISCIPLINE" end
+        if holy then return "HOLY" end
+    end
+    local function HPCasterDPS(unit, role)
+        if role ~= "DAMAGER" or type(UnitClass) ~= "function" then return false end
+        local ok, _, class = pcall(UnitClass, unit)
+        if not ok or HPSecret(class) or type(class) ~= "string" then return false end
+        if class == "MAGE" or class == "WARLOCK" or class == "PRIEST" then return true end
+        if class ~= "DRUID" and class ~= "SHAMAN" then return false end
+        if type(UnitPowerType) ~= "function" then return false end
+        local powerOK, powerType, powerToken = pcall(UnitPowerType, unit)
+        if not powerOK or HPSecret(powerType) or HPSecret(powerToken) then return false end
+        return powerType == 0 or powerToken == "MANA"
+    end
+    local function HPShieldAppliedOrUnavailable(unit, shieldAvailable)
+        return HPEffectActive(unit, "Power Word: Shield")
+            or not HPKnown("Power Word: Shield") or not shieldAvailable
+    end
+    local function HPManualSpell(profile, spec)
+        if spec == "DISCIPLINE" then
+            return HPPreferred(profile, {
+                "Penance", "Greater Heal", "Binding Heal", "Flash Heal", "Heal", "Lesser Heal",
+            })
+        end
+        return HPPreferred(profile, {
+            "Greater Heal", "Binding Heal", "Flash Heal", "Heal", "Lesser Heal", "Penance",
+        })
+    end
+    local function HPFillerSpell(profile)
+        if HPKnown("Binding Heal") then
+            return HPAvailable("Binding Heal", profile) and "Binding Heal" or nil
+        end
+        if HPKnown("Flash Heal") then
+            return HPAvailable("Flash Heal", profile) and "Flash Heal" or nil
+        end
+        return HPPreferred(profile, { "Heal", "Lesser Heal" })
+    end
+
+    function advanced.SetHealingSpec(key, enabled, profile)
+        if key ~= "healingDiscipline" and key ~= "healingHoly" then return end
+        if HPSecret(enabled) or type(enabled) ~= "boolean" then return end
+        profile = profile or (root.Profile and root.Profile("PRIEST")) or (root.S and root.S())
+        if type(profile) ~= "table" then return end
+        profile[key] = enabled
+        if enabled then
+            local other = key == "healingDiscipline" and "healingHoly" or "healingDiscipline"
+            profile[other] = false
+        end
+        return HPHealingSpec(profile)
+    end
+
+    function advanced.HealingEngineCastSucceeded(spell)
+        if type(spell) ~= "string" or HPSecret(spell) then return end
+        local profile = root.S and root.S() or {}
+        if profile.healingEngine ~= true then return end
+        local now, unit = HPNow(), HPHealingUnit()
+        if spell == "Power Word: Shield" then
+            -- Track the full shield duration. This also covers the shorter
+            -- Weakened Soul reapplication lock when auras are protected.
+            HPSetEffect(unit, spell, 30)
+        elseif spell == "Renew" then
+            HPSetEffect(unit, spell, 15)
+        elseif spell == "Power Infusion" then
+            HPSetEffect(unit, spell, 15)
+            priestHealing.cooldowns[spell] = now + 180
+        elseif spell == "Prayer of Mending" then
+            HPSetEffect(unit, spell, 30)
+            priestHealing.cooldowns[spell] = now + 10
+            priestHealing.lastHeal = { spell = spell, unit = unit, at = now }
+        elseif spell == "Penance" then
+            priestHealing.cooldowns[spell] = now + 12
+            priestHealing.penanceChannelUntil = now + 2.5
+            priestHealing.lastHeal = { spell = spell, unit = unit, at = now }
+        elseif spell == "Inner Focus" then
+            priestHealing.cooldowns[spell] = now + 180
+            priestHealing.innerFocusUntil = now + 15
+        elseif spell == "Prayer of Healing" or spell == "Greater Heal"
+            or spell == "Flash Heal" or spell == "Binding Heal"
+            or spell == "Heal" or spell == "Lesser Heal" then
+            priestHealing.lastHeal = { spell = spell, unit = unit, at = now }
+        end
+        if spell ~= "Inner Focus" and priestHealing.innerFocusUntil > now then
+            local consumers = {
+                ["Prayer of Healing"] = true, ["Greater Heal"] = true,
+                ["Flash Heal"] = true, ["Binding Heal"] = true,
+                ["Heal"] = true, ["Lesser Heal"] = true, ["Penance"] = true,
+                ["Smite"] = true, ["Holy Fire"] = true, ["Mind Blast"] = true,
+            }
+            if consumers[spell] then priestHealing.innerFocusUntil = 0 end
+        end
+    end
+
+    function advanced.HealingEngineDamagePlan()
+        -- Every Priest healing spec uses Shoot when a wand is available. The
+        -- shared engine owns that recommendation and its shot timer; suppress
+        -- the non-wand Shadow Word: Pain fallback for this healer ruleset.
+        return false
+    end
+
+    function advanced.HealingEnginePlan(profile, context)
+        if type(profile) ~= "table" or type(context) ~= "table" then return nil end
+        local spec = HPHealingSpec(profile)
+        if not spec then return nil end
+        local now = HPNow()
+        if priestHealing.innerFocusUntil <= now then priestHealing.innerFocusUntil = 0 end
+        if priestHealing.penanceChannelUntil > now then return { manual = false } end
+
+        local manual
+        if context.manualTarget then
+            local spell = HPManualSpell(profile, spec)
+            manual = spell and {
+                spell = spell,
+                reason = "Healing Rotation: selected ally distress heal",
+            } or false
+        end
+        if not context.inCombat then return { manual = manual == nil and false or manual } end
+
+        if spec == "DISCIPLINE" then
+            local maintenance = {}
+            if not context.mp5Locked then
+                if HPAvailable("Power Infusion", profile) then
+                    maintenance[#maintenance + 1] = {
+                        spell = "Power Infusion",
+                        reason = "Discipline: caster DPS Power Infusion",
+                        roles = { DAMAGER = true }, includePlayer = false,
+                        unitFilter = function(unit, role)
+                            return HPCasterDPS(unit, role)
+                                and not HPEffectActive(unit, "Power Infusion")
+                        end,
+                    }
+                end
+                if HPAvailable("Power Word: Shield", profile) then
+                    maintenance[#maintenance + 1] = {
+                        spell = "Power Word: Shield",
+                        reason = "Discipline: maintain tank shield",
+                        roles = { TANK = true },
+                        unitFilter = function(unit)
+                            return not HPEffectActive(unit, "Power Word: Shield")
+                        end,
+                    }
+                end
+            end
+
+            local shieldAvailable = HPAvailable("Power Word: Shield", profile)
+            local routine = {}
+            local filler = HPFillerSpell(profile)
+            if filler then
+                routine[#routine + 1] = {
+                    spell = filler,
+                    reason = "Discipline: post-shield filler heal",
+                    unitFilter = function(unit)
+                        return HPShieldAppliedOrUnavailable(unit, shieldAvailable)
+                    end,
+                }
+            end
+            if shieldAvailable then
+                routine[#routine + 1] = {
+                    spell = "Power Word: Shield",
+                    reason = "Discipline: shield injured member",
+                    unitFilter = function(unit)
+                        return not HPEffectActive(unit, "Power Word: Shield")
+                    end,
+                }
+            end
+
+            local emergency = {}
+            if HPAvailable("Penance", profile) then
+                emergency[1] = {
+                    spell = "Penance", reason = "Discipline: quick Penance heal",
+                    threshold = math.max(0, context.settings.initiate - 20),
+                    unitFilter = function(unit)
+                        return HPShieldAppliedOrUnavailable(unit, shieldAvailable)
+                    end,
+                }
+            end
+            local critical = {}
+            if priestHealing.innerFocusUntil > now
+                and HPAvailable("Prayer of Healing", profile, true) then
+                critical[1] = {
+                    spell = "Prayer of Healing",
+                    reason = "Discipline: Inner Focus Prayer of Healing",
+                    rangeUnit = "player", requireUsable = false,
+                    visibility = "health", threshold = context.settings.emergency,
+                }
+            elseif HPAvailable("Inner Focus", profile)
+                and HPAvailable("Prayer of Healing", profile, true) then
+                critical[1] = {
+                    spell = "Inner Focus",
+                    reason = "Discipline: emergency Inner Focus",
+                    rangeUnit = "player",
+                    visibility = "health", threshold = context.settings.emergency,
+                }
+            else
+                local spell = HPPreferred(profile, {
+                    "Penance", "Greater Heal", "Binding Heal", "Flash Heal", "Heal", "Lesser Heal",
+                })
+                if spell then
+                    critical[1] = {
+                        spell = spell, reason = "Discipline: emergency direct heal",
+                        visibility = "health", threshold = context.settings.emergency,
+                    }
+                end
+            end
+            return {
+                manual = manual,
+                maintenance = maintenance,
+                routine = routine,
+                emergency = emergency,
+                critical = critical,
+            }
+        end
+
+        local routine = {}
+        local small = HPPreferred(profile, { "Heal", "Lesser Heal" })
+        if small then
+            routine[#routine + 1] = { spell = small, reason = "Holy: efficient small heal" }
+        end
+        if HPAvailable("Renew", profile) then
+            routine[#routine + 1] = {
+                spell = "Renew", reason = "Holy: tracked Renew",
+                unitFilter = function(unit) return not HPEffectActive(unit, "Renew") end,
+            }
+        end
+        local emergency = {}
+        local large = HPFillerSpell(profile)
+        if large then
+            emergency[1] = {
+                spell = large, reason = "Holy: larger filler heal",
+                threshold = math.floor((context.settings.initiate + context.settings.emergency) / 2 + 0.5),
+            }
+        end
+
+        local critical = {}
+        if HPAvailable("Prayer of Mending", profile) then
+            critical[1] = {
+                spell = "Prayer of Mending", reason = "Holy: emergency Prayer of Mending",
+                visibility = "health", threshold = context.settings.emergency,
+            }
+        elseif priestHealing.innerFocusUntil > now
+            and HPAvailable("Greater Heal", profile, true) then
+            critical[1] = {
+                spell = "Greater Heal", reason = "Holy: Inner Focus Greater Heal",
+                requireUsable = false,
+                visibility = "health", threshold = context.settings.emergency,
+            }
+        elseif HPAvailable("Inner Focus", profile)
+            and HPAvailable("Greater Heal", profile, true) then
+            critical[1] = {
+                spell = "Inner Focus", reason = "Holy: emergency Inner Focus",
+                rangeUnit = "player",
+                visibility = "health", threshold = context.settings.emergency,
+            }
+        else
+            local spell = HPPreferred(profile, {
+                "Greater Heal", "Binding Heal", "Flash Heal", "Heal", "Lesser Heal", "Penance",
+            })
+            if spell then
+                critical[1] = {
+                    spell = spell, reason = "Holy: emergency direct heal",
+                    visibility = "health", threshold = context.settings.emergency,
+                }
+            end
+        end
+        return {
+            manual = manual,
+            routine = routine,
+            emergency = emergency,
+            critical = critical,
+        }
+    end
+
+    function advanced.HealingState()
+        local now, effects = HPNow(), {}
+        for unit, spells in pairs(priestHealing.effects) do
+            effects[unit] = {}
+            for spell, expiration in pairs(spells) do
+                effects[unit][spell] = math.max(0, expiration - now)
+            end
+        end
+        local profile = root.S and root.S() or {}
+        local engine = root.HealingEngine
+        return {
+            provider = "Priest " .. (HPHealingSpec(profile) or "Base"),
+            effects = effects,
+            innerFocusSeconds = math.max(0, priestHealing.innerFocusUntil - now),
+            penanceChannelSeconds = math.max(0, priestHealing.penanceChannelUntil - now),
+            mp5LockSeconds = engine and engine.FiveSecondRuleRemaining
+                and engine:FiveSecondRuleRemaining() or 0,
+            lastHeal = priestHealing.lastHeal,
+        }
+    end
+
+    local priestHealingEvents = CreateFrame("Frame")
+    for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE" }) do
+        pcall(priestHealingEvents.RegisterEvent, priestHealingEvents, event)
+    end
+    priestHealingEvents:SetScript("OnEvent", function()
+        priestHealing.effects = {}
+        priestHealing.innerFocusUntil = 0
+        priestHealing.penanceChannelUntil = 0
+    end)
+
     root.RegisterRotation("PRIEST", advanced)
 end
