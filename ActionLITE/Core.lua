@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-AL.buildId = "1.1.0-priest-healing-20261029"
+AL.buildId = "1.1.0-priest-racials-20261029"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -1014,6 +1014,8 @@ local SPELL_COOLDOWNS = {
 	["Mind Blast"] = 8, ["Holy Fire"] = 10, ["Devouring Plague"] = 24, ["Vampiric Embrace"] = 30, ["Shadow Word: Death"] = 18,
 	["Psychic Scream"] = 30, ["Silence"] = 45, ["Desperate Prayer"] = 600, ["Fade"] = 30,
 	["Inner Focus"] = 180, ["Penance"] = 12, ["Prayer of Mending"] = 10, ["Power Infusion"] = 180,
+	["Divine Grace"] = 600, ["Dark Sacrifice"] = 600, ["Eureka!"] = 120,
+	["Rapid Regeneration"] = 180,
 	["Gouge"] = 10, ["Kick"] = 10, ["Evasion"] = 300, ["Blade Flurry"] = 120, ["Stealth"] = 10,
 	["Vanish"] = 300, ["Riposte"] = 6,
 	["Charge"] = 15, ["Bloodrage"] = 60, ["Bash"] = 60, ["Enrage"] = 600, ["Tiger's Fury"] = 1,

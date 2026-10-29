@@ -50,6 +50,9 @@ local HEALING_CASTS = {
 		["Prayer of Healing"] = true, ["Prayer of Mending"] = true,
 		["Renew"] = true, ["Power Word: Shield"] = true,
 		["Inner Focus"] = true, ["Power Infusion"] = true,
+		["Divine Grace"] = true, ["Elune's Light"] = true, ["Eureka!"] = true,
+		["Dark Sacrifice"] = true, ["Berserking"] = true,
+		["Rapid Regeneration"] = true,
 	},
 	SHAMAN = {
 		["Healing Wave"] = true, ["Lesser Healing Wave"] = true,
@@ -448,6 +451,8 @@ local function NormalizeRequest(value, category, threshold, profile)
 		if usable == false then return nil end
 	end
 	local reason = "HealingEngine " .. tostring(category or "request")
+	local playerHealthAbove = PublicNumber(value.playerHealthAbove)
+	if playerHealthAbove then playerHealthAbove = ClampPercent(playerHealthAbove, 0) end
 	return {
 		category = category,
 		spell = spell,
@@ -459,6 +464,7 @@ local function NormalizeRequest(value, category, threshold, profile)
 		unitFilter = value.unitFilter,
 		rangeUnit = value.rangeUnit,
 		visibility = value.visibility,
+		playerHealthAbove = playerHealthAbove,
 	}
 end
 
@@ -721,6 +727,7 @@ function Engine:BuildPlan(baseSpell, baseReason)
 			band = band,
 			priority = member.priority,
 			visibility = visibility,
+			playerHealthAbove = request.playerHealthAbove,
 		}
 	end
 	local function AddStatic(request, band)
@@ -815,6 +822,21 @@ function Engine:DecisionAlpha(decision)
 	return self:PredictedHealthAlpha(decision.unit, decision.low, decision.high)
 end
 
+-- An extra protected gate can be applied without inspecting or multiplying its
+-- alpha in Lua. The normal target-health alpha is assigned to the row frame;
+-- this player-health alpha is assigned to the row's child regions. WoW then
+-- combines parent and child alpha internally.
+function Engine:PlayerHealthAboveAlpha(percent)
+	if type(AL.ResourceIntervalAlpha) ~= "function" then
+		return false, nil, "Protected player-health gate unavailable"
+	end
+	local low = AL.ResourceThresholdCut and AL.ResourceThresholdCut(percent, true)
+		or math.min(1, (percent + 0.001) / 100)
+	local ok, alpha = AL.ResourceIntervalAlpha("health", "player", nil, low, 2)
+	if ok then return true, alpha end
+	return false, nil, "Protected player-health gate unavailable"
+end
+
 local function CreateLayerFrame(parent, level)
 	local frame = CreateFrame("Frame", nil, parent)
 	frame:SetAllPoints(parent)
@@ -874,6 +896,24 @@ local function SetFrameAlpha(frame, alpha)
 	return pcall(frame.SetAlpha, frame, alpha)
 end
 
+local function SetRegionAlpha(region, alpha)
+	if not region then return true end
+	if type(region.SetAlpha) ~= "function" then return true end
+	return pcall(region.SetAlpha, region, alpha)
+end
+
+local function SetRowGateAlpha(row, alpha)
+	local applied = SetRegionAlpha(row.main and row.main.block, alpha)
+	applied = SetRegionAlpha(row.main and row.main.icon, alpha) and applied
+	applied = SetRegionAlpha(row.main and row.main.key, alpha) and applied
+	for _, slot in pairs(row.slots or {}) do
+		applied = SetRegionAlpha(slot.block, alpha) and applied
+		applied = SetRegionAlpha(slot.icon, alpha) and applied
+	end
+	applied = SetRegionAlpha(row.target and row.target.texture, alpha) and applied
+	return applied
+end
+
 function Engine:ClearVisuals()
 	if self.visualsCleared then
 		if AL.SetHealingTargetPixel then AL.SetHealingTargetPixel("none") end
@@ -899,7 +939,7 @@ function Engine:BindDisplay(display)
 	return true
 end
 
-function Engine:ApplyDecision(row, decision, alpha, index)
+function Engine:ApplyDecision(row, decision, alpha, index, gateAlpha)
 	if not row or not decision then return false end
 	local display = self.display
 	local texture = AL.IconFor and AL.IconFor(decision.spell)
@@ -938,7 +978,10 @@ function Engine:ApplyDecision(row, decision, alpha, index)
 		row.target:SetFrameLevel((AL.HealingTargetPixel:GetFrameLevel() or 101) + 20 + level)
 	end
 
-	local applied = SetFrameAlpha(row.main, alpha)
+	-- gateAlpha may be a secret client value. Pass it through untouched; never
+	-- use it in a Lua fallback, comparison or arithmetic expression.
+	local applied = SetRowGateAlpha(row, gateAlpha)
+	applied = SetFrameAlpha(row.main, alpha) and applied
 	for _, slot in pairs(row.slots) do applied = SetFrameAlpha(slot, alpha) and applied end
 	applied = SetFrameAlpha(row.target, decision.unit and alpha or 0) and applied
 	self.visualsCleared = false
@@ -948,6 +991,7 @@ function Engine:ApplyDecision(row, decision, alpha, index)
 		baseThreshold = decision.baseThreshold,
 		band = decision.band, low = decision.low, high = decision.high,
 		visibility = decision.visibility,
+			playerHealthAbove = decision.playerHealthAbove,
 	}
 	return applied
 end
@@ -979,13 +1023,18 @@ function Engine:Update(baseSpell, baseReason)
 	for index, decision in ipairs(plan.rows) do
 		local row = self:VisualRow(index)
 		local available, alpha, errorMessage = self:DecisionAlpha(decision)
-		if available and self:ApplyDecision(row, decision, alpha, index) then
+		local gateAvailable, gateAlpha, gateError = true, 1, nil
+		if available and decision.playerHealthAbove then
+			gateAvailable, gateAlpha, gateError = self:PlayerHealthAboveAlpha(decision.playerHealthAbove)
+		end
+		if available and gateAvailable and self:ApplyDecision(row, decision, alpha, index, gateAlpha) then
 			self.state.activeRows = self.state.activeRows + 1
 			self.state.rows[#self.state.rows + 1] = row.decision
-		elseif errorMessage and errorMessage ~= self.lastMaskError then
-			self.lastMaskError = errorMessage
+		elseif (gateError or errorMessage) and (gateError or errorMessage) ~= self.lastMaskError then
+			local message = gateError or errorMessage
+			self.lastMaskError = message
 			if AL.Debug and AL.Debug.CaptureError then
-				AL.Debug.CaptureError("HealingEngine mask: " .. errorMessage, "healing engine")
+				AL.Debug.CaptureError("HealingEngine mask: " .. message, "healing engine")
 			end
 		end
 	end

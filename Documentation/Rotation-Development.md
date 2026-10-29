@@ -154,6 +154,7 @@ Accepted request fields are:
 | `unitFilter` | function | Optional public-only predicate receiving `(unit, role)`; never read protected health inside it |
 | `rangeUnit` | string | Optional unit used only for the spell-range check; use `player` for a self cooldown whose health condition belongs to an injured member |
 | `visibility` | string | `health` uses the request threshold; `always` emits an unmasked maintenance or follow-up request |
+| `playerHealthAbove` | number | Optional strict player-health floor combined with the request's target-health mask; both conditions stay protected and are never compared in Lua |
 | `requireReady` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns readiness masking |
 | `requireUsable` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns resource masking |
 
@@ -219,7 +220,9 @@ The Priest healing card offers mutually exclusive **Discipline Priest** and **Ho
 - Discipline maintains a per-target 30-second Power Word: Shield timer, shields an injured member before its filler, and uses Penance at the initiate-healing slider minus 20 percentage points. A learned Binding Heal replaces Flash Heal as the filler. Power Infusion is limited to a readable friendly caster assigned the Damager role. Emergency group care sequences Inner Focus into Prayer of Healing; Prayer of Healing is otherwise manual.
 - Holy tracks Renew for 15 seconds, uses Heal for routine damage, and uses learned Binding Heal instead of Flash Heal for the larger-heal band halfway between the initiate and emergency thresholds. Emergency care prefers learned Prayer of Mending, then sequences Inner Focus into Greater Heal.
 - Inspiration is a passive talent, not a castable spell. The engine's existing tank role priority gives direct non-periodic tank heals precedence so their critical results can trigger Inspiration.
-- Successful shield, Renew, Power Infusion, Penance and Prayer of Mending casts update conservative per-unit or cooldown timers. These timers prevent immediate recasts when combat aura data is protected.
+- Learned race-specific emergency abilities are selected through the spellbook: Human Divine Grace targets an injured friendly member; Night Elf Elune's Light, Gnome Eureka!, and Troll Berserking support emergency healing; Undead Dark Sacrifice requires the Priest to remain strictly above 70% health; Troll Rapid Regeneration is reserved for emergency self-healing.
+- Dark Sacrifice combines the injured member's protected health mask with a second protected player-health mask. The engine assigns the two secret alpha values to parent and child regions so the client evaluates both gates without Lua reading, multiplying or testing them.
+- Successful shield, Renew, Power Infusion, Penance, Prayer of Mending and racial casts update conservative per-unit, cooldown or channel timers. Divine Grace clears the tracked shield reapplication lock on its recipient. Rapid Regeneration protects its six-second channel. These timers prevent immediate recasts when combat aura and cooldown data are protected.
 
 ## Universal icons and A slots
 

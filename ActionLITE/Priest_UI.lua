@@ -19,7 +19,7 @@ end
 
 AL.RegisterSimpleClassUI("PRIEST", {
 	title = { en = "PRIEST - LEVELING", fr = "PRETRE - PROGRESSION", pt = "SACERDOTE - PROGRESSÃO", es = "SACERDOTE - PROGRESIÓN", de = "PRIESTER - LEVELN", zh = "牧师 - 升级" },
-	subtitle = { en = "Shadow or Smite solo profile - interface 0.30.0", fr = "Profil solo Ombre ou Smite - interface 0.30.0", pt = "Perfil solo Sombra ou Smite - interface 0.30.0", es = "Perfil en solitario Sombra o Smite - interfaz 0.30.0", de = "Solo-Profil Schatten oder Smite - Interface 0.30.0", zh = "暗影或 Smite 单刷配置 - 界面 0.30.0" },
+	subtitle = { en = "Shadow or Smite solo profile - interface 0.31.0", fr = "Profil solo Ombre ou Smite - interface 0.31.0", pt = "Perfil solo Sombra ou Smite - interface 0.31.0", es = "Perfil en solitario Sombra o Smite - interfaz 0.31.0", de = "Solo-Profil Schatten oder Smite - Interface 0.31.0", zh = "暗影或 Smite 单刷配置 - 界面 0.31.0" },
 	aoeKey = "aoe",
 	cards = {
         {
@@ -44,7 +44,7 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				HealingSpecCheck("healingHoly", "Holy Priest", "Prayer of Mending", {
 					"Holy Priest", "Selects the Holy-only party priority: tracked Renew, efficient Heal, Binding/Flash for larger heals, and Prayer of Mending or Inner Focus with Greater Heal for emergencies."
 				}),
-				{ type = "info", text = "Discipline and Holy are mutually exclusive. Tank and healer thresholds use the selected value; known DPS members use 10 points less. Damage pauses for five seconds after a healing cast. Prayer of Healing stays manual except for Discipline's Inner Focus emergency sequence. Inspiration is a passive critical-heal proc, so direct tank heals are prioritized rather than trying to cast it." },
+				{ type = "info", text = "Discipline and Holy are mutually exclusive. Tank and healer thresholds use the selected value; known DPS members use 10 points less. Damage pauses for five seconds after a healing cast. Learned race-specific abilities are used for emergency healing; Dark Sacrifice requires the Priest to remain above 70% health. Prayer of Healing stays manual except for Discipline's Inner Focus emergency sequence. Inspiration is a passive critical-heal proc, so direct tank heals are prioritized rather than trying to cast it." },
 			},
 		},
         {
@@ -182,7 +182,7 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Min. Zielgesundheit für Burst", zh = "Burst 最低目标生命值" }, min = 0, max = 100, step = 5, default = 40, suffix = " % HP" },
         } },
 	},
-}, "0.30.0")
+}, "0.31.0")
 
 -- Selecting Smite returns the profile to Leveling Rotation.
 local BuildPriestUI = AL.classUIs and AL.classUIs.PRIEST
