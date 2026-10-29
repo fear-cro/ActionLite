@@ -27,6 +27,17 @@ AL.RegisterSimpleClassUI("DRUID", {
                   tooltip={"Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected."} },
             },
         },
+		{
+			title = "HEALING ENGINE",
+			id = "healing-engine", group = "survival",
+			controls = {
+				{ key = "healingEngine", label = "Enable HealingEngine", spell = "Healing Touch", half = false,
+				  tooltip = { "Enable HealingEngine", "Allows a Druid healing rotation to select friendly party or raid members through the protected Action target pixel. Existing self-healing and damage priorities remain available." } },
+				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
+				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
+				{ type = "info", text = "The first threshold is reserved for HoTs and efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Party selection stays disabled while HealingEngine is unchecked." },
+			},
+		},
         {
             title = "TANK BUILD - FERAL BEAR 0/41/10",
             id="tank-build-feral-bear-0-41-10", build="feralBear", group="damage",
@@ -216,7 +227,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 			},
 		},
 	},
-}, "0.12.4")
+}, "0.13.0")
 
 
 -- Keep new Bear slider getters on the same bounded settings as the rotation,
@@ -236,5 +247,5 @@ if originalBuilder and AL.RegisterClassUI then
             return ui.Slider(host,opts)
         end
         return originalBuilder(page,adapter)
-    end,"0.12.4")
+    end,"0.13.0")
 end

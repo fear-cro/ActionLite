@@ -2,7 +2,7 @@
 ## Title: ActionLITE
 ## Notes: WoW Forever rotation assistant
 ## Author: Fear-Cro
-## Version: 1.0.25
+## Version: 1.1.0
 ## SavedVariables: ActionLiteDB, ActionLiteLanguage
 
 Debug.lua
@@ -31,6 +31,8 @@ Shaman_UI.lua
 Mage_UI.lua
 Warlock_UI.lua
 Druid_UI.lua
+ProtocolPixels.lua
+HealingEngine.lua
 Display.lua
 CastTrail.lua
 Glow.lua

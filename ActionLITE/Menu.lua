@@ -193,7 +193,7 @@ local function ResetSettings()
 	if AL.frame then AL.frame:Show() end
 	AL.ApplyStyle()
 	AL.ApplyLock()
-	if AL.ApplyMini then AL.ApplyMini() end
+	if AL.ApplySlots then AL.ApplySlots() end
 	if AL.ResetCastTrail then AL.ResetCastTrail() end
 	if AL.ApplyMinimapButton then AL.ApplyMinimapButton() end
 	if AL.RefreshGlow then AL.RefreshGlow() end
@@ -1008,7 +1008,7 @@ local function BuildMenu()
 					local changed, owner = AL.SetIconChoice(spell, choice, prof)
 					if changed then
 						RecordUI("Spell icon changed", { class = ActiveToken(), spell = spell,
-							universal = choice and choice.number or 0, icon = prof.icons[spell], mini = AL.MiniFor(spell, prof) })
+							universal = choice and choice.number or 0, icon = prof.icons[spell], slot = AL.SlotFor(spell, prof) })
 					else
 						AL.Say("That Universal icon is already assigned to " .. owner .. ".")
 					end
@@ -1186,7 +1186,7 @@ local function BuildMenu()
 						row.stateText:SetText("|cff6b7280" .. L("NOT_LEARNED") .. "|r")
 					end
 					local choice = AL.IconChoice(name, prof)
-					local label = choice and (choice.mini == 2
+					local label = choice and (choice.slot == 6
 						and ("Univ.%d Unit1"):format(choice.number) or L("UNIVERSAL_SHORT", choice.number)) or L("DEFAULT")
 					local owner = AL.IconChoiceOwner(name, choice, prof)
 					row.iconBtn.text:SetText(label .. (owner and " !" or ""))
@@ -1196,7 +1196,7 @@ local function BuildMenu()
 						"Also assigned to " .. owner .. ". Choose a different Universal icon or Default.",
 						"Update the matching keybind when changing a Universal icon.",
 					} or {
-						"Each Universal icon can be assigned to one spell per class and mini icon.",
+						"Each Universal icon can be assigned to one spell per class and A slot.",
 						"Choose Default to release an assignment. Regular and Unit1 icons are separate choices.",
 					}
 					row:Paint()

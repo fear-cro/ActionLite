@@ -2,9 +2,9 @@ local ADDON, AL = ...
 local L = AL.L
 
 -- ============================================================================
--- ActionLITE - Display.lua - v0.14.5
+-- ActionLITE - Display.lua - v0.15.0
 -- ----------------------------------------------------------------------------
--- Recommendation icon, mini icons and slash commands.
+-- Recommendation icon, A[1]-A[10] icons and slash commands.
 -- Consistent range coloring for each suggestion across all three icons.
 -- ============================================================================
 
@@ -181,7 +181,7 @@ end
 local drinkReminder = CreateDrinkReminder(hud)
 
 -- A reminder is independent of the recommendation. It cannot consume an
--- action, hide a combat opener, or replace either mini icon.
+-- action, hide a combat opener, or replace either driven A icon (A[3] or A[6]).
 local function UpdateDrinkReminder()
 	drinkReminder:Hide()
 	local s = AL.S()
@@ -335,36 +335,45 @@ function AL.ApplyToggles()
 	end
 end
 
--- Mini icons: borderless suggestions anchored at the screen's top left,
--- sized in physical pixels to stay sharp at every UI scale.
-local MINI_PX, MINI_X, MINI_Y = 18, 19, 7
--- Two icon widths remain empty between the original output and Unit1 output.
-local MINI2_X = MINI_X + (MINI_PX * 3)
-local mini = CreateFrame("Frame", "ActionLiteMiniFrame", UIParent)
-local mini2 = CreateFrame("Frame", "ActionLiteMiniFrame2", UIParent)
-for _, frame in ipairs({ mini, mini2 }) do
-	-- Keep both corner signals above full-screen low-health warning effects.
-	frame:SetFrameStrata("TOOLTIP")
-	frame:SetFrameLevel(100)
+-- A[1]-A[10] icons: borderless suggestions anchored at the screen's top left,
+-- sized in physical pixels to stay sharp at every UI scale. They mirror the
+-- ten-icon "Shown Main" row of the original Action (one row, 60% scale, no
+-- padding), so A[n] sits (n - 3) icon widths from A[3].
+-- A[3] and A[6] are the two icons ActionLITE currently drives (formerly
+-- mini1 and mini2); the remaining slots are created and ready for future use.
+-- Each A[n] is a frame named "A<n>" and its texture is A[n].tex.
+local A_PX, A3_X, A_Y = 18, 19, 7
+local A_COUNT = 10
+local A1_X = A3_X - (A_PX * 2)
+local A = {}
+for n = 1, A_COUNT do
+	A[n] = CreateFrame("Frame", "A" .. n, UIParent)
+	-- Keep every corner signal above full-screen low-health warning effects.
+	A[n]:SetFrameStrata("TOOLTIP")
+	A[n]:SetFrameLevel(100)
+	A[n].tex = A[n]:CreateTexture(nil, "OVERLAY")
+	A[n].tex:SetAllPoints(A[n])
+	A[n].tex:Hide()
 end
-local miniTex = mini:CreateTexture(nil, "OVERLAY")
-miniTex:SetAllPoints(mini)
-miniTex:Hide()
-local miniTex2 = mini2:CreateTexture(nil, "OVERLAY")
-miniTex2:SetAllPoints(mini2)
-miniTex2:Hide()
-AL.miniFrame, AL.miniTexture = mini, miniTex
-AL.miniFrame2, AL.miniTexture2 = mini2, miniTex2
+AL.A = A
+local A3, A6 = A[3], A[6]
+local A3Tex, A6Tex = A3.tex, A6.tex
 
-local miniPriestHealTex = mini:CreateTexture(nil, "OVERLAY")
-miniPriestHealTex:SetAllPoints(mini)
-miniPriestHealTex:SetVertexColor(1, 1, 1, 0)
-local miniPriestHealTex2 = mini2:CreateTexture(nil, "OVERLAY")
-miniPriestHealTex2:SetAllPoints(mini2)
-miniPriestHealTex2:SetVertexColor(1, 1, 1, 0)
-local miniRogueFinisherTex = mini:CreateTexture(nil, "OVERLAY")
-miniRogueFinisherTex:SetAllPoints(mini)
-miniRogueFinisherTex:SetVertexColor(1, 1, 1, 0)
+-- Keep addon-table and global aliases for integrations written against the
+-- old mini names. Both aliases point at the new frames; no extra frames exist.
+AL.miniFrame, AL.miniTexture = A3, A3Tex
+AL.miniFrame2, AL.miniTexture2 = A6, A6Tex
+_G.ActionLiteMiniFrame, _G.ActionLiteMiniFrame2 = A3, A6
+
+local A3PriestHealTex = A3:CreateTexture(nil, "OVERLAY")
+A3PriestHealTex:SetAllPoints(A3)
+A3PriestHealTex:SetVertexColor(1, 1, 1, 0)
+local A6PriestHealTex = A6:CreateTexture(nil, "OVERLAY")
+A6PriestHealTex:SetAllPoints(A6)
+A6PriestHealTex:SetVertexColor(1, 1, 1, 0)
+local A3RogueFinisherTex = A3:CreateTexture(nil, "OVERLAY")
+A3RogueFinisherTex:SetAllPoints(A3)
+A3RogueFinisherTex:SetVertexColor(1, 1, 1, 0)
 
 -- Restore each texture's own pixel settings after addons that hook SetTexture.
 local sharpDefaults = setmetatable({}, { __mode = "k" })
@@ -380,41 +389,51 @@ local function SetSharpTexture(tex, path)
 	if sharp.bias ~= nil and tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(sharp.bias) end
 end
 
-local miniH, miniE = 0, 0
-local function PlaceMinis(px)
-	for index, frame in ipairs({ mini, mini2 }) do
-		frame:SetSize(MINI_PX * px, MINI_PX * px)
+local layoutH, layoutE = 0, 0
+local function PlaceSlots(px)
+	for n = 1, A_COUNT do
+		local frame = A[n]
+		frame:SetSize(A_PX * px, A_PX * px)
 		frame:ClearAllPoints()
-		frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", (index == 2 and MINI2_X or MINI_X) * px, MINI_Y * px)
+		frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", (A1_X + (n - 1) * A_PX) * px, A_Y * px)
 	end
 end
-local function LayoutMini(force)
+local function LayoutSlots(force)
 	if not GetPhysicalScreenSize then
-		if force or miniH ~= -1 then
-			miniH = -1
-			PlaceMinis(1)
+		if force or layoutH ~= -1 then
+			layoutH = -1
+			PlaceSlots(1)
 		end
 		return
 	end
 	local _, h = GetPhysicalScreenSize()
 	local e = UIParent:GetEffectiveScale()
 	if type(h) ~= "number" or h <= 0 or type(e) ~= "number" or e <= 0 then return end
-	if not force and h == miniH and e == miniE then return end
-	miniH, miniE = h, e
+	if not force and h == layoutH and e == layoutE then return end
+	layoutH, layoutE = h, e
 	-- WoW's virtual screen height is 768 units; convert physical pixels to units.
-	PlaceMinis(768 / (h * e))
+	PlaceSlots(768 / (h * e))
 end
-LayoutMini()
+LayoutSlots()
 
-function AL.ApplyMini()
-	for _, frame in ipairs({ mini, mini2 }) do
+function AL.ApplySlots()
+	for _, frame in ipairs(A) do
 		frame:SetMovable(false)
 		frame:EnableMouse(false)
 		frame:SetScale(1)
 		frame:SetAlpha(1)
 		frame:Show()
 	end
-	LayoutMini(true)
+	LayoutSlots(true)
+end
+
+-- Compatibility entry point for older ActionLITE integrations.
+AL.ApplyMini = AL.ApplySlots
+
+-- HealingEngine rows sit above the normal recommendation and drive the
+-- Action-compatible target pixel with the same protected-health alpha.
+if AL.HealingEngine and AL.HealingEngine.BindDisplay then
+	AL.HealingEngine:BindDisplay({ main = f, slots = A, setTexture = SetSharpTexture })
 end
 
 local function CatForm()
@@ -481,7 +500,7 @@ local rogueVisualRows = {}
 local function RogueVisualRow(index, parent, small)
 	local pair = rogueVisualRows[index]
 	if not pair then pair = {}; rogueVisualRows[index] = pair end
-	local key = small and (parent == mini2 and "mini2" or "mini") or "main"
+	local key = small and (parent == A6 and "A6" or "A3") or "main"
 	if pair[key] then return pair[key] end
 	local row = { nodes = {} }
 	local host = parent
@@ -509,12 +528,12 @@ end
 local function ResetRogueSecretVisual()
 	for _, pair in ipairs(rogueVisualRows) do
 		if pair.main then pair.main.root:Hide() end
-		if pair.mini then pair.mini.root:Hide() end
-		if pair.mini2 then pair.mini2.root:Hide() end
+		if pair.A3 then pair.A3.root:Hide() end
+		if pair.A6 then pair.A6.root:Hide() end
 	end
-	rogueFinisherOverlay:SetTexture(nil); miniRogueFinisherTex:SetTexture(nil)
-	rogueFinisherOverlay:SetVertexColor(1, 1, 1, 0); miniRogueFinisherTex:SetVertexColor(1, 1, 1, 0)
-	icon:SetAlpha(1); miniTex:SetAlpha(1); miniTex2:SetAlpha(1); keyText:SetAlpha(1)
+	rogueFinisherOverlay:SetTexture(nil); A3RogueFinisherTex:SetTexture(nil)
+	rogueFinisherOverlay:SetVertexColor(1, 1, 1, 0); A3RogueFinisherTex:SetVertexColor(1, 1, 1, 0)
+	icon:SetAlpha(1); A3Tex:SetAlpha(1); A6Tex:SetAlpha(1); keyText:SetAlpha(1)
 	rogueFinisherKey:Hide()
 	AL.rogueSecretVisual, AL.rotationSecretVisual = nil, nil
 end
@@ -531,7 +550,7 @@ local function UpdateRogueSecretVisual(spell, reason)
 		return
 	end
 	for index, decision in ipairs(plan.rows) do
-		local output = AL.MiniFor(decision.spell) == 2 and mini2 or mini
+		local output = A[AL.SlotFor(decision.spell)]
 		local main, small = RogueVisualRow(index, f, false), RogueVisualRow(index, output, true)
 		local texture = decision.spell and (AL.IconFor(decision.spell) or AL.SpellTexture(decision.spell))
 			or "Interface\\Icons\\INV_Stone_WeightStone_07"
@@ -547,7 +566,7 @@ local function UpdateRogueSecretVisual(spell, reason)
 	end
 	-- Base and conditional rows share the same masks, so icons, keys and action
 	-- highlights cannot disagree about a higher-priority defensive cooldown.
-	icon:SetAlpha(0); miniTex:SetAlpha(0); miniTex2:SetAlpha(0); keyText:SetAlpha(0)
+	icon:SetAlpha(0); A3Tex:SetAlpha(0); A6Tex:SetAlpha(0); keyText:SetAlpha(0)
 	AL.rotationSecretVisual = { plan = plan, values = values, spells = plan.spells,
 		baseSpell = spell, baseReason = reason, at = GetTime() }
 	AL.rogueSecretVisual = AL.playerClass == "ROGUE" and AL.rotationSecretVisual or nil
@@ -557,7 +576,7 @@ end
 -- Dedicated wait/pooling visual. It is not a spell suggestion and therefore
 -- never produces an action-bar glow.
 local poolingIcon = "Interface\\Icons\\INV_Stone_WeightStone_07"
--- Separate driver: suggestions keep updating the mini icons even
+-- Separate driver: suggestions keep updating the A icons even
 -- when the main icon is hidden.
 local driver = CreateFrame("Frame")
 driver:RegisterEvent("PLAYER_REGEN_DISABLED")
@@ -566,6 +585,7 @@ driver:SetScript("OnEvent", function()
 end)
 local elapsed = 0
 local lastVisualError
+local lastHealingVisualError
 driver:SetScript("OnUpdate", function(_, dt)
 	elapsed = elapsed + dt
 	if elapsed < 0.15 then return end
@@ -581,10 +601,11 @@ driver:SetScript("OnUpdate", function(_, dt)
 	end
 	SetSharpTexture(icon, tex or idleIcon)
 	icon:SetVertexColor(r, g, b)
-	LayoutMini()
-	local output = AL.MiniFor(spell)
-	for index, texture in ipairs({ miniTex, miniTex2 }) do
-		local visible = tex ~= nil and output == index
+	LayoutSlots()
+	local slot = AL.SlotFor(spell)
+	for _, n in ipairs({ 3, 6 }) do
+		local texture = A[n].tex
+		local visible = tex ~= nil and slot == n
 		texture:SetShown(visible)
 		SetSharpTexture(texture, visible and tex or nil)
 		texture:SetVertexColor(r, g, b)
@@ -607,21 +628,33 @@ driver:SetScript("OnUpdate", function(_, dt)
 	UpdateDrinkReminder()
 
 	-- Legacy Priest healing still uses protected health masks. Its Unit1
-	-- overlay must also mask the original mini's underlying damage suggestion.
-	for _, texture in ipairs({ priestHealOverlay, miniPriestHealTex, miniPriestHealTex2 }) do
+	-- overlay must also mask A[3]'s underlying damage suggestion.
+	for _, texture in ipairs({ priestHealOverlay, A3PriestHealTex, A6PriestHealTex }) do
 		SetSharpTexture(texture, nil)
 		texture:SetVertexColor(1, 1, 1, 0)
 	end
 	local healSpell, healThreshold = PriestSecretHealVisual()
 	if not AL.rotationSecretVisual and healSpell and healThreshold then
 		local healTexture = AL.IconFor(healSpell) or AL.SpellTexture(healSpell) or "Interface\\Icons\\INV_Misc_QuestionMark"
-		local healMini = AL.MiniFor(healSpell) == 2 and miniPriestHealTex2 or miniPriestHealTex
+		local healSlot = AL.SlotFor(healSpell) == 6 and A6PriestHealTex or A3PriestHealTex
 		SetSharpTexture(priestHealOverlay, healTexture)
-		SetSharpTexture(healMini, healTexture)
+		SetSharpTexture(healSlot, healTexture)
 		if not ApplySecretHealthVisibility(priestHealOverlay, healThreshold) then priestHealOverlay:SetVertexColor(1, 1, 1, 0) end
-		if ApplySecretHealthVisibility(healMini, healThreshold) then
-			ApplySecretHealthVisibility(miniTex, healThreshold, true)
-			ApplySecretHealthVisibility(miniTex2, healThreshold, true)
+		if ApplySecretHealthVisibility(healSlot, healThreshold) then
+			ApplySecretHealthVisibility(A3Tex, healThreshold, true)
+			ApplySecretHealthVisibility(A6Tex, healThreshold, true)
+		end
+	end
+	if AL.HealingEngine and AL.HealingEngine.Update then
+		local healingOK, healingError = pcall(AL.HealingEngine.Update, AL.HealingEngine, spell, reason)
+		if not healingOK then
+			pcall(AL.HealingEngine.ClearVisuals, AL.HealingEngine)
+			local message = type(healingError) == "string" and not (issecretvalue and issecretvalue(healingError))
+				and healingError or "Protected HealingEngine display failure"
+			if message ~= lastHealingVisualError and AL.Debug and AL.Debug.CaptureError then
+				lastHealingVisualError = message
+				AL.Debug.CaptureError("HealingEngine display: " .. message, "healing engine")
+			end
 		end
 	end
 	for _, b in ipairs(toggles) do
@@ -659,7 +692,7 @@ f:SetScript("OnEvent", function(self, event)
 		if ActionLiteDB.hidden then self:Hide() end
 		AL.ApplyStyle()
 		AL.ApplyLock()
-		AL.ApplyMini()
+		AL.ApplySlots()
 		if not announced then
 			announced = true
 			AL.Announce()

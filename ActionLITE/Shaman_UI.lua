@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.17.4"
+local UI_VERSION = "0.18.0"
 
 -- Dedicated Shaman interface. Only UI text is localized here;
 -- spell names and profile keys remain identical in both languages.
@@ -243,6 +243,13 @@ local function BuildShamanUI(page, ui)
 	Check(survival, "drink", { en = "Drink reminder", fr = "Rappel de boisson", pt = "Lembrete de bebida", es = "Recordatorio de bebida", de = "Trink-Erinnerung", zh = "喝水提醒" })
 	Slider(survival, "drinkMana",
 		{ en = "Drink below mana", fr = "Boire sous ce niveau de mana", pt = "Beber abaixo desta mana", es = "Beber bajo este maná", de = "Trinken unter Mana", zh = "法力低于此值时喝水" }, 0, 80, 30, " %")
+
+	local healingEngine = ui.Card(stack, "HEALING ENGINE", nil, { id="healing-engine", group="survival" })
+	Check(healingEngine, "healingEngine", "Enable HealingEngine", "Healing Wave",
+		"Allows a Shaman healing rotation to select friendly party or raid members through the protected Action target pixel. Existing self-healing and damage priorities remain available.", true)
+	Slider(healingEngine, "healingInitiateHP", "Initiate healing at HP", 5, 100, 80, " %")
+	Slider(healingEngine, "healingEmergencyHP", "Emergency healing", 5, 100, 30, " %")
+	ui.Help(healingEngine, "The first threshold is reserved for HoTs and efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Party selection stays disabled while HealingEngine is unchecked.")
 
 	local aoe = ui.Card(stack,
 		Text({ en = "AREA DAMAGE", fr = "AOE ET BURST", pt = "AOE E BURST", es = "AOE Y BURST", de = "AOE & BURST", zh = "AOE 和爆发" }), nil, { id="aoe", group="aoe" })

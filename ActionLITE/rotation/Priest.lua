@@ -2610,7 +2610,7 @@ local function NativeResourcePlan(s, inCombat, hostile)
 	end
 
 	-- Preserve the existing protected-health healing overlay in the same plan.
-	-- A healing row masks the damage row on both mini destinations.
+	-- A healing row masks the damage row on both A slots (A[3] and A[6]).
 	local heal, threshold, why = M.SecretHealVisualState()
 	if heal and threshold and AL.ResourceIntervalAlpha("health", "player", nil, 0, 2) then
 		local cut = AL.ResourceThresholdCut(threshold, false)

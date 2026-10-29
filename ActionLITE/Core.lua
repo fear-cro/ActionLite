@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-AL.buildId = "1.0.25-no-spell-reminders-20261018"
+AL.buildId = "1.1.0-healing-engine-20261029"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -15,6 +15,7 @@ AL.defaults = {
 	p_targeting = true, p_vehicle = true, p_mounted = true, p_ooc = false,
 	p_loot = true, p_dead = true, p_targetdead = true, p_eating = true,
 	noprint = false, norange = false,
+	healingEngine = false, healingInitiateHP = 80, healingEmergencyHP = 30,
 }
 
 AL.burst = false
@@ -137,6 +138,9 @@ function AL.FillDefaults(p, token)
 			if p[k] == nil then p[k] = v end
 		end
 	end
+	if AL.HealingEngine and AL.HealingEngine.NormalizeProfile then
+		AL.HealingEngine:NormalizeProfile(p)
+	end
 	p.spells = p.spells or {}
 	p.version = p.version or "1.0"
 	if AL.NormalizeIconAssignments then AL.NormalizeIconAssignments(p) end
@@ -242,43 +246,52 @@ AL.UNIVERSAL_ICONS = { [1] = 133667, [2] = 133663, [3] = 133658, [4] = 133653,
 	[5] = 133650, [6] = 133648, [7] = 133646, [10] = 133632 }
 AL.UNIVERSAL_CHOICES = {}
 local universalTextures = {}
-for _, output in ipairs({ 1, 2 }) do
+for _, slot in ipairs({ 3, 6 }) do
 	for _, number in ipairs({ 1, 2, 3, 4, 5, 6, 7, 10 }) do
 		local texture = AL.UNIVERSAL_ICONS[number]
 		universalTextures[texture] = true
 		AL.UNIVERSAL_CHOICES[#AL.UNIVERSAL_CHOICES + 1] = {
-			number = number, texture = texture, mini = output,
-			label = output == 2 and ("Universal%d Unit1"):format(number) or nil,
+			number = number, texture = texture, slot = slot,
+			label = slot == 6 and ("Universal%d Unit1"):format(number) or nil,
 		}
 	end
 end
 
 -- Both sets use the same artwork. Store their destination separately so an
 -- original spell or Universal assignment can never be mistaken for Unit1.
-function AL.MiniFor(spell, prof)
+function AL.SlotFor(spell, prof)
 	local p = prof or AL.S()
 	local texture = p.icons and p.icons[spell]
-	if texture and universalTextures[texture] and p.iconTargets and p.iconTargets[spell] == 2 then return 2 end
-	return 1
+	local destination = p.iconTargets and p.iconTargets[spell]
+	-- ActionLITE 1.0.25 originally stored mini2 as 2. Treat it as A[6]
+	-- immediately, even before the profile normalizer persists the migration.
+	if texture and universalTextures[texture] and (destination == 6 or destination == 2) then return 6 end
+	return 3
+end
+
+-- Compatibility for integrations that still ask for the former mini number.
+-- No legacy mini frames are created; these values map directly to A[3]/A[6].
+function AL.MiniFor(spell, prof)
+	return AL.SlotFor(spell, prof) == 6 and 2 or 1
 end
 
 function AL.IconChoice(spell, prof)
 	local p = prof or AL.S()
 	local texture = p.icons and p.icons[spell]
-	local output = AL.MiniFor(spell, p)
+	local slot = AL.SlotFor(spell, p)
 	for _, choice in ipairs(AL.UNIVERSAL_CHOICES) do
-		if choice.texture == texture and choice.mini == output then return choice end
+		if choice.texture == texture and choice.slot == slot then return choice end
 	end
 end
 
--- Reserve each Universal choice once per class profile and mini destination.
+-- Reserve each Universal choice once per class profile and A slot.
 -- Disabled and unlearned spells keep their assignments until explicitly changed.
 function AL.IconChoiceOwner(spell, choice, prof)
 	if not choice then return end
 	local p = prof or AL.S()
 	local owner
 	for other, texture in pairs(p.icons or {}) do
-		if other ~= spell and texture == choice.texture and AL.MiniFor(other, p) == choice.mini
+		if other ~= spell and texture == choice.texture and AL.SlotFor(other, p) == choice.slot
 			and (not owner or other < owner) then owner = other end
 	end
 	return owner
@@ -291,7 +304,7 @@ function AL.SetIconChoice(spell, choice, prof)
 	p.icons = p.icons or {}
 	p.iconTargets = p.iconTargets or {}
 	p.icons[spell] = choice and choice.texture or nil
-	p.iconTargets[spell] = choice and choice.mini == 2 and 2 or nil
+	p.iconTargets[spell] = choice and choice.slot == 6 and 6 or nil
 	return true
 end
 
@@ -304,8 +317,14 @@ function AL.NormalizeIconAssignments(p)
 		end
 	end
 	if type(p.iconTargets) == "table" then
-		for spell in pairs(p.iconTargets) do
-			if not universalTextures[p.icons[spell]] then p.iconTargets[spell] = nil end
+		for spell, destination in pairs(p.iconTargets) do
+			if not universalTextures[p.icons[spell]] then
+				p.iconTargets[spell] = nil
+			elseif destination == 2 then
+				p.iconTargets[spell] = 6
+			elseif destination ~= 6 then
+				p.iconTargets[spell] = nil
+			end
 		end
 	end
 end

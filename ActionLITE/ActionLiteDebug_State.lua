@@ -178,6 +178,7 @@ function State.Runtime(detail)
         core = Getter(AL.DebugState), manaSources = Getter(AL.ManaDebugSources),
         rotation = {}, visualPlan = P.Copy(AL.rotationSecretVisual),
         resourceDisplay = Getter(AL.ResourceDebugState), buildId = AL.buildId,
+		healingEngine = Getter(AL.HealingEngine and AL.HealingEngine.DebugState, AL.HealingEngine),
         loggerPerf = P.Copy(AL.Debug and AL.Debug.perf),
         decision = Getter(AL.Debug and AL.Debug.RotationState) }
     for _, name in ipairs({ "DebugState", "ManaGateState", "DecisionDebugState", "HealingState", "MindBlastState", "WandState", "GetUIState" }) do
@@ -197,14 +198,14 @@ function State.Runtime(detail)
             learnedID = P.Copy(reference and reference.id), learned = P.Copy(AL.known and AL.known[name]),
             disabled = profile.spells and profile.spells[name] == false or false,
             iconOverride = P.Copy(profile.icons and profile.icons[name]),
-            effectiveOverride = Getter(AL.IconFor, name, profile), miniOutput = Getter(AL.MiniFor, name, profile) }
+            effectiveOverride = Getter(AL.IconFor, name, profile), slot = Getter(AL.SlotFor, name, profile) }
     end
     result.frames = {
-        main = State.Frame(AL.frame, detail == false and 2 or 0), small = State.Frame(_G.ActionLiteMiniFrame, 2),
-        small2 = State.Frame(_G.ActionLiteMiniFrame2, 2),
+        main = State.Frame(AL.frame, detail == false and 2 or 0),
         aoe = State.Frame(AL.aoeToggle, 2), burst = State.Frame(AL.burstToggle, 2), castTrail = State.Frame(AL.castTrailFrame, 2),
         menu = State.Frame(AL.GetMenuFrame and AL.GetMenuFrame(), 2),
         hotkey = State.Frame(AL.keyText, 2), comboText = State.Frame(AL.comboText, 2),
     }
+    for slot = 1, 10 do result.frames["A" .. slot] = State.Frame(_G["A" .. slot], 2) end
     return result
 end

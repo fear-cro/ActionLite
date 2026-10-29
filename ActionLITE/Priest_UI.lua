@@ -2,7 +2,7 @@ local ADDON, AL = ...
 
 AL.RegisterSimpleClassUI("PRIEST", {
 	title = { en = "PRIEST - LEVELING", fr = "PRETRE - PROGRESSION", pt = "SACERDOTE - PROGRESSÃO", es = "SACERDOTE - PROGRESIÓN", de = "PRIESTER - LEVELN", zh = "牧师 - 升级" },
-	subtitle = { en = "Shadow or Smite solo profile - interface 0.28.4", fr = "Profil solo Ombre ou Smite - interface 0.28.4", pt = "Perfil solo Sombra ou Smite - interface 0.28.4", es = "Perfil en solitario Sombra o Smite - interfaz 0.28.4", de = "Solo-Profil Schatten oder Smite - Interface 0.28.4", zh = "暗影或 Smite 单刷配置 - 界面 0.28.4" },
+	subtitle = { en = "Shadow or Smite solo profile - interface 0.29.0", fr = "Profil solo Ombre ou Smite - interface 0.29.0", pt = "Perfil solo Sombra ou Smite - interface 0.29.0", es = "Perfil en solitario Sombra o Smite - interfaz 0.29.0", de = "Solo-Profil Schatten oder Smite - Interface 0.29.0", zh = "暗影或 Smite 单刷配置 - 界面 0.29.0" },
 	aoeKey = "aoe",
 	cards = {
         {
@@ -13,6 +13,17 @@ AL.RegisterSimpleClassUI("PRIEST", {
                   tooltip={"Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected."} },
             },
         },
+		{
+			title = "HEALING ENGINE",
+			id = "healing-engine", group = "survival",
+			controls = {
+				{ key = "healingEngine", label = "Enable HealingEngine", spell = "Lesser Heal", half = false,
+				  tooltip = { "Enable HealingEngine", "Allows a Priest healing rotation to select friendly party or raid members through the protected Action target pixel. Existing self-healing and damage priorities remain available." } },
+				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
+				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
+				{ type = "info", text = "The first threshold is reserved for HoTs and efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Party selection stays disabled while HealingEngine is unchecked." },
+			},
+		},
         {
             title = "SHADOW BUILD — 18/0/33",
             id="shadow-build-18-0-33", build="shadow", group="damage",
@@ -148,7 +159,7 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Min. Zielgesundheit für Burst", zh = "Burst 最低目标生命值" }, min = 0, max = 100, step = 5, default = 40, suffix = " % HP" },
         } },
 	},
-}, "0.28.4")
+}, "0.29.0")
 
 -- Selecting Smite returns the profile to Leveling Rotation.
 local BuildPriestUI = AL.classUIs and AL.classUIs.PRIEST
