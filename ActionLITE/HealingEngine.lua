@@ -8,12 +8,13 @@ local ADDON, AL = ...
 -- evaluate a ColorCurve and passes the resulting protected alpha directly to
 -- matching recommendation and target-pixel layers.
 --
--- Class rotations opt in by exposing HealingEnginePlan(profile, context).
--- See Documentation/Rotation-Development.md for the provider contract.
+-- Shared selected-ally and healer-damage rules work without a class provider.
+-- Class rotations add automatic healing priorities by exposing
+-- HealingEnginePlan(profile, context). See Documentation/Rotation-Development.md.
 -- ============================================================================
 
 local Engine = {
-	VERSION = "1.0.0",
+	VERSION = "1.1.0",
 	SUPPORTED_CLASSES = { DRUID = true, PALADIN = true, PRIEST = true, SHAMAN = true },
 	providers = {},
 	curves = {},
@@ -25,6 +26,33 @@ AL.HealingEngine = Engine
 local ROLE_PRIORITY = { NONE = 1, DAMAGER = 2, HEALER = 3, TANK = 4 }
 local ACTIVE_SLOTS = { 3, 6 }
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local DAMAGE_MANA_THRESHOLD = 80
+
+-- These are safe base rules, not the final class healing priorities. A class
+-- provider can replace the selected-ally spell with manual/strongest and will
+-- later supply the routine and emergency requests used by protected health.
+local MANUAL_HEALS = {
+	DRUID = { "Healing Touch", "Regrowth" },
+	PALADIN = { "Holy Light", "Flash of Light" },
+	PRIEST = { "Greater Heal", "Heal", "Lesser Heal" },
+	SHAMAN = { "Healing Wave", "Lesser Healing Wave" },
+}
+
+-- A grouped healer conserves mana while watching the party. Wand users use
+-- Shoot; other healers only apply periodic damage at high mana. Consecration
+-- is the Paladin's available periodic-damage equivalent.
+local DAMAGE_SPELLS = {
+	DRUID = { "Insect Swarm", "Moonfire" },
+	PALADIN = { "Consecration" },
+	PRIEST = { "Shadow Word: Pain" },
+	SHAMAN = { "Flame Shock" },
+}
+local TARGET_DEBUFFS = {
+	["Insect Swarm"] = true,
+	["Moonfire"] = true,
+	["Shadow Word: Pain"] = true,
+	["Flame Shock"] = true,
+}
 
 local function IsSecret(value)
 	if type(issecretvalue) ~= "function" then return false end
@@ -48,7 +76,33 @@ end
 local function SafeBoolean(func, ...)
 	if type(func) ~= "function" then return nil end
 	local ok, value = pcall(func, ...)
-	return ok and PublicBoolean(value) or nil
+	if not ok then return nil end
+	return PublicBoolean(value)
+end
+
+local function UnitExistsPublic(unit)
+	return SafeBoolean(UnitExists, unit) == true
+end
+
+function Engine:IsGrouped()
+	if type(IsInGroup) == "function" then
+		local grouped = SafeBoolean(IsInGroup)
+		if grouped == true then return true end
+	end
+	if type(GetNumGroupMembers) == "function" then
+		local ok, count = pcall(GetNumGroupMembers)
+		count = ok and PublicNumber(count) or nil
+		if count and count > 0 then return true end
+	end
+	-- Follower dungeons can expose party unit tokens even when a group count is
+	-- unavailable during the transition into the instance.
+	for index = 1, 4 do
+		if UnitExistsPublic("party" .. index) then return true end
+	end
+	for index = 1, 40 do
+		if UnitExistsPublic("raid" .. index) then return true end
+	end
+	return false
 end
 
 local function ClampPercent(value, fallback)
@@ -68,8 +122,12 @@ function Engine:GetSettings(profile)
 	profile = self:NormalizeProfile(profile or (AL.S and AL.S()) or {})
 	local initiate = ClampPercent(profile.healingInitiateHP, 80)
 	local emergency = math.min(initiate, ClampPercent(profile.healingEmergencyHP, 30))
+	local configured = profile.healingEngine == true
+	local grouped = configured and self:IsGrouped() or false
 	return {
-		enabled = profile.healingEngine == true,
+		configured = configured,
+		grouped = grouped,
+		enabled = configured and grouped,
 		initiate = initiate,
 		emergency = emergency,
 	}
@@ -86,10 +144,6 @@ function Engine:RegisterProvider(classToken, provider)
 		return true
 	end
 	return false
-end
-
-local function UnitExistsPublic(unit)
-	return SafeBoolean(UnitExists, unit) == true
 end
 
 local function RaidRosterVisible()
@@ -110,6 +164,27 @@ local function RosterUnits()
 		units[#units + 1] = "player"
 	end
 	return units
+end
+
+function Engine:ManualTargetUnit()
+	if not UnitExistsPublic("target") then return nil end
+	local assist = SafeBoolean(UnitCanAssist, "player", "target")
+	local friend = SafeBoolean(UnitIsFriend, "player", "target")
+	if assist ~= true and friend ~= true then return nil end
+	if type(UnitIsUnit) ~= "function" then return nil end
+	for _, unit in ipairs(RosterUnits()) do
+		if UnitExistsPublic(unit) and SafeBoolean(UnitIsUnit, "target", unit) == true then
+			return unit
+		end
+	end
+	return nil
+end
+
+function Engine:EnemyCombatTarget()
+	if SafeBoolean(UnitAffectingCombat, "player") ~= true then return false end
+	if not UnitExistsPublic("target") then return false end
+	if SafeBoolean(UnitCanAttack, "player", "target") ~= true then return false end
+	return SafeBoolean(UnitIsDeadOrGhost, "target") == false
 end
 
 local function UnitRole(unit)
@@ -264,6 +339,18 @@ function Engine:PredictedHealthAlpha(unit, lowPercent, highPercent)
 	return false, nil, "Predicted health mask unavailable"
 end
 
+local function RequestAvailable(spell, profile)
+	if type(spell) ~= "string" or spell == "" or IsSecret(spell) then return false end
+	if AL.known and not AL.known[spell] then return false end
+	if AL.Allowed and not AL.Allowed(spell, profile) then return false end
+	if AL.IsReady and not AL.IsReady(spell) then return false end
+	if AL.SpellUsable then
+		local usable = AL.SpellUsable(spell)
+		if usable == false then return false end
+	end
+	return true
+end
+
 local function NormalizeRequest(value, category, threshold, profile)
 	if type(value) == "string" then value = { spell = value } end
 	if type(value) ~= "table" or value.enabled == false then return nil end
@@ -271,6 +358,11 @@ local function NormalizeRequest(value, category, threshold, profile)
 	if type(spell) ~= "string" or spell == "" or IsSecret(spell) then return nil end
 	if value.requireKnown ~= false and AL.known and not AL.known[spell] then return nil end
 	if AL.Allowed and not AL.Allowed(spell, profile) then return nil end
+	if value.requireReady ~= false and AL.IsReady and not AL.IsReady(spell) then return nil end
+	if value.requireUsable ~= false and AL.SpellUsable then
+		local usable = AL.SpellUsable(spell)
+		if usable == false then return nil end
+	end
 	return {
 		category = category,
 		spell = spell,
@@ -280,6 +372,64 @@ local function NormalizeRequest(value, category, threshold, profile)
 		includePlayer = value.includePlayer,
 		roles = value.roles,
 	}
+end
+
+function Engine:WandAvailable(profile)
+	if type(AL.WandEquipped) ~= "function" or not AL.WandEquipped() then return false end
+	if AL.known and not AL.known["Shoot"] then return false end
+	return not AL.Allowed or AL.Allowed("Shoot", profile)
+end
+
+function Engine:StrongestBaseHeal(profile)
+	for _, spell in ipairs(MANUAL_HEALS[AL.playerClass] or {}) do
+		if RequestAvailable(spell, profile) then
+			return {
+				spell = spell,
+				reason = "Healing Rotation: selected ally distress heal",
+			}
+		end
+	end
+end
+
+function Engine:DamageRequest(profile)
+	if not self:EnemyCombatTarget() or self:WandAvailable(profile) then return nil end
+	for _, spell in ipairs(DAMAGE_SPELLS[AL.playerClass] or {}) do
+		if RequestAvailable(spell, profile) and SpellRange(spell, "target") ~= false then
+			local present = false
+			if TARGET_DEBUFFS[spell] and type(AL.HasDebuff) == "function" then
+				local ok, result = pcall(AL.HasDebuff, "target", spell)
+				present = ok and result == true
+			end
+			if not present then
+				return {
+					spell = spell,
+					reason = "Healing Rotation: periodic damage above 80% mana",
+				}
+			end
+		end
+	end
+end
+
+-- Called by Core before the class rotation. The third return value tells Core
+-- that the Healing Rotation owns this tick even when the correct result is to
+-- wait. Wand.lua still wraps the returned Shoot recommendation, preserving its
+-- shot and recovery timing.
+function Engine:BaseSuggestion(profile)
+	local settings = self:GetSettings(profile)
+	if not self.SUPPORTED_CLASSES[AL.playerClass] or not settings.enabled then
+		return nil, nil, false
+	end
+	local manualUnit = self:ManualTargetUnit()
+	if manualUnit then
+		return nil, "Healing Rotation: selected ally", true
+	end
+	if self:EnemyCombatTarget() then
+		if self:WandAvailable(profile) then
+			return "Shoot", "Healing Rotation: wand damage", true
+		end
+		return nil, "Healing Rotation: high-mana periodic damage", true
+	end
+	return nil, "Healing Rotation: monitoring group", true
 end
 
 function Engine:ProviderFor(classToken)
@@ -295,12 +445,19 @@ end
 function Engine:BuildPlan(baseSpell, baseReason)
 	local profile = AL.S and AL.S() or {}
 	local settings = self:GetSettings(profile)
-	if not self.SUPPORTED_CLASSES[AL.playerClass] or not settings.enabled then return nil, settings end
+	if not self.SUPPORTED_CLASSES[AL.playerClass] or not settings.configured then return nil, settings end
+	if not settings.grouped then return nil, settings, "Solo bypass: leveling rotation active" end
+	local casting = AL.CastingSpell and AL.CastingSpell()
+	local channeling = AL.PlayerChanneling and AL.PlayerChanneling()
+	if casting or channeling then return nil, settings, "Player cast in progress" end
+	local manualUnit = self:ManualTargetUnit()
 	local provider, source = self:ProviderFor(AL.playerClass)
-	if not provider then return nil, settings, "No healing provider" end
 	local context = {
 		engine = self,
 		settings = settings,
+		manualTarget = manualUnit,
+		grouped = true,
+		damageManaThreshold = DAMAGE_MANA_THRESHOLD,
 		baseSpell = baseSpell,
 		baseReason = baseReason,
 		known = AL.known,
@@ -308,18 +465,75 @@ function Engine:BuildPlan(baseSpell, baseReason)
 		IsUsable = AL.SpellUsable,
 		Allowed = function(spell) return not AL.Allowed or AL.Allowed(spell, profile) end,
 	}
-	local ok, supplied = pcall(provider, profile, context)
-	if not ok then
-		local message = type(supplied) == "string" and not IsSecret(supplied)
-			and supplied or "Protected healing provider failure"
+	local supplied, providerStatus
+	if provider then
+		local ok, result = pcall(provider, profile, context)
+		supplied = ok and result or nil
+		if not ok then
+			providerStatus = type(result) == "string" and not IsSecret(result)
+				and result or "Protected healing provider failure"
+		end
+	end
+	if providerStatus then
+		local message = providerStatus
 		if message ~= self.lastProviderError and AL.Debug and AL.Debug.CaptureError then
 			self.lastProviderError = message
 			AL.Debug.CaptureError("HealingEngine provider: " .. message, "healing engine")
 		end
-		return nil, settings, message
 	end
-	if type(supplied) ~= "table" then return nil, settings, "Provider returned no plan" end
-	local plan = { source = source, rows = {}, settings = settings }
+	if type(supplied) ~= "table" then supplied = {} end
+	local plan = { source = source or "base-rules", rows = {}, settings = settings,
+		manualTarget = manualUnit }
+
+	-- A deliberately selected party/raid member is an explicit distress signal.
+	-- It bypasses health thresholds and every damage row until the user returns
+	-- to an enemy or clears the target.
+	if manualUnit then
+		local manual = NormalizeRequest(supplied.manual or supplied.strongest or supplied.emergency,
+			"manual", 100, profile)
+		if not manual then
+			manual = NormalizeRequest(self:StrongestBaseHeal(profile), "manual", 100, profile)
+		end
+		if manual then
+			-- The user's explicit target overrides role/include filters intended for
+			-- automatic roster selection.
+			manual.roles, manual.includePlayer = nil, nil
+			local eligible, role = self:IsUnitEligible(manualUnit, manual.spell, manual)
+			if eligible then
+				plan.rows[1] = {
+					unit = manualUnit, role = role, spell = manual.spell,
+					reason = manual.reason, category = "manual", threshold = 100,
+					low = 0, high = 100, band = "selected-ally", priority = math.huge,
+					visibility = "always",
+				}
+				return plan, settings
+			end
+		end
+		local fallback = NormalizeRequest(self:StrongestBaseHeal(profile), "manual", 100, profile)
+		if fallback then
+			local eligible, role = self:IsUnitEligible(manualUnit, fallback.spell, fallback)
+			if eligible then
+				plan.rows[1] = {
+					unit = manualUnit, role = role, spell = fallback.spell,
+					reason = fallback.reason, category = "manual", threshold = 100,
+					low = 0, high = 100, band = "selected-ally", priority = math.huge,
+					visibility = "always",
+				}
+				return plan, settings
+			end
+		end
+		return nil, settings, "Selected ally; no available direct heal"
+	end
+
+	local damage = self:DamageRequest(profile)
+	if damage then
+		plan.rows[#plan.rows + 1] = {
+			spell = damage.spell, reason = damage.reason, category = "damage",
+			threshold = DAMAGE_MANA_THRESHOLD, low = DAMAGE_MANA_THRESHOLD,
+			high = 100, band = "high-mana-damage", priority = 0,
+			visibility = "mana-above",
+		}
+	end
 	local requests = {
 		routine = NormalizeRequest(supplied.routine or supplied.lowCost or supplied.hot,
 			"routine", settings.initiate, profile),
@@ -339,6 +553,7 @@ function Engine:BuildPlan(baseSpell, baseReason)
 				high = high,
 				band = band,
 				priority = member.priority,
+				visibility = "health",
 			}
 		end
 	end
@@ -358,7 +573,35 @@ function Engine:BuildPlan(baseSpell, baseReason)
 		AddBand(emergency, midpoint, emergency.threshold, "emergency")
 		AddBand(emergency, 0, midpoint, "critical")
 	end
-	return #plan.rows > 0 and plan or nil, settings, #plan.rows > 0 and nil or "No eligible healing units"
+	local status
+	if #plan.rows == 0 then
+		status = providerStatus or (provider and "No eligible healing units" or "Waiting for class healing provider")
+	end
+	return #plan.rows > 0 and plan or nil, settings, status
+end
+
+function Engine:ManaAboveAlpha(percent)
+	local readable
+	if type(AL.ManaPercent) == "function" then
+		local ok, value = pcall(AL.ManaPercent)
+		readable = ok and PublicNumber(value) or nil
+	end
+	if readable then return true, readable > percent and 1 or 0 end
+	if type(AL.ResourceIntervalAlpha) ~= "function" then
+		return false, nil, "Protected mana mask unavailable"
+	end
+	local low = AL.ResourceThresholdCut and AL.ResourceThresholdCut(percent, true) or (percent / 100)
+	local ok, alpha = AL.ResourceIntervalAlpha("power", "player", 0, low, 2)
+	if ok then return true, alpha end
+	return false, nil, "Protected mana mask unavailable"
+end
+
+function Engine:DecisionAlpha(decision)
+	if decision.visibility == "always" then return true, 1 end
+	if decision.visibility == "mana-above" then
+		return self:ManaAboveAlpha(decision.threshold or DAMAGE_MANA_THRESHOLD)
+	end
+	return self:PredictedHealthAlpha(decision.unit, decision.low, decision.high)
 end
 
 local function CreateLayerFrame(parent, level)
@@ -458,8 +701,9 @@ function Engine:ApplyDecision(row, decision, alpha, index)
 	row.main.key:SetText(key or "")
 	row.main.key:SetShown(key ~= nil and key ~= false)
 
-	local desired = AL.SlotFor and AL.SlotFor(decision.spell) or 3
-	if desired ~= 6 then desired = 3 end
+	-- Healing Rotation output is always emitted on A[3]. A[6] is reserved for
+	-- passive UniversalN Unit1 assignments and is masked while a heal is active.
+	local desired = 3
 	for _, slotIndex in ipairs(ACTIVE_SLOTS) do
 		local slot = row.slots[slotIndex]
 		local shownTexture = slotIndex == desired and texture or nil
@@ -467,9 +711,11 @@ function Engine:ApplyDecision(row, decision, alpha, index)
 		else slot.icon:SetTexture(shownTexture) end
 	end
 
-	if row.target and row.target.texture then
+	if decision.unit and row.target and row.target.texture then
 		local colorIndex = AL.HealingTargetColors and AL.HealingTargetColors[decision.unit] or 0
 		row.target.texture:SetColorTexture(AL.GetUniversalColor(colorIndex))
+	elseif row.target and row.target.texture then
+		row.target.texture:SetColorTexture(AL.GetUniversalColor(0))
 	end
 
 	local level = index or row.index
@@ -483,12 +729,13 @@ function Engine:ApplyDecision(row, decision, alpha, index)
 
 	local applied = SetFrameAlpha(row.main, alpha)
 	for _, slot in pairs(row.slots) do applied = SetFrameAlpha(slot, alpha) and applied end
-	applied = SetFrameAlpha(row.target, alpha) and applied
+	applied = SetFrameAlpha(row.target, decision.unit and alpha or 0) and applied
 	self.visualsCleared = false
 	row.decision = {
 		unit = decision.unit, role = decision.role, spell = decision.spell,
 		category = decision.category, threshold = decision.threshold,
 		band = decision.band, low = decision.low, high = decision.high,
+		visibility = decision.visibility,
 	}
 	return applied
 end
@@ -499,10 +746,13 @@ function Engine:Update(baseSpell, baseReason)
 	self.state = {
 		version = self.VERSION,
 		supported = self.SUPPORTED_CLASSES[AL.playerClass] == true,
+		configured = settings and settings.configured or false,
+		grouped = settings and settings.grouped or false,
 		enabled = settings and settings.enabled or false,
 		initiate = settings and settings.initiate or 80,
 		emergency = settings and settings.emergency or 30,
 		provider = plan and plan.source or nil,
+		manualTarget = plan and plan.manualTarget or nil,
 		status = status,
 		activeRows = 0,
 		rows = {},
@@ -512,7 +762,7 @@ function Engine:Update(baseSpell, baseReason)
 
 	for index, decision in ipairs(plan.rows) do
 		local row = self:VisualRow(index)
-		local available, alpha, errorMessage = self:PredictedHealthAlpha(decision.unit, decision.low, decision.high)
+		local available, alpha, errorMessage = self:DecisionAlpha(decision)
 		if available and self:ApplyDecision(row, decision, alpha, index) then
 			self.state.activeRows = self.state.activeRows + 1
 			self.state.rows[#self.state.rows + 1] = row.decision

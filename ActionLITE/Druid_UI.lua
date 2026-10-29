@@ -28,14 +28,14 @@ AL.RegisterSimpleClassUI("DRUID", {
             },
         },
 		{
-			title = "HEALING ENGINE",
+			title = "HEALING ROTATION",
 			id = "healing-engine", group = "survival",
 			controls = {
-				{ key = "healingEngine", label = "Enable HealingEngine", spell = "Healing Touch", half = false,
-				  tooltip = { "Enable HealingEngine", "Allows a Druid healing rotation to select friendly party or raid members through the protected Action target pixel. Existing self-healing and damage priorities remain available." } },
+				{ key = "healingEngine", label = "Enable Healing Rotation", spell = "Healing Touch", half = false,
+				  tooltip = { "Enable Healing Rotation", "Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation." } },
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
-				{ type = "info", text = "The first threshold is reserved for HoTs and efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Party selection stays disabled while HealingEngine is unchecked." },
+				{ type = "info", text = "The first threshold is reserved for HoTs and efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Selecting a friendly group member requests the strongest available direct heal." },
 			},
 		},
         {
@@ -227,7 +227,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 			},
 		},
 	},
-}, "0.13.0")
+}, "0.13.1")
 
 
 -- Keep new Bear slider getters on the same bounded settings as the rotation,
@@ -247,5 +247,5 @@ if originalBuilder and AL.RegisterClassUI then
             return ui.Slider(host,opts)
         end
         return originalBuilder(page,adapter)
-    end,"0.13.0")
+    end,"0.13.1")
 end

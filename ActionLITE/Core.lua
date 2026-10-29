@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-AL.buildId = "1.1.0-healing-engine-20261029"
+AL.buildId = "1.1.0-healing-rules-20261029"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -2064,5 +2064,18 @@ function AL.NextSpell()
 	local inCombat = UnitAffectingCombat("player")
 	local hostile = UnitExists("target") and UnitCanAttack("player", "target")
 		and not (s.p_targetdead and UnitIsDeadOrGhost("target"))
+	local healing = AL.HealingEngine
+	if healing and type(healing.BaseSuggestion) == "function" then
+		local ok, spell, reason, handled = pcall(healing.BaseSuggestion, healing, s, inCombat, hostile)
+		if ok and handled then return spell, reason end
+		if not ok and AL.Debug and AL.Debug.CaptureError then
+			local message = type(spell) == "string" and not (issecretvalue and issecretvalue(spell))
+				and spell or "Protected base-rule failure"
+			if message ~= healing.lastBaseRuleError then
+				healing.lastBaseRuleError = message
+				AL.Debug.CaptureError("HealingEngine base rules: " .. message, "healing engine")
+			end
+		end
+	end
 	return mod.NextSpell(s, inCombat, hostile)
 end

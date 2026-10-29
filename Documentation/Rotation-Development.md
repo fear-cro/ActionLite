@@ -80,11 +80,24 @@ The Druid, Paladin, Priest and Shaman profiles include these shared settings:
 
 | Key | Default | Meaning |
 | --- | ---: | --- |
-| `healingEngine` | `false` | Master gate for party/raid healing recommendations and target selection |
+| `healingEngine` | `false` | **Enable Healing Rotation** gate for grouped healing, healer damage rules and focus-pixel selection |
 | `healingInitiateHP` | `80` | Routine threshold for efficient direct heals and HoTs |
 | `healingEmergencyHP` | `30` | Emergency threshold for the largest heals and cooldowns |
 
-The effective emergency threshold is capped at the initiate threshold. With HealingEngine disabled, its visual rows are cleared and the healing target pixel is Universal Color 0 (black). Current damage and self-healing rotations continue unchanged.
+The effective emergency threshold is capped at the initiate threshold. The shared healing path only becomes active while the character is in a party or raid. When solo, the checkbox is bypassed and the selected leveling or damage build runs unchanged. With Healing Rotation disabled, its visual rows are cleared and the healing target pixel is Universal Color 0 (black).
+
+## Shared Healing Rotation rules
+
+The framework applies these rules before a class provider adds its detailed healing priorities:
+
+1. Selecting a living, friendly party or raid member is an explicit distress signal. The engine immediately emits the provider's `manual` or `strongest` direct heal on A[3] and emits that unit's focus color. If the provider has not defined one yet, the framework uses the class's strongest available normal direct heal. This request does not inspect the selected unit's protected health.
+2. Returning to an enemy or clearing the target ends the selected-ally override.
+3. With a living enemy selected in combat, a healer with a wand equipped uses `Shoot`. The shared wand timer still controls shot and recovery timing.
+4. A healer without a usable wand applies an available periodic-damage spell only while mana is above 80%. Protected mana is evaluated as a display mask and is never compared in Lua.
+5. Automatic party-healing rows are drawn above the damage recommendation. Their spell art, A[3] output and focus pixel use one protected health alpha, so a visible heal always takes priority over Shoot or periodic damage.
+6. Once predicted health no longer matches a healing band, the healing row and focus color disappear together and the damage recommendation becomes visible again.
+
+The focus pixel tells the external macro/pixel reader which group unit to focus. ActionLITE does not call a protected targeting or focus function during combat.
 
 ## Adding a HealingEngine provider
 
@@ -113,6 +126,7 @@ function M.HealingEnginePlan(profile, context)
     end
 
     return {
+		manual = emergency,
         routine = routine,
         emergency = emergency,
     }
@@ -130,8 +144,10 @@ Accepted request fields are:
 | `threshold` | number | Optional public override for the category threshold |
 | `includePlayer` | boolean | Defaults to `true`; `false` limits the request to group members |
 | `roles` | table | Optional allow-list such as `{ TANK=true, HEALER=true }` |
+| `requireReady` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns readiness masking |
+| `requireUsable` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns resource masking |
 
-`routine`, `lowCost` and `hot` are aliases for the routine category. `emergency` is the emergency category. Each category is divided into two client-evaluated health bands. The draw order is routine, urgent, emergency, then critical. Within a band, the deterministic role order is Tank, Healer, Damager, then None; earlier roster positions win ties. Exact health sorting is unavailable because health is secret, but these bands prevent a substantially healthier unit from covering a more injured unit while retaining stable role priority.
+`manual` and `strongest` are aliases for the selected-friendly distress heal; if neither is supplied, `emergency` is used. `routine`, `lowCost` and `hot` are aliases for the routine category. `emergency` is the emergency category. Each automatic category is divided into two client-evaluated health bands. The draw order is high-mana damage, routine, urgent, emergency, then critical. Within a band, the deterministic role order is Tank, Healer, Damager, then None; earlier roster positions win ties. Exact health sorting is unavailable because health is secret, but these bands prevent a substantially healthier unit from covering a more injured unit while retaining stable role priority.
 
 The engine validates friendly roster units, excludes confirmed dead, disconnected, invisible and out-of-range units, and uses predicted health. It sends the selected unit through the Action-compatible pixel at physical position `(163, 0)`:
 
@@ -141,7 +157,7 @@ The engine validates friendly roster units, excludes confirmed dead, disconnecte
 | `party1` … `party4` | 41 … 44 |
 | `player` | 45 |
 
-The matching spell art, A-slot output and target color use the same protected alpha. Do not set the target pixel independently from a healing recommendation.
+The matching spell art, A[3] output and target color use the same protected alpha. Do not set the target pixel independently from a healing recommendation. A manual selected-ally request uses a public alpha of 1 because the user's target choice is the condition.
 
 ## HoT tracking
 
@@ -176,5 +192,8 @@ Before submitting a rotation:
 - Test solo, five-player party/follower dungeon and raid rosters when available.
 - Start ActionLiteDebug outside combat, reproduce the case, wait five seconds after combat and copy Results.
 - Confirm no `attempt to compare`, `perform arithmetic`, or `boolean test` error references a secret value.
-- Confirm a healing spell and its target pixel change together, and the pixel returns to black when HealingEngine is disabled or no provider request is active.
+- Confirm solo play bypasses Healing Rotation even when its checkbox is saved on.
+- Confirm a selected friendly group member immediately produces the direct heal and matching focus color, then clears when an enemy or no target is selected.
+- Confirm wand damage respects the shared shot timer and non-wand periodic damage appears only above 80% mana.
+- Confirm a healing spell and its target pixel change together, and the pixel returns to black when Healing Rotation is disabled or no provider request is active.
 - Parse every Lua file and review the TOC load order before packaging.

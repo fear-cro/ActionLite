@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.15.0"
+local UI_VERSION = "0.15.1"
 
 -- Dedicated Paladin interface. Only UI text is localized here;
 -- internal spell names and profile keys remain unchanged.
@@ -245,12 +245,12 @@ local function BuildPaladinUI(page, ui)
 		zh = "如果敌人数量受保护，将暂缓 Consecration，而不是按单体目标猜测。",
 	}))
 
-	local healingEngine = ui.Card(stack, "HEALING ENGINE", nil, { id="healing-engine", group="survival" })
-	Check(healingEngine, "healingEngine", "Enable HealingEngine", "Holy Light",
-		"Allows a Paladin healing rotation to select friendly party or raid members through the protected Action target pixel. Existing self-healing and damage priorities remain available.", true)
+	local healingEngine = ui.Card(stack, "HEALING ROTATION", nil, { id="healing-engine", group="survival" })
+	Check(healingEngine, "healingEngine", "Enable Healing Rotation", "Holy Light",
+		"Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation.", true)
 	Slider(healingEngine, "healingInitiateHP", "Initiate healing at HP", 5, 100, 80, " %")
 	Slider(healingEngine, "healingEmergencyHP", "Emergency healing", 5, 100, 30, " %")
-	ui.Help(healingEngine, "The first threshold is reserved for efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Party selection stays disabled while HealingEngine is unchecked.")
+	ui.Help(healingEngine, "The first threshold is reserved for efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Selecting a friendly group member requests the strongest available direct heal.")
 
 	local survival = ui.Card(stack,
 		Text({ en = "HEALING & SURVIVAL", fr = "SOINS ET SURVIE", pt = "CURA E SOBREVIVÊNCIA", es = "SANACIÓN Y SUPERVIVENCIA", de = "HEILUNG & ÜBERLEBEN", zh = "治疗和生存" }), nil, { id="survival", group="survival" })
