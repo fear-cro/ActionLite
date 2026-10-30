@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-AL.buildId = "1.1.0-priest-racials-20261029"
+AL.buildId = "1.1.0-shaman-healing-20261030"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -860,7 +860,8 @@ local SELF_BUFF_DURATIONS = {
 	["Bear Form"] = 3600, ["Dire Bear Form"] = 3600, ["Prowl"] = 3600, ["Enrage"] = 10, ["Cat Form"] = 3600, ["Aquatic Form"] = 3600, ["Travel Form"] = 3600,
 	["Power Word: Fortitude"] = 1800, ["Inner Fire"] = 600, ["Renew"] = 15, ["Power Word: Shield"] = 30,
 	["Stealth"] = 3600, ["Evasion"] = 15, ["Blade Flurry"] = 15, ["Slice and Dice"] = 12,
-	["Lightning Shield"] = 600, ["Demon Skin"] = 1800, ["Demon Armor"] = 1800,
+	["Lightning Shield"] = 600, ["Water Shield"] = 600,
+	["Demon Skin"] = 1800, ["Demon Armor"] = 1800,
 	["Battle Shout"] = 120,
 	["Food"] = 25, ["Drink"] = 25,
 }
@@ -1023,7 +1024,7 @@ local SPELL_COOLDOWNS = {
 	["Elune's Light"] = 180,
 	["Overpower"] = 5, ["Revenge"] = 5, ["Thunder Clap"] = 4,
 	["Mongoose Bite"] = 5, ["Concussive Shot"] = 12, ["Summon Hawk"] = 6,
-	["Stormstrike"] = 20,
+	["Stormstrike"] = 20, ["Riptide"] = 6, ["Mana Tide Totem"] = 300,
 	["Blood Fury"] = 120, ["Berserking"] = 180, ["War Stomp"] = 120,
 }
 local cdExpires = {}

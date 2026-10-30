@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.18.1"
+local UI_VERSION = "0.19.0"
 
 -- Dedicated Shaman interface. Only UI text is localized here;
 -- spell names and profile keys remain identical in both languages.
@@ -249,7 +249,30 @@ local function BuildShamanUI(page, ui)
 		"Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation.", true)
 	Slider(healingEngine, "healingInitiateHP", "Initiate healing at HP", 5, 100, 80, " %")
 	Slider(healingEngine, "healingEmergencyHP", "Emergency healing", 5, 100, 30, " %")
-	ui.Help(healingEngine, "The first threshold is reserved for HoTs and efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Selecting a friendly group member requests the strongest available direct heal.")
+	Dropdown(healingEngine, "healingTotemEarth", "Call: Earth totem", {
+		{ label = "Stoneskin Totem", value = "STONESKIN" },
+		{ label = "Strength of Earth Totem", value = "STRENGTH" },
+		{ label = "Disabled", value = "OFF" },
+	}, "STONESKIN")
+	Dropdown(healingEngine, "healingTotemFire", "Call: Fire totem", {
+		{ label = "Flametongue Totem", value = "FLAMETONGUE" },
+		{ label = "Searing Totem", value = "SEARING" },
+		{ label = "Fire Resistance Totem", value = "FIRE_RESIST" },
+		{ label = "Disabled", value = "OFF" },
+	}, "FLAMETONGUE")
+	Dropdown(healingEngine, "healingTotemWater", "Call: Water totem", {
+		{ label = "Mana Spring Totem", value = "MANA" },
+		{ label = "Healing Stream Totem", value = "HEALING" },
+		{ label = "Frost Resistance Totem", value = "FROST_RESIST" },
+		{ label = "Disabled", value = "OFF" },
+	}, "MANA")
+	Dropdown(healingEngine, "healingTotemAir", "Call: Air totem", {
+		{ label = "Grace of Air Totem", value = "GRACE" },
+		{ label = "Windfury Totem", value = "WINDFURY" },
+		{ label = "Disabled", value = "OFF" },
+	}, "GRACE")
+	ui.Help(healingEngine, "Set WoW's Call of the Elements preset to the same four choices shown here. ActionLITE uses these selections to verify and maintain the preset; addons cannot rewrite the protected Totem Bar preset during combat. A confirmed empty, incomplete, or mismatched preset is repaired with individual totems instead of repeatedly casting Call. Mana Tide temporarily replaces the selected Water totem, then the selected Water totem is restored after Mana Tide expires.")
+	ui.Help(healingEngine, "Riptide is tracked per member. Chain Heal requires a recent Riptide, a second injured member, and more than 50% mana. Lesser Healing Wave handles smaller injuries; Healing Wave handles large and tank injuries. Nature's Swiftness with Chain Heal, Blood Fury, and Berserking are reserved for the emergency slider. Ancestral Healing is a passive critical-heal proc, so direct tank heals provide its refresh opportunities.")
 
 	local aoe = ui.Card(stack,
 		Text({ en = "AREA DAMAGE", fr = "AOE ET BURST", pt = "AOE E BURST", es = "AOE Y BURST", de = "AOE & BURST", zh = "AOE 和爆发" }), nil, { id="aoe", group="aoe" })

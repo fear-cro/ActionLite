@@ -57,8 +57,15 @@ local HEALING_CASTS = {
 	SHAMAN = {
 		["Healing Wave"] = true, ["Lesser Healing Wave"] = true,
 		["Chain Heal"] = true, ["Riptide"] = true, ["Earth Shield"] = true,
-		["Healing Stream Totem"] = true,
-		["Nature's Swiftness"] = true,
+		["Healing Stream Totem"] = true, ["Mana Spring Totem"] = true,
+		["Stoneskin Totem"] = true, ["Strength of Earth Totem"] = true,
+		["Flametongue Totem"] = true, ["Searing Totem"] = true,
+		["Fire Resistance Totem"] = true, ["Frost Resistance Totem"] = true,
+		["Grace of Air Totem"] = true, ["Windfury Totem"] = true,
+		["Mana Tide Totem"] = true,
+		["Call of the Elements"] = true, ["Water Shield"] = true,
+		["Nature's Swiftness"] = true, ["Blood Fury"] = true,
+		["Berserking"] = true, ["Flame Shock"] = true,
 	},
 }
 
@@ -453,6 +460,16 @@ local function NormalizeRequest(value, category, threshold, profile)
 	local reason = "HealingEngine " .. tostring(category or "request")
 	local playerHealthAbove = PublicNumber(value.playerHealthAbove)
 	if playerHealthAbove then playerHealthAbove = ClampPercent(playerHealthAbove, 0) end
+	local secondaryHealthUnit = type(value.secondaryHealthUnit) == "string"
+		and not IsSecret(value.secondaryHealthUnit) and value.secondaryHealthUnit or nil
+	local secondaryHealthThreshold = PublicNumber(value.secondaryHealthThreshold)
+	if secondaryHealthThreshold then
+		secondaryHealthThreshold = ClampPercent(secondaryHealthThreshold, threshold)
+	end
+	local manaAbove = PublicNumber(value.manaAbove)
+	if manaAbove then manaAbove = ClampPercent(manaAbove, 0) end
+	local manaBelow = PublicNumber(value.manaBelow)
+	if manaBelow then manaBelow = ClampPercent(manaBelow, 100) end
 	return {
 		category = category,
 		spell = spell,
@@ -465,6 +482,10 @@ local function NormalizeRequest(value, category, threshold, profile)
 		rangeUnit = value.rangeUnit,
 		visibility = value.visibility,
 		playerHealthAbove = playerHealthAbove,
+		secondaryHealthUnit = secondaryHealthUnit,
+		secondaryHealthThreshold = secondaryHealthThreshold,
+		manaAbove = manaAbove,
+		manaBelow = manaBelow,
 	}
 end
 
@@ -728,6 +749,10 @@ function Engine:BuildPlan(baseSpell, baseReason)
 			priority = member.priority,
 			visibility = visibility,
 			playerHealthAbove = request.playerHealthAbove,
+			secondaryHealthUnit = request.secondaryHealthUnit,
+			secondaryHealthThreshold = request.secondaryHealthThreshold,
+			manaAbove = request.manaAbove,
+			manaBelow = request.manaBelow,
 		}
 	end
 	local function AddStatic(request, band)
@@ -814,6 +839,22 @@ function Engine:ManaAboveAlpha(percent)
 	return false, nil, "Protected mana mask unavailable"
 end
 
+function Engine:ManaBelowAlpha(percent)
+	local readable
+	if type(AL.ManaPercent) == "function" then
+		local ok, value = pcall(AL.ManaPercent)
+		readable = ok and PublicNumber(value) or nil
+	end
+	if readable then return true, readable <= percent and 1 or 0 end
+	if type(AL.ResourceIntervalAlpha) ~= "function" then
+		return false, nil, "Protected mana mask unavailable"
+	end
+	local high = AL.ResourceThresholdCut and AL.ResourceThresholdCut(percent, true) or (percent / 100)
+	local ok, alpha = AL.ResourceIntervalAlpha("power", "player", 0, 0, high)
+	if ok then return true, alpha end
+	return false, nil, "Protected mana mask unavailable"
+end
+
 function Engine:DecisionAlpha(decision)
 	if decision.visibility == "always" then return true, 1 end
 	if decision.visibility == "mana-above" then
@@ -822,10 +863,9 @@ function Engine:DecisionAlpha(decision)
 	return self:PredictedHealthAlpha(decision.unit, decision.low, decision.high)
 end
 
--- An extra protected gate can be applied without inspecting or multiplying its
--- alpha in Lua. The normal target-health alpha is assigned to the row frame;
--- this player-health alpha is assigned to the row's child regions. WoW then
--- combines parent and child alpha internally.
+-- Extra protected gates are applied without inspecting or multiplying their
+-- alpha values in Lua. WoW combines the nested frame and region alpha values
+-- internally, so each protected condition remains opaque to addon code.
 function Engine:PlayerHealthAboveAlpha(percent)
 	if type(AL.ResourceIntervalAlpha) ~= "function" then
 		return false, nil, "Protected player-health gate unavailable"
@@ -835,6 +875,14 @@ function Engine:PlayerHealthAboveAlpha(percent)
 	local ok, alpha = AL.ResourceIntervalAlpha("health", "player", nil, low, 2)
 	if ok then return true, alpha end
 	return false, nil, "Protected player-health gate unavailable"
+end
+
+function Engine:SecondaryHealthAlpha(unit, percent)
+	if type(unit) ~= "string" or not AL.HealingTargetColors
+		or not AL.HealingTargetColors[unit] then
+		return false, nil, "Secondary healing unit unavailable"
+	end
+	return self:PredictedHealthAlpha(unit, 0, ClampPercent(percent, 100))
 end
 
 local function CreateLayerFrame(parent, level)
@@ -852,13 +900,14 @@ function Engine:CreateVisualRow(index)
 	if not display or not display.main or not display.slots then return nil end
 	local row = { slots = {}, index = index }
 	row.main = CreateLayerFrame(display.main, (display.main:GetFrameLevel() or 1) + 20 + index)
-	row.main.block = row.main:CreateTexture(nil, "BACKGROUND")
+	row.main.content = CreateLayerFrame(row.main, row.main:GetFrameLevel())
+	row.main.block = row.main.content:CreateTexture(nil, "BACKGROUND")
 	row.main.block:SetAllPoints(row.main)
 	row.main.block:SetColorTexture(0.03, 0.04, 0.06, 1)
-	row.main.icon = row.main:CreateTexture(nil, "OVERLAY")
+	row.main.icon = row.main.content:CreateTexture(nil, "OVERLAY")
 	row.main.icon:SetAllPoints(row.main)
 	row.main.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-	row.main.key = row.main:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+	row.main.key = row.main.content:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 	row.main.key:SetPoint("TOPRIGHT", row.main, "TOPRIGHT", -1, -2)
 	row.main.key:SetJustifyH("RIGHT")
 	row.main.key:SetWidth(42)
@@ -868,10 +917,11 @@ function Engine:CreateVisualRow(index)
 	for _, slotIndex in ipairs(ACTIVE_SLOTS) do
 		local slot = display.slots[slotIndex]
 		local layer = CreateLayerFrame(slot, (slot:GetFrameLevel() or 100) + 20 + index)
-		layer.block = layer:CreateTexture(nil, "BACKGROUND")
+		layer.content = CreateLayerFrame(layer, layer:GetFrameLevel())
+		layer.block = layer.content:CreateTexture(nil, "BACKGROUND")
 		layer.block:SetAllPoints(layer)
 		layer.block:SetColorTexture(0, 0, 0, 1)
-		layer.icon = layer:CreateTexture(nil, "OVERLAY")
+		layer.icon = layer.content:CreateTexture(nil, "OVERLAY")
 		layer.icon:SetAllPoints(layer)
 		row.slots[slotIndex] = layer
 	end
@@ -879,7 +929,8 @@ function Engine:CreateVisualRow(index)
 	local target = AL.HealingTargetPixel
 	if target then
 		row.target = CreateLayerFrame(target, (target:GetFrameLevel() or 101) + 20 + index)
-		row.target.texture = row.target:CreateTexture(nil, "OVERLAY")
+		row.target.content = CreateLayerFrame(row.target, row.target:GetFrameLevel())
+		row.target.texture = row.target.content:CreateTexture(nil, "OVERLAY")
 		row.target.texture:SetAllPoints(row.target)
 		row.target.texture:SetColorTexture(AL.GetUniversalColor(0))
 	end
@@ -914,6 +965,15 @@ local function SetRowGateAlpha(row, alpha)
 	return applied
 end
 
+local function SetRowSecondaryAlpha(row, alpha)
+	local applied = SetFrameAlpha(row.main and row.main.content, alpha)
+	for _, slot in pairs(row.slots or {}) do
+		applied = SetFrameAlpha(slot.content, alpha) and applied
+	end
+	applied = SetFrameAlpha(row.target and row.target.content, alpha) and applied
+	return applied
+end
+
 function Engine:ClearVisuals()
 	if self.visualsCleared then
 		if AL.SetHealingTargetPixel then AL.SetHealingTargetPixel("none") end
@@ -939,7 +999,7 @@ function Engine:BindDisplay(display)
 	return true
 end
 
-function Engine:ApplyDecision(row, decision, alpha, index, gateAlpha)
+function Engine:ApplyDecision(row, decision, alpha, index, secondaryAlpha, gateAlpha)
 	if not row or not decision then return false end
 	local display = self.display
 	local texture = AL.IconFor and AL.IconFor(decision.spell)
@@ -971,19 +1031,26 @@ function Engine:ApplyDecision(row, decision, alpha, index, gateAlpha)
 
 	local level = index or row.index
 	row.main:SetFrameLevel((display.main:GetFrameLevel() or 1) + 20 + level)
+	if row.main.content then row.main.content:SetFrameLevel(row.main:GetFrameLevel()) end
 	for slotIndex, slot in pairs(row.slots) do
 		slot:SetFrameLevel((display.slots[slotIndex]:GetFrameLevel() or 100) + 20 + level)
+		if slot.content then slot.content:SetFrameLevel(slot:GetFrameLevel()) end
 	end
 	if row.target then
 		row.target:SetFrameLevel((AL.HealingTargetPixel:GetFrameLevel() or 101) + 20 + level)
+		if row.target.content then row.target.content:SetFrameLevel(row.target:GetFrameLevel()) end
 	end
 
-	-- gateAlpha may be a secret client value. Pass it through untouched; never
-	-- use it in a Lua fallback, comparison or arithmetic expression.
+	-- secondaryAlpha and gateAlpha may be secret client values. Pass them
+	-- through untouched; never use them in a Lua fallback, comparison or
+	-- arithmetic expression. Parent, child and region alpha form an AND gate in
+	-- the renderer without exposing any of the three conditions to Lua.
 	local applied = SetRowGateAlpha(row, gateAlpha)
+	applied = SetRowSecondaryAlpha(row, secondaryAlpha) and applied
 	applied = SetFrameAlpha(row.main, alpha) and applied
 	for _, slot in pairs(row.slots) do applied = SetFrameAlpha(slot, alpha) and applied end
-	applied = SetFrameAlpha(row.target, decision.unit and alpha or 0) and applied
+	if decision.unit then applied = SetFrameAlpha(row.target, alpha) and applied
+	else applied = SetFrameAlpha(row.target, 0) and applied end
 	self.visualsCleared = false
 	row.decision = {
 		unit = decision.unit, role = decision.role, spell = decision.spell,
@@ -991,7 +1058,11 @@ function Engine:ApplyDecision(row, decision, alpha, index, gateAlpha)
 		baseThreshold = decision.baseThreshold,
 		band = decision.band, low = decision.low, high = decision.high,
 		visibility = decision.visibility,
-			playerHealthAbove = decision.playerHealthAbove,
+		playerHealthAbove = decision.playerHealthAbove,
+		secondaryHealthUnit = decision.secondaryHealthUnit,
+		secondaryHealthThreshold = decision.secondaryHealthThreshold,
+		manaAbove = decision.manaAbove,
+		manaBelow = decision.manaBelow,
 	}
 	return applied
 end
@@ -1023,15 +1094,28 @@ function Engine:Update(baseSpell, baseReason)
 	for index, decision in ipairs(plan.rows) do
 		local row = self:VisualRow(index)
 		local available, alpha, errorMessage = self:DecisionAlpha(decision)
-		local gateAvailable, gateAlpha, gateError = true, 1, nil
-		if available and decision.playerHealthAbove then
-			gateAvailable, gateAlpha, gateError = self:PlayerHealthAboveAlpha(decision.playerHealthAbove)
+		local secondaryAvailable, secondaryAlpha, secondaryError = true, 1, nil
+		if available and decision.secondaryHealthUnit then
+			secondaryAvailable, secondaryAlpha, secondaryError = self:SecondaryHealthAlpha(
+				decision.secondaryHealthUnit, decision.secondaryHealthThreshold or decision.threshold)
 		end
-		if available and gateAvailable and self:ApplyDecision(row, decision, alpha, index, gateAlpha) then
+		local gateAvailable, gateAlpha, gateError = true, 1, nil
+		if available and secondaryAvailable then
+			if decision.playerHealthAbove then
+				gateAvailable, gateAlpha, gateError = self:PlayerHealthAboveAlpha(decision.playerHealthAbove)
+			elseif decision.manaAbove then
+				gateAvailable, gateAlpha, gateError = self:ManaAboveAlpha(decision.manaAbove)
+			elseif decision.manaBelow then
+				gateAvailable, gateAlpha, gateError = self:ManaBelowAlpha(decision.manaBelow)
+			end
+		end
+		if available and secondaryAvailable and gateAvailable
+			and self:ApplyDecision(row, decision, alpha, index, secondaryAlpha, gateAlpha) then
 			self.state.activeRows = self.state.activeRows + 1
 			self.state.rows[#self.state.rows + 1] = row.decision
-		elseif (gateError or errorMessage) and (gateError or errorMessage) ~= self.lastMaskError then
-			local message = gateError or errorMessage
+		elseif (gateError or secondaryError or errorMessage)
+			and (gateError or secondaryError or errorMessage) ~= self.lastMaskError then
+			local message = gateError or secondaryError or errorMessage
 			self.lastMaskError = message
 			if AL.Debug and AL.Debug.CaptureError then
 				AL.Debug.CaptureError("HealingEngine mask: " .. message, "healing engine")

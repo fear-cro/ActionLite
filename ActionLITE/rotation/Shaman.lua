@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 
--- ActionLITE Shaman v0.17.4: original Leveling plus optional talent builds.
+-- ActionLITE Shaman v0.18.0: original Leveling, optional talent builds and Restoration healing.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -86,6 +86,10 @@ local M = {
 		aoeMinEnemies = 2,
 		aoeMinMana = 30,
 		burstMinTargetHP = 40,
+		healingTotemEarth = "STONESKIN",
+		healingTotemFire = "FLAMETONGUE",
+		healingTotemWater = "MANA",
+		healingTotemAir = "GRACE",
 	},
 }
 
@@ -1393,7 +1397,7 @@ AL.RegisterRotation("SHAMAN", M)
 -- BEGIN OPTIONAL TALENT BUILD IMPLEMENTATION
 local ADDON, AL = ...
 
--- WoW Forever Shaman Elemental 31/7/13 / Enhancement 18/33/0 - v0.17.4
+-- WoW Forever Shaman Elemental 31/7/13 / Enhancement 18/33/0 - v0.18.0
 -- Elemental reference: MythicSim 0025d73986ee, client 1.60.1.70338.
 -- Reference Enhancement : Forever 1.60.1.70338, MythicSim 944a791060db.
 -- Status: client validation required for costs, ranks and talents.
@@ -1447,6 +1451,10 @@ local M = {
 		aoeMinEnemies = 2,
 		aoeMinMana = 30,
 		burstMinTargetHP = 40,
+		healingTotemEarth = "STONESKIN",
+		healingTotemFire = "FLAMETONGUE",
+		healingTotemWater = "MANA",
+		healingTotemAir = "GRACE",
 	},
 }
 
@@ -1495,6 +1503,8 @@ end
 M.spells = {
 	{ 20554, "Berserking" },
 	{ 20572, "Blood Fury" },
+		{ 66842, "Call of the Elements" },
+		{ 1064, "Chain Heal" },
 	{ 421, "Chain Lightning" },
 	{ 2008, "Ancestral Spirit" },
 	{ 556, "Astral Recall" },
@@ -1522,10 +1532,13 @@ M.spells = {
 	{ 324, "Lightning Shield" },
 	{ 8190, "Magma Totem" },
 	{ 5675, "Mana Spring Totem" },
+		{ 16190, "Mana Tide Totem" },
+		{ 16188, "Nature's Swiftness" },
 	{ 8166, "Poison Cleansing Totem" },
 	{ 370, "Purge" },
 	{ 425336, "Rage of the Farseer" },
 	{ 8017, "Rockbiter Weapon" },
+		{ 408521, "Riptide" },
 	{ 3599, "Searing Totem" },
 	{ 5730, "Stoneclaw Totem" },
 	{ 8071, "Stoneskin Totem" },
@@ -1659,8 +1672,9 @@ local WEAPON_ENCHANT_FALLBACK_DURATION = 60 * 60
 
 
 AL.selfCastSpells = AL.selfCastSpells or {}
-for _, name in ipairs({ "Lightning Shield", "Water Shield", "Healing Wave", "Lesser Healing Wave", "Rockbiter Weapon",
-    "Flametongue Weapon", "Windfury Weapon", "Blood Fury", "Berserking", "Rage of the Farseer", "Fire Nova", "Elemental Mastery" }) do AL.selfCastSpells[name] = true end
+	for _, name in ipairs({ "Lightning Shield", "Water Shield", "Healing Wave", "Lesser Healing Wave", "Rockbiter Weapon",
+	    "Flametongue Weapon", "Windfury Weapon", "Blood Fury", "Berserking", "Rage of the Farseer", "Fire Nova", "Elemental Mastery",
+	    "Call of the Elements", "Mana Tide Totem", "Nature's Swiftness" }) do AL.selfCastSpells[name] = true end
 for name in pairs(TOTEM_ELEMENT) do AL.selfCastSpells[name] = true end
 -- Shared native gates keep opaque percentages in native display alpha only.
 local lastRotation
@@ -3352,5 +3366,588 @@ AL.RegisterRotation("SHAMAN", M)
             end
         end
     end
+    -- =====================================================================
+    -- Restoration Healing Rotation provider
+    -- ---------------------------------------------------------------------
+    -- Group health and mana may be protected in combat. This provider only
+    -- supplies public spell, roster and successful-cast timers. HealingEngine
+    -- owns the protected health/mana masks and the matching focus pixel.
+    -- =====================================================================
+    local shamanHealing = {
+        effects = {}, cooldowns = {}, totems = {}, flameShock = {},
+        natureUntil = 0, manaTideUntil = 0,
+        lastHeal = nil, lastRacial = nil, lastCall = nil,
+    }
+    local SH_RIPTIDE_DURATION = 15
+    local SH_CHAIN_MANA = 50
+    local SH_MANA_TIDE_MANA = 70
+    local SH_ELEMENTS = { "EARTH", "FIRE", "WATER", "AIR" }
+    local SH_TOTEM_OPTIONS = {
+        EARTH = {
+            key = "healingTotemEarth", default = "STONESKIN",
+            values = { STONESKIN = "Stoneskin Totem", STRENGTH = "Strength of Earth Totem" },
+        },
+        FIRE = {
+            key = "healingTotemFire", default = "FLAMETONGUE",
+            values = { FLAMETONGUE = "Flametongue Totem", SEARING = "Searing Totem",
+                FIRE_RESIST = "Fire Resistance Totem" },
+        },
+        WATER = {
+            key = "healingTotemWater", default = "MANA",
+            values = { MANA = "Mana Spring Totem", HEALING = "Healing Stream Totem",
+                FROST_RESIST = "Frost Resistance Totem" },
+        },
+        AIR = {
+            key = "healingTotemAir", default = "GRACE",
+            values = { GRACE = "Grace of Air Totem", WINDFURY = "Windfury Totem" },
+        },
+    }
+    local SH_TOTEM_ELEMENT = {
+        ["Stoneskin Totem"] = "EARTH", ["Strength of Earth Totem"] = "EARTH",
+        ["Flametongue Totem"] = "FIRE", ["Searing Totem"] = "FIRE",
+        ["Fire Resistance Totem"] = "FIRE", ["Mana Spring Totem"] = "WATER",
+        ["Healing Stream Totem"] = "WATER", ["Frost Resistance Totem"] = "WATER",
+        ["Mana Tide Totem"] = "WATER", ["Grace of Air Totem"] = "AIR",
+        ["Windfury Totem"] = "AIR",
+    }
+
+    local function SHNow()
+        local ok, value = pcall(GetTime)
+        return ok and type(value) == "number" and value or 0
+    end
+    local function SHSecret(value)
+        if type(issecretvalue) ~= "function" then return false end
+        local ok, secret = pcall(issecretvalue, value)
+        return not ok or secret == true
+    end
+    local function SHBool(func, ...)
+        if type(func) ~= "function" then return nil end
+        local ok, value = pcall(func, ...)
+        if not ok or SHSecret(value) then return nil end
+        if value == true or value == 1 then return true end
+        if value == false or value == 0 then return false end
+    end
+    local function SHNumber(value)
+        if SHSecret(value) or type(value) ~= "number" or value ~= value
+            or value == math.huge or value == -math.huge then return nil end
+        return value
+    end
+    local function SHExists(unit)
+        return SHBool(UnitExists, unit) == true
+    end
+    local function SHRosterUnits()
+        local units, raid = {}, false
+        for index = 1, 40 do
+            if SHExists("raid" .. index) then raid = true; break end
+        end
+        if raid then
+            for index = 1, 40 do
+                local unit = "raid" .. index
+                if SHExists(unit) then units[#units + 1] = unit end
+            end
+        else
+            for index = 1, 4 do
+                local unit = "party" .. index
+                if SHExists(unit) then units[#units + 1] = unit end
+            end
+            units[#units + 1] = "player"
+        end
+        return units
+    end
+    local function SHGroupUnitFor(source)
+        if not SHExists(source) or type(UnitIsUnit) ~= "function" then return nil end
+        local assist = SHBool(UnitCanAssist, "player", source)
+        local friend = SHBool(UnitIsFriend, "player", source)
+        if assist ~= true and friend ~= true then return nil end
+        for _, unit in ipairs(SHRosterUnits()) do
+            if SHBool(UnitIsUnit, source, unit) == true then return unit end
+        end
+    end
+    local function SHHealingUnit()
+        return SHGroupUnitFor("target") or SHGroupUnitFor("focus")
+    end
+    local function SHUnitKey(unit)
+        if type(unit) ~= "string" then return nil end
+        if type(UnitGUID) == "function" then
+            local ok, guid = pcall(UnitGUID, unit)
+            if ok and not SHSecret(guid) and type(guid) == "string" and guid ~= "" then
+                return guid
+            end
+        end
+        return unit
+    end
+    local function SHUnitEligible(unit)
+        if not SHExists(unit) then return false end
+        if unit ~= "player" then
+            local assist = SHBool(UnitCanAssist, "player", unit)
+            local friend = SHBool(UnitIsFriend, "player", unit)
+            if assist ~= true and friend ~= true then return false end
+        end
+        if SHBool(UnitIsDeadOrGhost, unit) == true then return false end
+        if SHBool(UnitIsConnected, unit) == false then return false end
+        if SHBool(UnitIsVisible, unit) == false then return false end
+        return true
+    end
+    local function SHUnitRole(unit)
+        if type(UnitGroupRolesAssigned) ~= "function" then return "NONE" end
+        local ok, role = pcall(UnitGroupRolesAssigned, unit)
+        if not ok or SHSecret(role) or type(role) ~= "string" then return "NONE" end
+        if role == "TANK" or role == "HEALER" or role == "DAMAGER" then return role end
+        return "NONE"
+    end
+    local function SHRaidSubgroup(unit)
+        local index = type(unit) == "string" and tonumber(unit:match("^raid(%d+)$")) or nil
+        if not index then return nil end
+        if type(GetRaidRosterInfo) == "function" then
+            local values = { pcall(GetRaidRosterInfo, index) }
+            local ok, subgroup = values[1], values[4]
+            subgroup = ok and SHNumber(subgroup) or nil
+            if subgroup then return subgroup end
+        end
+        -- Raid unit order normally follows five-player raid groups. This public
+        -- fallback limits the protected pair masks if roster metadata is absent.
+        return math.floor((index - 1) / 5) + 1
+    end
+    local function SHChainNeighbor(primary, secondary)
+        local primaryGroup = SHRaidSubgroup(primary)
+        local secondaryGroup = SHRaidSubgroup(secondary)
+        if primaryGroup or secondaryGroup then
+            return primaryGroup ~= nil and primaryGroup == secondaryGroup
+        end
+        return true
+    end
+    local function SHEffectActive(unit, spell)
+        local key = SHUnitKey(unit)
+        local effects = key and shamanHealing.effects[key]
+        local expiration = effects and effects[spell]
+        if type(expiration) == "number" and expiration > SHNow() then return true end
+        if effects then effects[spell] = nil end
+        return false
+    end
+    local function SHSetEffect(unit, spell, duration)
+        local key = SHUnitKey(unit)
+        if not key or type(duration) ~= "number" then return end
+        shamanHealing.effects[key] = shamanHealing.effects[key] or {}
+        shamanHealing.effects[key][spell] = SHNow() + duration
+    end
+    local function SHKnown(spell)
+        if type(spell) ~= "string" or spell == "" then return false end
+        if not root.known then return true end
+        local value = root.known[spell]
+        return not SHSecret(value) and value == true
+    end
+    local function SHCooldownReady(spell)
+        local expiration = shamanHealing.cooldowns[spell]
+        return type(expiration) ~= "number" or expiration <= SHNow()
+    end
+    local function SHAvailable(spell, profile, ignoreUsable)
+        if not SHKnown(spell) or not SHCooldownReady(spell) then return false end
+        if root.Allowed then
+            local ok, allowed = pcall(root.Allowed, spell, profile)
+            if not ok or SHSecret(allowed) or allowed == false then return false end
+        end
+        if root.IsReady then
+            local ok, ready = pcall(root.IsReady, spell)
+            if not ok or SHSecret(ready) or ready == false then return false end
+        end
+        if not ignoreUsable and root.SpellUsable then
+            local ok, usable = pcall(root.SpellUsable, spell)
+            if not ok or SHSecret(usable) or usable == false then return false end
+        end
+        return true
+    end
+    local function SHChoice(profile, option)
+        local value = type(profile) == "table" and profile[option.key] or nil
+        if SHSecret(value) or type(value) ~= "string" then value = option.default end
+        if value == "OFF" or option.values[value] then return value end
+        return option.default
+    end
+    local function SHSelectedTotems(profile)
+        local selected = {}
+        for _, element in ipairs(SH_ELEMENTS) do
+            local option = SH_TOTEM_OPTIONS[element]
+            local spell = option.values[SHChoice(profile, option)]
+            if spell and SHKnown(spell) then selected[element] = spell end
+        end
+        return selected
+    end
+    local function SHTotemDuration(spell)
+        if spell == "Searing Totem" then return 30 end
+        if spell == "Mana Tide Totem" then return 12 end
+        return 300
+    end
+    local function SHTrackTotem(spell, now)
+        local element = SH_TOTEM_ELEMENT[spell]
+        if not element then return end
+        now = now or SHNow()
+        shamanHealing.totems[element] = {
+            spell = spell, applied = now, expires = now + SHTotemDuration(spell),
+        }
+    end
+    local function SHTotemSnapshot()
+        local now, active, readableEmpty, empty = SHNow(), {}, {}, 0
+        local slotElements = {}
+        for element, slot in pairs({ FIRE = FIRE_TOTEM_SLOT, EARTH = EARTH_TOTEM_SLOT,
+            WATER = WATER_TOTEM_SLOT, AIR = AIR_TOTEM_SLOT }) do
+            slot = SHNumber(slot)
+            if slot and slot >= 1 and slot <= 4 then slotElements[slot] = element end
+        end
+        if type(GetTotemInfo) == "function" then
+            for slot = 1, 4 do
+                local ok, have, name, start, duration = pcall(GetTotemInfo, slot)
+                if ok and not SHSecret(have) and not SHSecret(name)
+                    and not SHSecret(start) and not SHSecret(duration) then
+                    local present = have == true or have == 1
+                    if type(name) == "string" then
+                        name = (root.englishNames and root.englishNames[name]) or name
+                    else name = nil end
+                    local element = name and SH_TOTEM_ELEMENT[name] or slotElements[slot]
+                    if not present then
+                        empty = empty + 1
+                        if element then readableEmpty[element] = true end
+                    elseif element then
+                        active[element] = name or "?"
+                        start, duration = SHNumber(start), SHNumber(duration)
+                        if name and start and duration and duration > 0 then
+                            shamanHealing.totems[element] = {
+                                spell = name, applied = now, expires = start + duration,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+        for element, record in pairs(shamanHealing.totems) do
+            local recent = now - (record.applied or 0) < 0.5
+            if record.expires <= now or (not recent and (empty == 4 or readableEmpty[element])) then
+                shamanHealing.totems[element] = nil
+            elseif not active[element] then
+                active[element] = record.spell
+            end
+        end
+        return active
+    end
+    local function SHMissingTotems(profile)
+        local now, selected, active = SHNow(), SHSelectedTotems(profile), SHTotemSnapshot()
+        local missing, presetMismatch = {}, false
+        for _, element in ipairs(SH_ELEMENTS) do
+            local spell = selected[element]
+            local tideOwnsWater = element == "WATER" and shamanHealing.manaTideUntil > now
+            if spell and not tideOwnsWater and active[element] ~= spell and active[element] ~= "?" then
+                missing[#missing + 1] = { element = element, spell = spell }
+                if active[element] then presetMismatch = true end
+            end
+        end
+        return missing, selected, presetMismatch
+    end
+    local function SHAuraActive(spell, spellID)
+        local reader = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+        if type(reader) ~= "function" then return nil end
+        for index = 1, 40 do
+            local ok, aura = pcall(reader, "player", index, "HELPFUL")
+            if not ok or SHSecret(aura) then return nil end
+            if aura == nil then return false end
+            if type(aura) ~= "table" then return nil end
+            local id = SHNumber(aura.spellId)
+            local name = not SHSecret(aura.name) and type(aura.name) == "string" and aura.name or nil
+            name = name and ((root.englishNames and root.englishNames[name]) or name)
+            if id == spellID or name == spell then return true end
+        end
+        return false
+    end
+    local function SHWaterShieldActive()
+        local aura = SHAuraActive("Water Shield", 408510)
+        if aura == true then return true end
+        if aura == false then
+            local key = SHUnitKey("player")
+            if key and shamanHealing.effects[key] then
+                shamanHealing.effects[key]["Water Shield"] = nil
+            end
+            return false
+        end
+        return SHEffectActive("player", "Water Shield")
+    end
+    local function SHMoving()
+        if type(GetUnitSpeed) ~= "function" then return false end
+        local ok, speed = pcall(GetUnitSpeed, "player")
+        speed = ok and SHNumber(speed) or nil
+        return speed and speed > 0 or false
+    end
+    local function SHManualSpell(profile)
+        if SHAvailable("Healing Wave", profile) then return "Healing Wave" end
+        if SHAvailable("Lesser Healing Wave", profile) then return "Lesser Healing Wave" end
+    end
+    local function SHSecondaryThreshold(context, unit)
+        local threshold = context.settings.initiate
+        if SHUnitRole(unit) == "DAMAGER" then
+            threshold = threshold - (context.dpsThresholdOffset or 10)
+        end
+        return math.max(0, threshold)
+    end
+
+    function advanced.HealingEngineCastSucceeded(spell)
+        if type(spell) ~= "string" or SHSecret(spell) then return end
+        local profile = root.S and root.S() or {}
+        if type(profile) ~= "table" or SHSecret(profile.healingEngine)
+            or profile.healingEngine ~= true then return end
+        local now, unit = SHNow(), SHHealingUnit()
+        if spell == "Water Shield" then
+            SHSetEffect("player", spell, 600)
+        elseif spell == "Riptide" then
+            SHSetEffect(unit, spell, SH_RIPTIDE_DURATION)
+            shamanHealing.cooldowns[spell] = now + 6
+            shamanHealing.lastHeal = { spell = spell, unit = unit, at = now }
+        elseif spell == "Mana Tide Totem" then
+            shamanHealing.cooldowns[spell] = now + 300
+            shamanHealing.manaTideUntil = now + 12
+            SHTrackTotem(spell, now)
+        elseif spell == "Nature's Swiftness" then
+            shamanHealing.cooldowns[spell] = now + 180
+            shamanHealing.natureUntil = now + 10
+        elseif spell == "Call of the Elements" then
+            local selected = SHSelectedTotems(profile)
+            for _, element in ipairs(SH_ELEMENTS) do
+                if selected[element] then SHTrackTotem(selected[element], now) end
+            end
+            shamanHealing.lastCall = { at = now, selected = selected }
+        elseif SH_TOTEM_ELEMENT[spell] then
+            SHTrackTotem(spell, now)
+        elseif spell == "Blood Fury" then
+            shamanHealing.cooldowns[spell] = now + 120
+            shamanHealing.lastRacial = { spell = spell, at = now }
+        elseif spell == "Berserking" then
+            shamanHealing.cooldowns[spell] = now + 180
+            shamanHealing.lastRacial = { spell = spell, at = now }
+        elseif spell == "Flame Shock" then
+            local key = SHUnitKey("target")
+            local duration = type(advanced.FlameShockDuration) == "function"
+                and advanced.FlameShockDuration() or 12
+            duration = SHNumber(duration) or 12
+            if key then shamanHealing.flameShock[key] = now + duration end
+        elseif spell == "Chain Heal" or spell == "Healing Wave"
+            or spell == "Lesser Healing Wave" then
+            shamanHealing.lastHeal = { spell = spell, unit = unit, at = now }
+        end
+        if spell ~= "Nature's Swiftness" and shamanHealing.natureUntil > now
+            and (spell == "Chain Heal" or spell == "Healing Wave"
+                or spell == "Lesser Healing Wave") then
+            shamanHealing.natureUntil = 0
+        end
+    end
+
+    function advanced.HealingEngineDamagePlan(profile, context)
+        if type(context) ~= "table" or not context.enemyCombat then return false end
+        if not SHAvailable("Flame Shock", profile) then return false end
+        local key = SHUnitKey("target")
+        local expiration = key and shamanHealing.flameShock[key]
+        if type(expiration) == "number" and expiration > SHNow() then return false end
+        return { spell = "Flame Shock", reason = "Restoration: high-mana Flame Shock" }
+    end
+
+    function advanced.HealingEnginePlan(profile, context)
+        if type(profile) ~= "table" or type(context) ~= "table"
+            or SHSecret(profile.healingEngine) or profile.healingEngine ~= true then return nil end
+        local now = SHNow()
+        if shamanHealing.natureUntil <= now then shamanHealing.natureUntil = 0 end
+        if shamanHealing.manaTideUntil <= now then shamanHealing.manaTideUntil = 0 end
+
+        local manual
+        if context.manualTarget then
+            local spell = SHManualSpell(profile)
+            manual = spell and {
+                spell = spell, reason = "Restoration: selected ally distress heal",
+            } or false
+        end
+
+        local maintenance = {}
+        if not context.mp5Locked then
+            if SHAvailable("Water Shield", profile) and not SHWaterShieldActive() then
+                maintenance[#maintenance + 1] = {
+                    spell = "Water Shield", reason = "Restoration: maintain Water Shield",
+                    unit = "player", rangeUnit = "player", visibility = "always",
+                }
+            end
+            local missing, _, presetMismatch = SHMissingTotems(profile)
+            if #missing > 0 then
+                local sinceCall = shamanHealing.lastCall
+                    and now - shamanHealing.lastCall.at or nil
+                local recentIncompleteCall = sinceCall and sinceCall >= 0.5 and sinceCall < 60
+                if SHKnown("Call of the Elements") and not presetMismatch
+                    and not recentIncompleteCall then
+                    if not SHMoving() and SHAvailable("Call of the Elements", profile) then
+                        maintenance[#maintenance + 1] = {
+                            spell = "Call of the Elements",
+                            reason = "Restoration: restore selected Call preset",
+                            unit = "player", rangeUnit = "player", visibility = "always",
+                        }
+                    end
+                else
+                    -- A confirmed different or incomplete in-game preset is
+                    -- repaired with individual totems. This avoids looping
+                    -- Call when a saved Totem Bar preset is empty or stale.
+                    for _, record in ipairs(missing) do
+                        if SHAvailable(record.spell, profile) then
+                            maintenance[#maintenance + 1] = {
+                                spell = record.spell,
+                                reason = "Restoration: maintain selected " .. record.element .. " totem",
+                                unit = "player", rangeUnit = "player", visibility = "always",
+                            }
+                        end
+                    end
+                end
+            end
+        end
+        if not context.inCombat then
+            return { manual = manual == nil and false or manual, maintenance = maintenance }
+        end
+        if SHAvailable("Mana Tide Totem", profile) and shamanHealing.manaTideUntil <= now then
+            maintenance[#maintenance + 1] = {
+                spell = "Mana Tide Totem", reason = "Restoration: group mana recovery",
+                unit = "player", rangeUnit = "player", visibility = "always",
+                manaBelow = SH_MANA_TIDE_MANA,
+            }
+        end
+
+        local routine = {}
+        if SHAvailable("Lesser Healing Wave", profile) then
+            routine[#routine + 1] = {
+                spell = "Lesser Healing Wave", reason = "Restoration: efficient small heal",
+            }
+        end
+        if SHAvailable("Riptide", profile) then
+            routine[#routine + 1] = {
+                spell = "Riptide", reason = "Restoration: tracked Riptide",
+                unitFilter = function(unit) return not SHEffectActive(unit, "Riptide") end,
+            }
+        end
+        if SHAvailable("Chain Heal", profile) then
+            local roster = SHRosterUnits()
+            for _, primary in ipairs(roster) do
+                if SHUnitEligible(primary) and SHEffectActive(primary, "Riptide") then
+                    for _, secondary in ipairs(roster) do
+                        if secondary ~= primary and SHUnitEligible(secondary)
+                            and SHChainNeighbor(primary, secondary) then
+                            routine[#routine + 1] = {
+                                spell = "Chain Heal",
+                                reason = "Restoration: Riptide group Chain Heal",
+                                unit = primary,
+                                secondaryHealthUnit = secondary,
+                                secondaryHealthThreshold = SHSecondaryThreshold(context, secondary),
+                                manaAbove = SH_CHAIN_MANA,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+
+        local emergency = {}
+        if SHAvailable("Healing Wave", profile) then
+            emergency[#emergency + 1] = {
+                spell = "Healing Wave", reason = "Restoration: large direct heal",
+                threshold = math.floor((context.settings.initiate + context.settings.emergency) / 2 + 0.5),
+            }
+            emergency[#emergency + 1] = {
+                spell = "Healing Wave", reason = "Restoration: tank Ancestral Healing opportunity",
+                roles = { TANK = true },
+                threshold = math.max(context.settings.emergency, context.settings.initiate - 20),
+            }
+        end
+
+        local critical = {}
+        local instantHeal = SHKnown("Chain Heal") and "Chain Heal" or "Healing Wave"
+        if shamanHealing.natureUntil > now and SHAvailable(instantHeal, profile, true) then
+            critical[#critical + 1] = {
+                spell = instantHeal, reason = "Restoration: Nature's Swiftness " .. instantHeal,
+                requireUsable = false, visibility = "health",
+                threshold = context.settings.emergency,
+            }
+        elseif SHAvailable("Nature's Swiftness", profile)
+            and SHKnown(instantHeal) then
+            critical[#critical + 1] = {
+                spell = "Nature's Swiftness", reason = "Restoration: emergency Nature's Swiftness",
+                rangeUnit = "player", visibility = "health",
+                threshold = context.settings.emergency,
+            }
+        elseif SHAvailable("Healing Wave", profile) then
+            critical[#critical + 1] = {
+                spell = "Healing Wave", reason = "Restoration: emergency Healing Wave",
+                visibility = "health", threshold = context.settings.emergency,
+            }
+        end
+        for _, racial in ipairs({
+            { spell = "Blood Fury", cooldown = 120 },
+            { spell = "Berserking", cooldown = 180 },
+        }) do
+            if SHAvailable(racial.spell, profile) then
+                critical[#critical + 1] = {
+                    spell = racial.spell,
+                    reason = "Restoration racial: emergency " .. racial.spell,
+                    rangeUnit = "player", visibility = "health",
+                    threshold = context.settings.emergency,
+                }
+            end
+        end
+
+        return {
+            manual = manual,
+            maintenance = maintenance,
+            routine = routine,
+            emergency = emergency,
+            critical = critical,
+        }
+    end
+
+    function advanced.HealingState()
+        local now, effects, cooldowns, totems = SHNow(), {}, {}, {}
+        for unit, spells in pairs(shamanHealing.effects) do
+            effects[unit] = {}
+            for spell, expiration in pairs(spells) do
+                effects[unit][spell] = math.max(0, expiration - now)
+            end
+        end
+        for _, spell in ipairs({ "Riptide", "Mana Tide Totem", "Nature's Swiftness",
+            "Blood Fury", "Berserking" }) do
+            cooldowns[spell] = math.max(0, (shamanHealing.cooldowns[spell] or 0) - now)
+        end
+        for element, record in pairs(shamanHealing.totems) do
+            totems[element] = { spell = record.spell, seconds = math.max(0, record.expires - now) }
+        end
+        local engine = root.HealingEngine
+        return {
+            provider = "Restoration Shaman",
+            riptideSeconds = SH_RIPTIDE_DURATION,
+            chainHealMana = SH_CHAIN_MANA,
+            manaTideMana = SH_MANA_TIDE_MANA,
+            natureSeconds = math.max(0, shamanHealing.natureUntil - now),
+            manaTideSeconds = math.max(0, shamanHealing.manaTideUntil - now),
+            effects = effects, cooldowns = cooldowns, totems = totems,
+            selectedTotems = SHSelectedTotems(root.S and root.S() or {}),
+            mp5LockSeconds = engine and engine.FiveSecondRuleRemaining
+                and engine:FiveSecondRuleRemaining() or 0,
+            lastHeal = shamanHealing.lastHeal,
+            lastRacial = shamanHealing.lastRacial,
+            lastCall = shamanHealing.lastCall,
+        }
+    end
+
+    local shamanHealingEvents = CreateFrame("Frame")
+    for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "PLAYER_TARGET_CHANGED" }) do
+        pcall(shamanHealingEvents.RegisterEvent, shamanHealingEvents, event)
+    end
+    shamanHealingEvents:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_TARGET_CHANGED" then
+            -- When a combat target GUID is protected, the timer falls back to
+            -- the public "target" token. Never carry that fallback to a new mob.
+            shamanHealing.flameShock.target = nil
+            return
+        end
+        shamanHealing.effects = {}
+        shamanHealing.totems = {}
+        shamanHealing.flameShock = {}
+        shamanHealing.natureUntil = 0
+        shamanHealing.manaTideUntil = 0
+    end)
+
     root.RegisterRotation("SHAMAN", advanced)
 end

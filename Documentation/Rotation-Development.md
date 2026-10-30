@@ -155,6 +155,10 @@ Accepted request fields are:
 | `rangeUnit` | string | Optional unit used only for the spell-range check; use `player` for a self cooldown whose health condition belongs to an injured member |
 | `visibility` | string | `health` uses the request threshold; `always` emits an unmasked maintenance or follow-up request |
 | `playerHealthAbove` | number | Optional strict player-health floor combined with the request's target-health mask; both conditions stay protected and are never compared in Lua |
+| `secondaryHealthUnit` | string | Optional second roster token that must also be below a protected health threshold; useful for group-heal rules |
+| `secondaryHealthThreshold` | number | Health threshold for `secondaryHealthUnit`; apply the shared DPS offset before supplying an exact unit |
+| `manaAbove` | number | Optional player-mana floor combined with the target-health masks through a protected display layer |
+| `manaBelow` | number | Optional player-mana ceiling for a maintenance request such as a mana-recovery cooldown |
 | `requireReady` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns readiness masking |
 | `requireUsable` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns resource masking |
 
@@ -223,6 +227,21 @@ The Priest healing card offers mutually exclusive **Discipline Priest** and **Ho
 - Learned race-specific emergency abilities are selected through the spellbook: Human Divine Grace targets an injured friendly member; Night Elf Elune's Light, Gnome Eureka!, and Troll Berserking support emergency healing; Undead Dark Sacrifice requires the Priest to remain strictly above 70% health; Troll Rapid Regeneration is reserved for emergency self-healing.
 - Dark Sacrifice combines the injured member's protected health mask with a second protected player-health mask. The engine assigns the two secret alpha values to parent and child regions so the client evaluates both gates without Lua reading, multiplying or testing them.
 - Successful shield, Renew, Power Infusion, Penance, Prayer of Mending and racial casts update conservative per-unit, cooldown or channel timers. Divine Grace clears the tracked shield reapplication lock on its recipient. Rapid Regeneration protects its six-second channel. These timers prevent immediate recasts when combat aura and cooldown data are protected.
+
+## Restoration Shaman Healing Rotation provider
+
+The Shaman healing card provides one Call of the Elements selection for each elemental slot. These settings describe the preset ActionLITE expects to see; they do not rewrite WoW's protected Totem Bar preset. The user must configure the same four choices in the game. When Call of the Elements has not been learned, or a successful Call leaves a readable empty, incomplete or mismatched preset, the provider maintains the learned selected totems individually instead of looping Call.
+
+- Water Shield is tracked for ten minutes from a confirmed cast and reconciled with a readable player aura outside protected conditions.
+- Call of the Elements seeds conservative timers for each selected learned totem. Most selected support totems use a five-minute fallback, while Searing Totem uses 30 seconds.
+- Mana Tide Totem is recommended below 70% mana, tracked for its five-minute cooldown and 12-second Water-slot duration, and prevents Call from replacing it early. The selected Water totem is restored after Mana Tide ends.
+- Riptide is tracked per member for 15 seconds with a six-second fallback cooldown. A Chain Heal row is generated for each eligible second injured member while the primary still has tracked Riptide. Raid pairing stays within the primary member's five-player raid subgroup, which also reflects Chain Heal's practical proximity requirement and bounds protected display rows.
+- The Chain Heal row combines three protected client-side masks: primary health, secondary health and mana strictly above 50%. Lua never reads, compares, multiplies or branches on those secret alpha values.
+- Lesser Healing Wave handles routine injuries. Healing Wave handles larger injuries and receives tank-role priority. Ancestral Healing is a passive armor proc after a critical heal and is never returned as a castable spell.
+- Emergency care uses a confirmed-cast sequence: learned Blood Fury or Berserking, Nature's Swiftness, then Chain Heal. If Chain Heal is not learned, Healing Wave is the Nature's Swiftness consumer.
+- The provider tracks Flame Shock on the selected enemy so the high-mana healer damage rule does not repeatedly apply it while combat aura reads are protected.
+
+Only one final resource gate can be combined with a request. Do not set more than one of `playerHealthAbove`, `manaAbove` and `manaBelow` on the same request. A request may additionally use `secondaryHealthUnit`, producing up to three nested protected conditions.
 
 ## Universal icons and A slots
 
