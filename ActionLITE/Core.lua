@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-AL.buildId = "1.1.0-shaman-healing-20261030"
+AL.buildId = "1.1.0-paladin-healing-20261030"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -77,6 +77,7 @@ AL.SpellTextureOverrides = {
 	DRUID = { ["Lifebloom"] = 134206 },
 	PALADIN = {
 		["Blessing of Kings"] = 135995,
+		["Greater Blessing of Kings"] = 135995,
 		["Blessing of Light"] = 135943,
 		["Blessing of Might"] = 135906,
 		["Blessing of Wisdom"] = 135970,
@@ -831,9 +832,9 @@ local DEBUFF_DURATIONS = {
 -- successful casts with conservative vanilla durations.
 local BUFF_GROUPS = {
 	-- casting one member replaces the others
-	{ "Seal of Command", "Seal of Righteousness", "Seal of the Crusader" },
+	{ "Seal of Command", "Seal of Righteousness", "Seal of the Crusader", "Seal of Light", "Seal of Wisdom" },
 	{ "Devotion Aura", "Retribution Aura", "Concentration Aura" },
-	{ "Blessing of Might", "Blessing of Wisdom", "Blessing of Protection", "Blessing of Freedom" },
+	{ "Blessing of Might", "Blessing of Wisdom", "Blessing of Kings", "Greater Blessing of Kings", "Blessing of Protection", "Blessing of Freedom" },
 	{ "Aspect of the Hawk", "Aspect of the Monkey", "Aspect of the Cheetah", "Aspect of the Beast" },
 	{ "Frost Armor", "Ice Armor", "Mage Armor" },
 	{ "Demon Skin", "Demon Armor" },
@@ -846,7 +847,9 @@ end
 
 local SELF_BUFF_DURATIONS = {
 	["Seal of Command"] = 30, ["Seal of Righteousness"] = 30, ["Seal of the Crusader"] = 30,
+	["Seal of Light"] = 30, ["Seal of Wisdom"] = 30,
 	["Blessing of Might"] = 300, ["Blessing of Wisdom"] = 300,
+	["Blessing of Kings"] = 3600, ["Greater Blessing of Kings"] = 3600,
 	["Blessing of Protection"] = 10, ["Blessing of Freedom"] = 10,
 	["Devotion Aura"] = 3600, ["Retribution Aura"] = 3600, ["Concentration Aura"] = 3600,
 	["Righteous Fury"] = 1800, ["Divine Protection"] = 8, ["Divine Shield"] = 12,
@@ -887,6 +890,7 @@ local selfBuffs = {}
 local rogueBuffGrace, rogueSliceDurations = {}, {}
 local PALADIN_SEALS = {
 	["Seal of Command"] = true, ["Seal of Righteousness"] = true, ["Seal of the Crusader"] = true,
+	["Seal of Light"] = true, ["Seal of Wisdom"] = true,
 }
 local paladinSealAuras, paladinSealAurasValid, paladinSealDurations = {}, false, {}
 

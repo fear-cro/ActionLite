@@ -243,6 +243,20 @@ The Shaman healing card provides one Call of the Elements selection for each ele
 
 Only one final resource gate can be combined with a request. Do not set more than one of `playerHealthAbove`, `manaAbove` and `manaBelow` on the same request. A request may additionally use `secondaryHealthUnit`, producing up to three nested protected conditions.
 
+## Holy Paladin Healing Rotation provider
+
+The Paladin healing card adds a dedicated aura selector beneath the shared health sliders. The provider maintains the selected learned aura, Blessing of Kings on visible group members, and Greater Blessing of Kings by class when the level-60 spell is learned. Confirmed casts provide conservative one-hour timers when party aura data is protected.
+
+- Automatic seal mode prefers learned Seal of Wisdom, then Seal of Light, then Seal of Righteousness. An explicit seal choice remains authoritative. The provider records the successful seal for 30 seconds and only offers Judgement against a living selected enemy after that seal is confirmed active.
+- Judgement uses the shared non-wand damage rule: it appears above 80% mana, never during the five-second mana-recovery lock, and healing rows always cover it when care is required. A confirmed cast starts its ten-second fallback timer. Forever Judgement does not consume the active seal.
+- Flash of Light is the routine small heal. Holy Shock is the instant emergency heal. Holy Light is limited to the emergency band, the explicit selected-friendly distress override, or a confirmed Infusion of Light proc.
+- Infusion of Light is never inferred from an ordinary successful cast. It is accepted only from a readable player aura or an observed critical Holy Shock/Flash of Light combat-log event, then tracked for at most 15 seconds and consumed by Holy Light. If both signals are unavailable, Holy Light remains emergency-only.
+- Divine Favor is sequenced from a confirmed activation into Holy Shock when available, otherwise Holy Light. The next successful Flash of Light, Holy Light or Holy Shock clears the tracked activation. The provider owns the two-minute fallback cooldown so protected spell cooldowns cannot loop it.
+- Light's Vigil is reserved for group emergencies because its current ranks cost 730–1340 mana. It requires two members of the same five-player party or raid subgroup to cross their emergency thresholds and player mana to remain above 50%. A confirmed mark is tracked on its exact member for 30 seconds; the next Holy Shock on that member is allowed through the mark's no-cooldown rule and clears the timer.
+- The provider does not automate Paladin racials. All Holy maintenance, direct heals and setup spells remain independently disableable in the Spells menu.
+
+Blessing, aura, seal, Judgement, Light's Vigil and direct-heal successes all enter the shared five-second mana rule while Healing Rotation is active. Static maintenance is withheld during that window; protected health requests remain available below their configured thresholds.
+
 ## Universal icons and A slots
 
 Original spells and original Universal icons use A[3]. Passive `UniversalN Unit1` textures use A[6]. A provider returns the spell name; `AL.SlotFor(spell)` applies the saved icon assignment. Add new spells to the class spell list so the Spells menu can assign them.

@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.15.1"
+local UI_VERSION = "0.16.0"
 
 -- Dedicated Paladin interface. Only UI text is localized here;
 -- internal spell names and profile keys remain unchanged.
@@ -178,6 +178,8 @@ local function BuildPaladinUI(page, ui)
 			{ label = { en = "Automatic by role and weapon", fr = "Automatique selon le role et l'arme", pt = "Automático pela função e arma", es = "Automático según rol y arma", de = "Automatisch nach Rolle und Waffe", zh = "按职责和武器自动" }, value = "AUTO" },
 			{ label = "Seal of Command", value = "COMMAND" },
 			{ label = "Seal of Righteousness", value = "RIGHTEOUSNESS" },
+			{ label = "Seal of Light", value = "LIGHT" },
+			{ label = "Seal of Wisdom", value = "WISDOM" },
 			{ label = "Seal of Fury", value = "FURY" },
 		}, "AUTO")
 	ui.Help(preparation, Text({
@@ -250,7 +252,12 @@ local function BuildPaladinUI(page, ui)
 		"Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation.", true)
 	Slider(healingEngine, "healingInitiateHP", "Initiate healing at HP", 5, 100, 80, " %")
 	Slider(healingEngine, "healingEmergencyHP", "Emergency healing", 5, 100, 30, " %")
-	ui.Help(healingEngine, "The first threshold is reserved for efficient heals. The emergency threshold is reserved for the largest heals and defensive cooldowns. Selecting a friendly group member requests the strongest available direct heal.")
+	Dropdown(healingEngine, "healingAura", "Healing aura", {
+		{ label = "Concentration Aura", value = "CONCENTRATION" },
+		{ label = "Devotion Aura", value = "DEVOTION" },
+		{ label = "Retribution Aura", value = "RETRIBUTION" },
+	}, "CONCENTRATION")
+	ui.Help(healingEngine, "Maintains the selected learned aura and Blessing of Kings, using Greater Blessing of Kings when learned. Automatic seal mode prefers Seal of Wisdom, then Seal of Light, before using Judgement above 80% mana. Flash of Light handles routine injuries. Holy Shock and Holy Light are reserved for urgent care, except that a confirmed Infusion of Light enables Holy Light at the normal healing threshold. Light's Vigil is reserved for multiple emergency injuries. Selecting a friendly group member requests the strongest available direct heal.")
 
 	local survival = ui.Card(stack,
 		Text({ en = "HEALING & SURVIVAL", fr = "SOINS ET SURVIE", pt = "CURA E SOBREVIVÊNCIA", es = "SANACIÓN Y SUPERVIVENCIA", de = "HEILUNG & ÜBERLEBEN", zh = "治疗和生存" }), nil, { id="survival", group="survival" })

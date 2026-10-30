@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 
--- ActionLITE Paladin v0.14.4: original Leveling plus optional talent builds.
+-- ActionLITE Paladin v0.15.0: original Leveling, optional talent builds and Holy Healing Rotation.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -121,8 +121,10 @@ M.spells = {
 	{ 25780, "Righteous Fury" },
 	{ 20375, "Seal of Command" },
 	{ 1311649, "Seal of Fury" },
+	{ 20165, "Seal of Light" },
 	{ 20154, "Seal of Righteousness" },
 	{ 21082, "Seal of the Crusader" },
+	{ 20166, "Seal of Wisdom" },
 	{ 5502, "Sense Undead" },
 	{ 2878, "Turn Undead" },
 }
@@ -157,6 +159,8 @@ local MINLEVEL = {
 	["Exorcism"] = 20,
 	["Flash of Light"] = 20,
 	["Concentration Aura"] = 22,
+	["Seal of Light"] = 30,
+	["Seal of Wisdom"] = 38,
 	["Sense Undead"] = 22,
 	["Turn Undead"] = 24,
 }
@@ -164,7 +168,7 @@ local MINLEVEL = {
 local Ok, _, Known = AL.LevelGates(MINLEVEL)
 M.minLevels = MINLEVEL
 
-local SEALS = { "Seal of Fury", "Seal of Command", "Seal of Righteousness", "Seal of the Crusader" }
+local SEALS = { "Seal of Fury", "Seal of Command", "Seal of Righteousness", "Seal of the Crusader", "Seal of Light", "Seal of Wisdom" }
 local AURAS = { "Retribution Aura", "Devotion Aura", "Concentration Aura" }
 local BLESSINGS = { "Blessing of Might", "Blessing of Wisdom" }
 
@@ -550,11 +554,13 @@ end
 
 local function PreferredSeal(s, role)
 	local mode = SettingChoice(s, "seal", {
-		AUTO = true, COMMAND = true, RIGHTEOUSNESS = true, FURY = true,
+		AUTO = true, COMMAND = true, RIGHTEOUSNESS = true, FURY = true, LIGHT = true, WISDOM = true,
 	}, "AUTO")
 	if mode == "FURY" and Ok("Seal of Fury") then return "Seal of Fury" end
 	if mode == "COMMAND" and Ok("Seal of Command") then return "Seal of Command" end
 	if mode == "RIGHTEOUSNESS" and Ok("Seal of Righteousness") then return "Seal of Righteousness" end
+	if mode == "LIGHT" and Ok("Seal of Light") then return "Seal of Light" end
+	if mode == "WISDOM" and Ok("Seal of Wisdom") then return "Seal of Wisdom" end
 	if role == "TANK" and Ok("Seal of Fury") then return "Seal of Fury" end
 	if role == "TANK" and Ok("Seal of Righteousness") then return "Seal of Righteousness" end
 	local speed = WeaponSpeed()
@@ -1085,6 +1091,7 @@ local M = {
 		templarsBulwark = true,
 		templarsBulwarkHP = 35,
 		hsicon = false,
+		healingAura = "CONCENTRATION",
 	},
 }
 
@@ -1150,9 +1157,11 @@ end
 
 M.spells = {
 	{ 1044, "Blessing of Freedom" },
+	{ 20217, "Blessing of Kings" },
 	{ 19740, "Blessing of Might" },
 	{ 1022, "Blessing of Protection" },
 	{ 19742, "Blessing of Wisdom" },
+	{ 25898, "Greater Blessing of Kings" },
 	{ 19746, "Concentration Aura" },
 	{ 26573, "Consecration" },
 	{ 465, "Devotion Aura" },
@@ -1167,6 +1176,7 @@ M.spells = {
 	{ 24275, "Hammer of Wrath" },
 	{ 4987, "Cleanse" },
 	{ 20216, "Divine Favor" },
+	{ 1310911, "Light's Vigil" },
 	{ 407632, "Hammer of the Righteous" },
 	{ 2812, "Holy Wrath" },
 	{ 20925, "Holy Shield" },
@@ -1183,8 +1193,10 @@ M.spells = {
 	{ 25780, "Righteous Fury" },
 	{ 20375, "Seal of Command" },
 	{ 1311649, "Seal of Fury" },
+	{ 20165, "Seal of Light" },
 	{ 20154, "Seal of Righteousness" },
 	{ 21082, "Seal of the Crusader" },
+	{ 20166, "Seal of Wisdom" },
 	{ 5502, "Sense Undead" },
 	{ 2878, "Turn Undead" },
 }
@@ -1203,6 +1215,7 @@ local MINLEVEL = {
 	["Devotion Aura"] = 1,
 	["Holy Light"] = 1,
 	["Blessing of Might"] = 4,
+	["Blessing of Kings"] = 20,
 	["Judgement"] = 4,
 	["Holy Strike"] = 6,
 	["Seal of Fury"] = 10,
@@ -1223,6 +1236,9 @@ local MINLEVEL = {
 	["Sense Undead"] = 22,
 	["Turn Undead"] = 24,
 	["Holy Shock"] = 30,
+	["Seal of Light"] = 30,
+	["Seal of Wisdom"] = 38,
+	["Greater Blessing of Kings"] = 60,
 	["Holy Shield"] = 40,
 	["Swift Judgement"] = 25,
 	["Templar's Bulwark"] = 30,
@@ -1235,9 +1251,9 @@ local MINLEVEL = {
 local Ok, _, Known = AL.LevelGates(MINLEVEL)
 M.minLevels = MINLEVEL
 
-local SEALS = { "Seal of Fury", "Seal of Command", "Seal of Righteousness", "Seal of the Crusader" }
+local SEALS = { "Seal of Fury", "Seal of Command", "Seal of Righteousness", "Seal of the Crusader", "Seal of Light", "Seal of Wisdom" }
 local AURAS = { "Retribution Aura", "Devotion Aura", "Concentration Aura" }
-local BLESSINGS = { "Blessing of Might", "Blessing of Wisdom" }
+local BLESSINGS = { "Blessing of Might", "Blessing of Wisdom", "Blessing of Kings", "Greater Blessing of Kings" }
 
 
 -- Protected health/mana control native display alpha; Lua never reads them.
@@ -1829,7 +1845,7 @@ local function Retribution(s, role)
     return role == "DPS" and SafeValue(s.retribution) and s.retribution == true
 end
 local function TwistEnabled(s, role)
-    local mode = SettingChoice(s, "seal", { AUTO=true, COMMAND=true, RIGHTEOUSNESS=true, FURY=true }, "AUTO")
+	local mode = SettingChoice(s, "seal", { AUTO=true, COMMAND=true, RIGHTEOUSNESS=true, FURY=true, LIGHT=true, WISDOM=true }, "AUTO")
     return Retribution(s, role) and s.sealTwisting == true and s.buffs == true and mode == "AUTO"
         and Ok("Seal of Command") and Ok("Seal of Righteousness") and TwistLearned()
 end
@@ -1865,13 +1881,15 @@ end
 
 local function PreferredSeal(s, role)
 	local mode = SettingChoice(s, "seal", {
-		AUTO = true, COMMAND = true, RIGHTEOUSNESS = true, FURY = true,
+		AUTO = true, COMMAND = true, RIGHTEOUSNESS = true, FURY = true, LIGHT = true, WISDOM = true,
 	}, "AUTO")
 	if mode == "AUTO" and Shockadin(s, role) and Ok("Seal of Righteousness") then return "Seal of Righteousness" end
 	if mode == "AUTO" and TwistEnabled(s, role) and TwistAuras() then return "Seal of Command" end
 	if mode == "FURY" and Ok("Seal of Fury") then return "Seal of Fury" end
 	if mode == "COMMAND" and Ok("Seal of Command") then return "Seal of Command" end
 	if mode == "RIGHTEOUSNESS" and Ok("Seal of Righteousness") then return "Seal of Righteousness" end
+	if mode == "LIGHT" and Ok("Seal of Light") then return "Seal of Light" end
+	if mode == "WISDOM" and Ok("Seal of Wisdom") then return "Seal of Wisdom" end
 	if role == "TANK" and Ok("Seal of Fury") then return "Seal of Fury" end
 	if role == "TANK" and Ok("Seal of Righteousness") then return "Seal of Righteousness" end
 	local speed = WeaponSpeed()
@@ -2525,5 +2543,634 @@ AL.RegisterRotation("PALADIN", M)
             end
         end
     end
+
+    -- =====================================================================
+    -- Holy Paladin Healing Rotation provider
+    -- ---------------------------------------------------------------------
+    -- Party health remains protected in combat. This provider supplies only
+    -- public spell, aura and confirmed-cast timers; HealingEngine owns every
+    -- health/mana mask and the Action-compatible focus pixel.
+    -- =====================================================================
+    local paladinHealing = {
+        effects = {}, applied = {}, cooldowns = {}, favorActive = false,
+        favorChangedAt = 0, infusionUntil = 0, infusionChangedAt = 0,
+        vigil = nil, lastHeal = nil,
+        lastBlessing = nil, lastJudgement = nil,
+    }
+    local PL_SEALS = {
+        "Seal of Fury", "Seal of Command", "Seal of Righteousness",
+        "Seal of the Crusader", "Seal of Light", "Seal of Wisdom",
+    }
+    local PL_AURAS = { "Retribution Aura", "Devotion Aura", "Concentration Aura" }
+    local PL_AURA_BY_SETTING = {
+        RETRIBUTION = "Retribution Aura", DEVOTION = "Devotion Aura",
+        CONCENTRATION = "Concentration Aura",
+    }
+    local PL_SEAL_BY_SETTING = {
+        COMMAND = "Seal of Command", RIGHTEOUSNESS = "Seal of Righteousness",
+        FURY = "Seal of Fury", LIGHT = "Seal of Light", WISDOM = "Seal of Wisdom",
+    }
+    local PL_AURA_IDS = {
+        ["Divine Favor"] = { [20216] = true },
+        ["Infusion of Light"] = { [426065] = true },
+        ["Blessing of Kings"] = { [20217] = true, [25898] = true },
+        ["Greater Blessing of Kings"] = { [20217] = true, [25898] = true },
+        ["Light's Vigil"] = { [1310911] = true, [1311590] = true, [1311595] = true },
+    }
+
+    local function PLNow()
+        local ok, value = pcall(GetTime)
+        return ok and type(value) == "number" and value or 0
+    end
+    local function PLSecret(value)
+        if type(issecretvalue) ~= "function" then return false end
+        local ok, secret = pcall(issecretvalue, value)
+        return not ok or secret == true
+    end
+    local function PLNumber(value)
+        if PLSecret(value) or type(value) ~= "number" or value ~= value
+            or value == math.huge or value == -math.huge then return nil end
+        return value
+    end
+    local function PLBool(func, ...)
+        if type(func) ~= "function" then return nil end
+        local ok, value = pcall(func, ...)
+        if not ok or PLSecret(value) then return nil end
+        if value == true or value == 1 then return true end
+        if value == false or value == 0 then return false end
+    end
+    local function PLExists(unit)
+        return PLBool(UnitExists, unit) == true
+    end
+    local function PLKnown(spell)
+        return not root.known or root.known[spell] == true
+    end
+    local function PLPermitted(spell, profile, ignoreUsable)
+        if type(spell) ~= "string" or spell == "" or not PLKnown(spell) then return false end
+        if root.Allowed then
+            local ok, allowed = pcall(root.Allowed, spell, profile)
+            if not ok or PLSecret(allowed) or allowed == false then return false end
+        end
+        if not ignoreUsable and root.SpellUsable then
+            local ok, usable = pcall(root.SpellUsable, spell)
+            if not ok or PLSecret(usable) or usable == false then return false end
+        end
+        return true
+    end
+    local function PLCooldownReady(spell)
+        local expiration = paladinHealing.cooldowns[spell]
+        return type(expiration) ~= "number" or expiration <= PLNow()
+    end
+    local function PLAvailable(spell, profile, ignoreRootReady, ignoreUsable)
+        if not PLPermitted(spell, profile, ignoreUsable) or not PLCooldownReady(spell) then return false end
+        if not ignoreRootReady and root.IsReady then
+            local ok, ready = pcall(root.IsReady, spell)
+            if not ok or PLSecret(ready) or ready == false then return false end
+        end
+        return true
+    end
+    local function PLPreferred(profile, spells, ignoreRootReady, ignoreUsable)
+        for _, spell in ipairs(spells) do
+            if PLAvailable(spell, profile, ignoreRootReady, ignoreUsable) then return spell end
+        end
+    end
+    local function PLRosterUnits()
+        local units, raid = {}, false
+        for index = 1, 40 do
+            if PLExists("raid" .. index) then raid = true; break end
+        end
+        if raid then
+            for index = 1, 40 do
+                local unit = "raid" .. index
+                if PLExists(unit) then units[#units + 1] = unit end
+            end
+        else
+            for index = 1, 4 do
+                local unit = "party" .. index
+                if PLExists(unit) then units[#units + 1] = unit end
+            end
+            units[#units + 1] = "player"
+        end
+        return units
+    end
+    local function PLGroupUnitFor(source)
+        if not PLExists(source) or type(UnitIsUnit) ~= "function" then return nil end
+        local assist = PLBool(UnitCanAssist, "player", source)
+        local friend = PLBool(UnitIsFriend, "player", source)
+        if assist ~= true and friend ~= true then return nil end
+        for _, unit in ipairs(PLRosterUnits()) do
+            if PLBool(UnitIsUnit, source, unit) == true then return unit end
+        end
+    end
+    local function PLHealingUnit()
+        return PLGroupUnitFor("target") or PLGroupUnitFor("focus")
+    end
+    local function PLUnitKey(unit)
+        if type(unit) ~= "string" then return nil end
+        if type(UnitGUID) == "function" then
+            local ok, guid = pcall(UnitGUID, unit)
+            if ok and not PLSecret(guid) and type(guid) == "string" and guid ~= "" then
+                return guid
+            end
+        end
+        return unit
+    end
+    local function PLUnitForKey(key)
+        if type(key) ~= "string" then return nil end
+        for _, unit in ipairs(PLRosterUnits()) do
+            if PLUnitKey(unit) == key then return unit end
+        end
+    end
+    local function PLSameUnit(left, right)
+        if not left or not right then return false end
+        if type(UnitIsUnit) == "function" and PLBool(UnitIsUnit, left, right) == true then return true end
+        return PLUnitKey(left) == PLUnitKey(right)
+    end
+    local function PLEffectActive(unit, spell)
+        local key = PLUnitKey(unit)
+        local effects = key and paladinHealing.effects[key]
+        local expiration = effects and effects[spell]
+        if type(expiration) == "number" and expiration > PLNow() then return true end
+        if effects then effects[spell] = nil end
+        if key and paladinHealing.applied[key] then paladinHealing.applied[key][spell] = nil end
+        return false
+    end
+    local function PLSetEffect(unit, spell, duration)
+        local key = PLUnitKey(unit)
+        if not key or type(duration) ~= "number" then return end
+        paladinHealing.effects[key] = paladinHealing.effects[key] or {}
+        paladinHealing.applied[key] = paladinHealing.applied[key] or {}
+        paladinHealing.effects[key][spell] = PLNow() + duration
+        paladinHealing.applied[key][spell] = PLNow()
+    end
+    local function PLClearEffects(unit, spells)
+        local key = PLUnitKey(unit)
+        local effects = key and paladinHealing.effects[key]
+        if not effects then return end
+        local applied = paladinHealing.applied[key]
+        for _, spell in ipairs(spells) do
+            effects[spell] = nil
+            if applied then applied[spell] = nil end
+        end
+    end
+    local function PLAuraState(unit, spell, ids)
+        local reader = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+        if type(reader) ~= "function" then return nil end
+        for index = 1, 40 do
+            local ok, aura = pcall(reader, unit, index, "HELPFUL")
+            if not ok or PLSecret(aura) then return nil end
+            if aura == nil then return false end
+            if type(aura) ~= "table" then return nil end
+            local id = PLNumber(aura.spellId)
+            local name = not PLSecret(aura.name) and type(aura.name) == "string" and aura.name or nil
+            if name then name = (root.englishNames and root.englishNames[name]) or name end
+            local learned = root.rangeSpellRefs and root.rangeSpellRefs[spell]
+            local learnedID = learned and PLNumber(learned.id)
+            if name == spell or ids and id and ids[id] or learnedID and id == learnedID then
+                return true, PLNumber(aura.expirationTime)
+            end
+        end
+        return nil
+    end
+    local function PLTrackedAura(unit, spell, duration, ids)
+        local present, expiration = PLAuraState(unit, spell, ids)
+        if present == true then
+            local seconds = expiration and math.max(0.1, expiration - PLNow()) or duration
+            PLSetEffect(unit, spell, seconds)
+            return true
+        end
+        if present == false then
+            local key = PLUnitKey(unit)
+            local effects = key and paladinHealing.effects[key]
+            local applied = key and paladinHealing.applied[key]
+            if applied and type(applied[spell]) == "number"
+                and PLNow() - applied[spell] < 0.75 then
+                return effects and type(effects[spell]) == "number"
+                    and effects[spell] > PLNow() or false
+            end
+            if effects then effects[spell] = nil end
+            if applied then applied[spell] = nil end
+            return false
+        end
+        return PLEffectActive(unit, spell)
+    end
+    local function PLChoice(profile, key, allowed, fallback)
+        if type(profile) ~= "table" then return fallback end
+        local value = profile[key]
+        if PLSecret(value) or type(value) ~= "string" or not allowed[value] then return fallback end
+        return value
+    end
+    local function PLSelectedAura(profile)
+        local setting = PLChoice(profile, "healingAura", {
+            CONCENTRATION = true, DEVOTION = true, RETRIBUTION = true,
+        }, "CONCENTRATION")
+        local selected = PL_AURA_BY_SETTING[setting]
+        if selected and PLKnown(selected) then return selected end
+        for _, spell in ipairs({ "Concentration Aura", "Devotion Aura", "Retribution Aura" }) do
+            if PLKnown(spell) then return spell end
+        end
+    end
+    local function PLSelectedSeal(profile)
+        local setting = PLChoice(profile, "seal", {
+            AUTO = true, COMMAND = true, RIGHTEOUSNESS = true,
+            FURY = true, LIGHT = true, WISDOM = true,
+        }, "AUTO")
+        local selected = PL_SEAL_BY_SETTING[setting]
+        if selected and PLKnown(selected) then return selected end
+        for _, spell in ipairs({ "Seal of Wisdom", "Seal of Light", "Seal of Righteousness", "Seal of Command" }) do
+            if PLKnown(spell) then return spell end
+        end
+    end
+    local function PLPlayerAuraActive(spell, duration, ids)
+        return PLTrackedAura("player", spell, duration, ids or PL_AURA_IDS[spell])
+    end
+    local function PLKingsActive(unit)
+        local normal = PLAuraState(unit, "Blessing of Kings", PL_AURA_IDS["Blessing of Kings"])
+        if normal == true then
+            PLSetEffect(unit, "Blessing of Kings", 3600)
+            return true
+        elseif normal == false then
+            local key = PLUnitKey(unit)
+            local applied = key and paladinHealing.applied[key]
+            if applied and ((applied["Blessing of Kings"] or 0) > PLNow() - 0.75
+                or (applied["Greater Blessing of Kings"] or 0) > PLNow() - 0.75) then
+                return true
+            end
+            PLClearEffects(unit, { "Blessing of Kings", "Greater Blessing of Kings" })
+            return false
+        end
+        return PLEffectActive(unit, "Blessing of Kings")
+            or PLEffectActive(unit, "Greater Blessing of Kings")
+    end
+    local function PLInfusionActive()
+        local present, expiration = PLAuraState("player", "Infusion of Light", PL_AURA_IDS["Infusion of Light"])
+        if present == true then
+            paladinHealing.infusionUntil = expiration and math.max(PLNow() + 0.1, expiration) or PLNow() + 15
+        elseif present == false then
+            if PLNow() - paladinHealing.infusionChangedAt >= 0.75 then
+                paladinHealing.infusionUntil = 0
+            end
+        end
+        return paladinHealing.infusionUntil > PLNow()
+    end
+    local function PLFavorActive()
+        local present = PLAuraState("player", "Divine Favor", PL_AURA_IDS["Divine Favor"])
+        if present == true then paladinHealing.favorActive = true
+        elseif present == false and PLNow() - paladinHealing.favorChangedAt >= 0.75 then
+            paladinHealing.favorActive = false
+        end
+        return paladinHealing.favorActive == true
+    end
+    local function PLUnitClass(unit)
+        if type(UnitClass) ~= "function" then return nil end
+        local ok, _, class = pcall(UnitClass, unit)
+        if not ok or PLSecret(class) or type(class) ~= "string" then return nil end
+        return class
+    end
+    local function PLRole(unit)
+        if type(UnitGroupRolesAssigned) ~= "function" then return "NONE" end
+        local ok, role = pcall(UnitGroupRolesAssigned, unit)
+        if not ok or PLSecret(role) or type(role) ~= "string" then return "NONE" end
+        return role
+    end
+    local function PLAdjustedThreshold(context, unit, base)
+        if PLRole(unit) == "DAMAGER" then base = base - (context.dpsThresholdOffset or 10) end
+        return math.max(0, base)
+    end
+    local function PLSubgroup(unit)
+        if unit == "player" or unit:match("^party%d+$") then return "party" end
+        local index = tonumber(unit:match("^raid(%d+)$"))
+        return index and ("raid" .. math.floor((index - 1) / 5 + 1)) or nil
+    end
+    local function PLEligiblePairUnit(unit)
+        if not PLExists(unit) then return false end
+        if PLBool(UnitIsDeadOrGhost, unit) == true then return false end
+        if unit ~= "player" then
+            local assist = PLBool(UnitCanAssist, "player", unit)
+            local friend = PLBool(UnitIsFriend, "player", unit)
+            if assist == false or friend == false or (assist == nil and friend == nil) then return false end
+        end
+        return true
+    end
+    local function PLVigilUnit()
+        local record = paladinHealing.vigil
+        if not record or record.expires <= PLNow() then paladinHealing.vigil = nil; return nil end
+        return PLUnitForKey(record.key) or record.unit
+    end
+    local function PLManualSpell(profile)
+        return PLPreferred(profile, { "Holy Light", "Holy Shock", "Flash of Light" }, true)
+    end
+
+    function advanced.HealingEngineCastSucceeded(spell)
+        if type(spell) ~= "string" or PLSecret(spell) then return end
+        local profile = root.S and root.S() or {}
+        if type(profile) ~= "table" or PLSecret(profile.healingEngine)
+            or profile.healingEngine ~= true then return end
+        local now, unit = PLNow(), PLHealingUnit()
+        if spell == "Blessing of Kings" or spell == "Greater Blessing of Kings" then
+            unit = unit or "player"
+            if spell == "Greater Blessing of Kings" then
+                local class = PLUnitClass(unit)
+                for _, member in ipairs(PLRosterUnits()) do
+                    if not class or PLUnitClass(member) == class then
+                        PLSetEffect(member, spell, 3600)
+                    end
+                end
+            else
+                PLSetEffect(unit, spell, 3600)
+            end
+            paladinHealing.lastBlessing = { spell = spell, unit = unit, at = now }
+        elseif PL_AURA_BY_SETTING.RETRIBUTION == spell
+            or PL_AURA_BY_SETTING.DEVOTION == spell
+            or PL_AURA_BY_SETTING.CONCENTRATION == spell then
+            PLClearEffects("player", PL_AURAS)
+            PLSetEffect("player", spell, 3600)
+        else
+            local isSeal = false
+            for _, seal in ipairs(PL_SEALS) do
+                if seal == spell then isSeal = true; break end
+            end
+            if isSeal then
+                PLClearEffects("player", PL_SEALS)
+                PLSetEffect("player", spell, 30)
+            end
+        end
+        if spell == "Divine Favor" then
+            paladinHealing.favorActive = true
+            paladinHealing.favorChangedAt = now
+            paladinHealing.cooldowns[spell] = now + 120
+        elseif spell == "Light's Vigil" then
+            unit = unit or "player"
+            paladinHealing.vigil = { unit = unit, key = PLUnitKey(unit), expires = now + 30 }
+            paladinHealing.cooldowns[spell] = now + 6
+        elseif spell == "Holy Shock" then
+            local marked = PLVigilUnit()
+            if marked and unit and PLSameUnit(marked, unit) then
+                paladinHealing.vigil = nil
+            else
+                paladinHealing.cooldowns[spell] = now + 10
+            end
+            paladinHealing.lastHeal = { spell = spell, unit = unit, at = now }
+        elseif spell == "Holy Light" or spell == "Flash of Light" then
+            paladinHealing.lastHeal = { spell = spell, unit = unit, at = now }
+        elseif spell == "Judgement" then
+            paladinHealing.cooldowns[spell] = now + 10
+            paladinHealing.lastJudgement = { at = now, seal = PLSelectedSeal(profile) }
+        end
+        if spell == "Holy Shock" or spell == "Holy Light" or spell == "Flash of Light" then
+            paladinHealing.favorActive = false
+            paladinHealing.favorChangedAt = now
+        end
+        if spell == "Holy Light" then paladinHealing.infusionUntil = 0 end
+    end
+
+    function advanced.HealingEngineDamagePlan(profile, context)
+        if type(profile) ~= "table" or type(context) ~= "table" or not context.enemyCombat then return false end
+        if not PLSecret(profile.judgement) and profile.judgement == false then return false end
+        local seal = PLSelectedSeal(profile)
+        if not seal or not PLPlayerAuraActive(seal, 30) then return false end
+        if not PLAvailable("Judgement", profile, false) then return false end
+        return {
+            spell = "Judgement", reason = "Holy: judge with maintained " .. seal,
+            requireReady = false,
+        }
+    end
+
+    local function PLAppendVigilRequests(critical, profile, context)
+        if not PLKnown("Holy Shock") or not PLPermitted("Holy Shock", profile) then return end
+        local marked = PLVigilUnit()
+        if marked and PLEligiblePairUnit(marked) then
+            local subgroup = PLSubgroup(marked)
+            for _, secondary in ipairs(PLRosterUnits()) do
+                if secondary ~= marked and PLEligiblePairUnit(secondary)
+                    and PLSubgroup(secondary) == subgroup then
+                    critical[#critical + 1] = {
+                        spell = "Holy Shock", reason = "Holy: trigger tracked Light's Vigil",
+                        unit = marked, requireReady = false,
+                        threshold = context.settings.emergency, visibility = "health",
+                        secondaryHealthUnit = secondary,
+                        secondaryHealthThreshold = PLAdjustedThreshold(
+                            context, secondary, context.settings.emergency),
+                    }
+                end
+            end
+            return
+        end
+        if not PLAvailable("Light's Vigil", profile, true) then return end
+        local units = PLRosterUnits()
+        for left = 1, #units - 1 do
+            local primary = units[left]
+            if PLEligiblePairUnit(primary) then
+                for right = left + 1, #units do
+                    local secondary = units[right]
+                    if PLEligiblePairUnit(secondary)
+                        and PLSubgroup(primary) == PLSubgroup(secondary) then
+                        critical[#critical + 1] = {
+                            spell = "Light's Vigil", reason = "Holy: emergency party recovery setup",
+                            unit = primary, requireReady = false,
+                            threshold = context.settings.emergency, visibility = "health",
+                            secondaryHealthUnit = secondary,
+                            secondaryHealthThreshold = PLAdjustedThreshold(
+                                context, secondary, context.settings.emergency),
+                            manaAbove = 50,
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    function advanced.HealingEnginePlan(profile, context)
+        if type(profile) ~= "table" or type(context) ~= "table"
+            or PLSecret(profile.healingEngine) or profile.healingEngine ~= true then return nil end
+        local now = PLNow()
+        if paladinHealing.infusionUntil <= now then paladinHealing.infusionUntil = 0 end
+        if paladinHealing.vigil and paladinHealing.vigil.expires <= now then paladinHealing.vigil = nil end
+
+        local manual
+        if context.manualTarget then
+            local spell = PLManualSpell(profile)
+            manual = spell and {
+                spell = spell, reason = "Holy: selected ally distress heal",
+                requireReady = false,
+            } or false
+        end
+
+        local maintenance = {}
+        if not context.mp5Locked then
+            local aura = PLSelectedAura(profile)
+            if aura and PLAvailable(aura, profile, true)
+                and not PLPlayerAuraActive(aura, 3600) then
+                maintenance[#maintenance + 1] = {
+                    spell = aura, reason = "Holy: maintain selected healing aura",
+                    unit = "player", rangeUnit = "player", visibility = "always",
+                    requireReady = false,
+                }
+            end
+            local blessing
+            if PLAvailable("Greater Blessing of Kings", profile, true) then
+                blessing = "Greater Blessing of Kings"
+            elseif PLAvailable("Blessing of Kings", profile, true) then
+                blessing = "Blessing of Kings"
+            end
+            if blessing then
+                maintenance[#maintenance + 1] = {
+                    spell = blessing, reason = "Holy: maintain " .. blessing,
+                    visibility = "always", requireReady = false,
+                    unitFilter = function(unit) return not PLKingsActive(unit) end,
+                }
+            end
+            if context.enemyCombat then
+                local seal = PLSelectedSeal(profile)
+                if seal and PLAvailable(seal, profile, true)
+                    and not PLPlayerAuraActive(seal, 30) then
+                    maintenance[#maintenance + 1] = {
+                        spell = seal, reason = "Holy: prepare selected seal for Judgement",
+                        unit = "player", rangeUnit = "player", visibility = "always",
+                        requireReady = false,
+                    }
+                end
+            end
+        end
+        if not context.inCombat then
+            return { manual = manual == nil and false or manual, maintenance = maintenance }
+        end
+
+        local routine = {}
+        if PLAvailable("Flash of Light", profile, true) then
+            routine[#routine + 1] = {
+                spell = "Flash of Light", reason = "Holy: efficient small heal",
+                requireReady = false,
+            }
+        end
+        -- HealingEngine draws later requests above earlier requests inside the
+        -- same health band, so the confirmed proc wins over the filler.
+        if PLInfusionActive() and PLAvailable("Holy Light", profile, true) then
+            routine[#routine + 1] = {
+                spell = "Holy Light", reason = "Holy: consume confirmed Infusion of Light",
+                requireReady = false,
+            }
+        end
+
+        local emergency = {}
+        if PLAvailable("Holy Light", profile, true) then
+            emergency[1] = {
+                spell = "Holy Light", reason = "Holy: emergency large heal",
+                requireReady = false, threshold = context.settings.emergency,
+            }
+        end
+
+        local critical = {}
+        local consumer
+        if PLAvailable("Holy Shock", profile, true) then consumer = "Holy Shock"
+        elseif PLAvailable("Holy Light", profile, true) then consumer = "Holy Light" end
+        if PLFavorActive() and consumer then
+            critical[#critical + 1] = {
+                spell = consumer, reason = "Holy: consume Divine Favor with " .. consumer,
+                requireReady = false, visibility = "health",
+                threshold = context.settings.emergency,
+            }
+        elseif consumer and PLAvailable("Divine Favor", profile, true) then
+            critical[#critical + 1] = {
+                spell = "Divine Favor", reason = "Holy: emergency guaranteed critical heal",
+                rangeUnit = "player", requireReady = false, visibility = "health",
+                threshold = context.settings.emergency,
+            }
+        elseif PLAvailable("Holy Shock", profile, true) then
+            critical[#critical + 1] = {
+                spell = "Holy Shock", reason = "Holy: emergency instant heal",
+                requireReady = false, visibility = "health",
+                threshold = context.settings.emergency,
+            }
+        elseif PLAvailable("Holy Light", profile, true) then
+            critical[#critical + 1] = {
+                spell = "Holy Light", reason = "Holy: emergency Holy Light",
+                requireReady = false, visibility = "health",
+                threshold = context.settings.emergency,
+            }
+        end
+        -- These two-health-gate rows are drawn last. They override the
+        -- single-target emergency only while both group members need care.
+        PLAppendVigilRequests(critical, profile, context)
+        return {
+            manual = manual,
+            maintenance = maintenance,
+            routine = routine,
+            emergency = emergency,
+            critical = critical,
+        }
+    end
+
+    function advanced.HealingState()
+        local now, effects, cooldowns = PLNow(), {}, {}
+        for unit, spells in pairs(paladinHealing.effects) do
+            effects[unit] = {}
+            for spell, expiration in pairs(spells) do
+                effects[unit][spell] = math.max(0, expiration - now)
+            end
+        end
+        for _, spell in ipairs({ "Holy Shock", "Divine Favor", "Light's Vigil", "Judgement" }) do
+            cooldowns[spell] = math.max(0, (paladinHealing.cooldowns[spell] or 0) - now)
+        end
+        local engine = root.HealingEngine
+        local profile = root.S and root.S() or {}
+        return {
+            provider = "Holy Paladin",
+            aura = PLSelectedAura(profile), seal = PLSelectedSeal(profile),
+            divineFavor = PLFavorActive(), infusion = PLInfusionActive(),
+            infusionSeconds = math.max(0, paladinHealing.infusionUntil - now),
+            vigilUnit = PLVigilUnit(),
+            vigilSeconds = paladinHealing.vigil and math.max(0, paladinHealing.vigil.expires - now) or 0,
+            cooldowns = cooldowns, effects = effects,
+            mp5LockSeconds = engine and engine.FiveSecondRuleRemaining
+                and engine:FiveSecondRuleRemaining() or 0,
+            lastHeal = paladinHealing.lastHeal,
+            lastBlessing = paladinHealing.lastBlessing,
+            lastJudgement = paladinHealing.lastJudgement,
+        }
+    end
+
+    -- Infusion of Light is only inferred from an observed critical heal. If
+    -- combat-log or aura data is unavailable, Holy Light remains emergency-only
+    -- rather than guessing that the proc exists.
+    local paladinHealingEvents = CreateFrame("Frame")
+    for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "COMBAT_LOG_EVENT_UNFILTERED" }) do
+        if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then
+            pcall(paladinHealingEvents.RegisterEvent, paladinHealingEvents, event)
+        end
+    end
+    paladinHealingEvents:SetScript("OnEvent", function(_, event)
+        if event ~= "COMBAT_LOG_EVENT_UNFILTERED" then
+            paladinHealing.effects = {}
+            paladinHealing.applied = {}
+            paladinHealing.vigil = nil
+            paladinHealing.favorActive = false
+            paladinHealing.favorChangedAt = 0
+            paladinHealing.infusionUntil = 0
+            paladinHealing.infusionChangedAt = 0
+            return
+        end
+        if type(CombatLogGetCurrentEventInfo) ~= "function" then return end
+        local ok, data = pcall(function() return { CombatLogGetCurrentEventInfo() } end)
+        if not ok or type(data) ~= "table" then return end
+        local subevent, sourceGUID = data[2], data[4]
+        if PLSecret(subevent) or subevent ~= "SPELL_HEAL" or PLSecret(sourceGUID) then return end
+        local playerGUID = type(UnitGUID) == "function" and select(2, pcall(UnitGUID, "player")) or nil
+        if PLSecret(playerGUID) or type(playerGUID) ~= "string" or sourceGUID ~= playerGUID then return end
+        local spellID, spellName, critical = PLNumber(data[12]), data[13], data[18]
+        if PLSecret(spellName) then spellName = nil end
+        if type(spellName) == "string" then
+            spellName = (root.englishNames and root.englishNames[spellName]) or spellName
+        end
+        local eligible = spellName == "Holy Shock" or spellName == "Flash of Light"
+            or spellID == 1311606 or spellID == 20473 or spellID == 20929 or spellID == 20930
+            or spellID == 19750 or spellID == 19939 or spellID == 19940
+            or spellID == 19941 or spellID == 19942 or spellID == 19943
+        if eligible and not PLSecret(critical) and critical == true then
+            paladinHealing.infusionUntil = PLNow() + 15
+            paladinHealing.infusionChangedAt = PLNow()
+        end
+    end)
+
     root.RegisterRotation("PALADIN", advanced)
 end
