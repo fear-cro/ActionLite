@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.16.0"
+local UI_VERSION = "0.16.1"
 
 -- Dedicated Paladin interface. Only UI text is localized here;
 -- internal spell names and profile keys remain unchanged.
@@ -110,22 +110,20 @@ local function BuildPaladinUI(page, ui)
 		ui.Repaint()
 	end
 	Check(buildCard, "retribution", "Use Retribution (10/8/33)", "Seal of Command",
-		"Uses learned Retribution damage and execute priorities. Automatic seal mode prepares Command for learned Twist of Light when aura data is readable. Otherwise it keeps the weapon-based single-seal choice. Selecting this disables Shockadin and Tank. Talents and equipment are not changed.", true,
+		"Uses learned Retribution damage and execute priorities. Automatic seal mode keeps the weapon-based single-seal choice. Unsealed Wrath seal switching remains manual until its new stack state can be confirmed safely in combat. Selecting this disables Shockadin and Tank. Talents and equipment are not changed.", true,
 		function() SelectBuild("retribution", "shockadin") end)
 	Check(buildCard, "shockadin", "Use Shockadin (23/0/28)", "Holy Shock",
 		"Uses learned Shockadin damage priorities and automatic Seal of Righteousness. Selecting this disables Retribution and Tank. Select Leveling Rotation to use the earlier DPS priority. Talents and equipment are not changed.", true,
 		function() SelectBuild("shockadin", "retribution") end)
-	Check(buildCard, "sealTwisting", "Use Twist of Light", "Seal of Command",
-		"Retribution only, in melee and with Automatic seal mode. Requires the learned capstone and both seals. Swaps Command and Righteousness only when readable aura data confirms the previous Echo is gone. Protected or incomplete aura data falls back to maintaining one seal according to your weapon or explicit seal choice.", true)
-	Slider(buildCard, "sealTwistMinMana", "Seal twisting minimum mana", 0, 100, 15, " %")
+	ui.Help(buildCard, "Unsealed Wrath replaced the former Twist of Light behavior. Automatic seal cycling is disabled so ActionLITE cannot consume its new stored-seal stacks at the wrong time.")
 	ui.Help(buildCard, "Area damage requires AoE On. Divine Favor requires Burst On and an eligible offensive Holy Shock. Only learned and enabled spells are used.")
 	local burstCard=ui.Card(stack,"BURST",nil,{id="burst",group="burst"})
-	local tankCard = ui.Card(stack, "PROTECTION — 8/33/10", "Tank defenses and Judgement reset", { id="tankCard", build="protection", group="survival" })
+	local tankCard = ui.Card(stack, "PROTECTION — 8/33/10", "Tank defenses and independent Judgement", { id="tankCard", build="protection", group="survival" })
 	Check(tankCard, "holyShield", "Maintain Holy Shield", "Holy Shield",
 		"Tank only. Requires the learned spell and an equipped shield. Prepares for a nearby pull and maintains block protection in melee combat. Uses confirmed casts when aura or cooldown data is protected.", true)
 	Slider(tankCard, "holyShieldMinMana", "Holy Shield minimum mana", 0, 100, 10, " %")
 	Check(burstCard, "swiftJudgement", "Burst: use Swift Judgement", "Swift Judgement",
-		"Tank only and Burst On. Resets a cooling-down Judgement when an active seal, the Judgement checkbox, target range, mana slider and target-health limits allow the follow-up. It is never used while Judgement is already ready.", true)
+		"Tank only and Burst On. Unleashes the active seal as an independent Judgement without consuming the seal or changing the normal Judgement cooldown. Uses its own one-minute cooldown and the configured target-health limits.", true)
 	Check(tankCard, "templarsBulwark", "Use Templar's Bulwark", "Templar's Bulwark",
 		"Tank only, with emergency spells enabled. Uses the learned absorb at or below its health slider, unless Forbearance or the absorb is already active. Independent of Burst On. Tank never automatically uses Divine Protection or Divine Shield.", true)
 	Slider(tankCard, "templarsBulwarkHP", "Templar's Bulwark at or below health", 5, 80, 35, " %")
@@ -197,7 +195,7 @@ local function BuildPaladinUI(page, ui)
 		Text({ en = "OFFENSIVE PRIORITY", fr = "PRIORITE OFFENSIVE", pt = "PRIORIDADE OFENSIVA", es = "PRIORIDAD OFENSIVA", de = "OFFENSIVPRIORITÄT", zh = "进攻优先级" }), nil, { id="offense", group="damage" })
 	Check(offense, "holyShock", "Use Holy Shock", "Holy Shock", "Shockadin: casts on cooldown when learned, enabled and above the configured mana minimum.")
 	Slider(offense, "holyShockMinMana", "Holy Shock minimum mana", 0, 100, 10, " %")
-	Check(offense, "hammerOfWrath", "Use Hammer of Wrath", "Hammer of Wrath", "Protection, Retribution and Shockadin: casts when target health is at or below 20%, the spell is learned and ready, the player is stationary, and mana meets the configured minimum.")
+	Check(offense, "hammerOfWrath", "Use Hammer of Wrath", "Hammer of Wrath", "Protection, Retribution and Shockadin: casts when target health is at or below 20%, the spell is learned and ready, and mana meets the configured minimum. Movement is allowed only when the learned spell reports an instant cast from Champion of the Light.")
 	Slider(offense, "hammerOfWrathMinMana", "Hammer of Wrath minimum mana", 0, 100, 10, " %")
 	Check(offense, "holystrike", "Holy Strike", "Holy Strike",
 		{ en = "Main melee strike when learned, ready and affordable.", fr = "Attaque de melee principale lorsqu'elle est apprise, disponible et abordable.", pt = "Golpe corpo a corpo principal quando aprendido, pronto e com mana suficiente.", es = "Golpe cuerpo a cuerpo principal cuando está aprendido, listo y es asequible.", de = "Hauptangriff im Nahkampf, wenn erlernt, bereit und bezahlbar.", zh = "已学会、可用且资源足够时的主要近战攻击。" })
@@ -257,6 +255,8 @@ local function BuildPaladinUI(page, ui)
 		{ label = "Devotion Aura", value = "DEVOTION" },
 		{ label = "Retribution Aura", value = "RETRIBUTION" },
 	}, "CONCENTRATION")
+	Check(healingEngine, "healingOathOfLight", "Maintain Oath of Light on tank", "Oath of Light",
+		"Healing Rotation only. When learned and enabled, maintains the five-minute buff on the group member identified as the tank. Only one Oath target is tracked at a time.", true)
 	ui.Help(healingEngine, "Maintains the selected learned aura and Blessing of Kings, using Greater Blessing of Kings when learned. Automatic seal mode prefers Seal of Wisdom, then Seal of Light, before using Judgement above 80% mana. Flash of Light handles routine injuries. Holy Shock and Holy Light are reserved for urgent care, except that a confirmed Infusion of Light enables Holy Light at the normal healing threshold. Light's Vigil is reserved for multiple emergency injuries. Selecting a friendly group member requests the strongest available direct heal.")
 
 	local survival = ui.Card(stack,

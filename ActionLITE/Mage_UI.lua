@@ -139,7 +139,7 @@ AL.RegisterSimpleClassUI("MAGE", {
 			id="arcane-build-35-11-5", build="arcane", group="damage",
 			controls = {
 				{ key = "arcane", label = "Use Arcane (35/11/5)", half = false, spell = "Arcane Blast", onChange = ChooseBuild("arcane","primaryFire","frostfire","fire","frost") },
-				{ type = "info", text = "Uses the live tier preset with learned spells through level 60: build the fifteen-second Arcane Blast buff, use confirmed Missile Barrage, then Arcane Wrath on cooldown and Arcane Missiles filler. Other spells retain the buff. Unchecks Frostfire and the fire-primary option while preserving their other settings. Talents and gear are not changed." },
+				{ type = "info", text = "Uses the live tier preset with learned spells through level 60: build the eighteen-second Arcane Blast buff, use confirmed Missile Barrage, then Arcane Wrath on cooldown and Arcane Missiles filler. Other spells retain the buff. Unchecks Frostfire and the fire-primary option while preserving their other settings. Talents and gear are not changed." },
 				{ key = "arcaneBlast", label = "Use Arcane Blast", spell = "Arcane Blast" },
 				{ key = "arcaneWrath", label = "Use Arcane Wrath", spell = "Arcane Wrath" },
 				{ key = "arcaneMissiles", label = "Use Arcane Missiles", spell = "Arcane Missiles" },
@@ -271,4 +271,4 @@ AL.RegisterSimpleClassUI("MAGE", {
 				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Burst: Mindestgesundheit des Ziels", zh = "Burst目标最低生命值" }, min = 0, max = 100, step = 5, default = 40, suffix = " % HP" },
         } },
 	},
-}, "0.20.4")
+}, "0.20.5")

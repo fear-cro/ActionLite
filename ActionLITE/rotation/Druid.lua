@@ -1162,10 +1162,10 @@ end
 -- The selected Cat build is self-contained and does not depend on DPS60.lua.
 local CAT_LEVELS={['Cat Form']=20,Claw=20,Rip=20,Prowl=20,Shred=20,["Tiger's Fury"]=24,
  Moonfire=4,Rejuvenation=4,Thorns=6,
- Rake=24,Ravage=32,['Ferocious Bite']=32,['Faerie Fire']=18,['Shifting Power']=20,
+ Rake=24,Ravage=32,['Ferocious Bite']=32,['Faerie Fire']=18,['Shifting Power']=1,
  Berserk=40,Innervate=40,Hurricane=40,['Elune\'s Light']=1}
 local CatKnown,_,CatLearned=AL.LevelGates(CAT_LEVELS)
-local catCDBase={Berserk=180,["Elune's Light"]=180,['Shifting Power']=16,Innervate=360,Prowl=10}
+local catCDBase={Berserk=180,["Elune's Light"]=180,['Shifting Power']=8,Innervate=360,Prowl=10}
 local catBuffDuration={Berserk=15,["Elune's Light"]=15,Innervate=20,Prowl=math.huge,
  ['Mark of the Wild']=1800,Thorns=600,Rejuvenation=12,["Tiger's Fury"]=6}
 local catDotDuration={Rake=9,Rip=12,['Faerie Fire']=40}
@@ -1381,7 +1381,6 @@ catTracker:SetScript('OnEvent',function(_,event,unit,a2,a3,a4)
  local now=GetTime();catRetry[name]=nil
  if catCDBase[name] then
   local cooldown=catCDBase[name]
-  if name=='Shifting Power' then local rank=CatTalentRank('Improved Shifting Power');if rank then cooldown=16-4*math.max(0,math.min(2,rank))end end
   catCastAt[name]=now;catCDEnds[name]=CatCooldownEnd(name) or now+cooldown
  end
  if catBuffDuration[name]then catBuffs[name]={at=now,expires=now+catBuffDuration[name]};catAuraCache.player=nil end
@@ -1483,7 +1482,6 @@ end
 local function CatBuildRotation(s,inCombat,hostile)
  if not inCombat then
   curveFailures,powerMaximumCache={},{}
-  CatTalentRank('Improved Shifting Power')
   if not catCostWarm then for _,row in ipairs(M.spells)do CatCost(row[2],0);CatCost(row[2],3)end;catCostWarm=true end
  end
  lastRotation={at=GetTime(),actions={}}
@@ -1969,8 +1967,11 @@ local B={cd={},castAt={},durations={},retry={},buffs={},dots={},pending={},done=
  formAt=-math.huge,maulAt=-math.huge,maulWindow=2.8}
 B.levels={['Bear Form']=10,['Dire Bear Form']=40,Maul=10,Growl=10,Enrage=12,Bash=14,
  ['Demoralizing Roar']=10,Swipe=16,['Faerie Fire']=18,['Feral Charge']=20,
- ['Primal Bite']=25,['Challenging Roar']=28,['Frenzied Regeneration']=36,
- Berserk=40,Lacerate=42,Barkskin=44,Rejuvenation=4,Thorns=6}
+ ['Primal Bite']=1,['Challenging Roar']=28,['Frenzied Regeneration']=36,
+ Berserk=40,Lacerate=1,Barkskin=44,Rejuvenation=4,Thorns=6}
+-- The launch tree moved Lacerate, Primal Bite and Shifting Power between
+-- talent rows. Their learned spellbook state is authoritative; a fixed
+-- character-level fallback must not hide a talent the player actually knows.
 B.ok,B.levelReady,B.learned=AL.LevelGates(B.levels)
 B.base={['Primal Bite']=6,Growl=8,Bash=60,Enrage=60,['Feral Charge']=15,
  ['Challenging Roar']=600,['Frenzied Regeneration']=180,Barkskin=60,
@@ -2718,6 +2719,19 @@ AL.RegisterRotation("DRUID", M)
             healState.cooldowns[name] = now + 15
             healState.mp5LockUntil = now + 5
             healState.lastHeal = { spell = name, unit = unit, at = now }
+            -- The launch tooltip consumes one of the Druid's own qualifying
+            -- HoTs. Forever does not expose which one while auras are secret,
+            -- so clear both conservative timers and let confirmed recasts
+            -- rebuild the state instead of healing from a stale prerequisite.
+            local effects = unit and healState.effects[unit]
+            if effects then
+                effects["Rejuvenation"] = nil
+                effects["Regrowth"] = nil
+            end
+            if healState.pendingRejuvenation
+                and healState.pendingRejuvenation.unit == unit then
+                healState.pendingRejuvenation = nil
+            end
         elseif name == "Tranquility" or name == "Wild Growth" then
             healState.mp5LockUntil = now + 5
             healState.lastHeal = { spell = name, unit = unit, at = now }

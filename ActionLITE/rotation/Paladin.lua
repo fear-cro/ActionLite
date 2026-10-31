@@ -154,7 +154,7 @@ local MINLEVEL = {
 	["Redemption"] = 12,
 	["Blessing of Wisdom"] = 14,
 	["Retribution Aura"] = 16,
-	["Righteous Fury"] = 16,
+	["Righteous Fury"] = 10,
 	["Blessing of Freedom"] = 18,
 	["Exorcism"] = 20,
 	["Flash of Light"] = 20,
@@ -1038,8 +1038,6 @@ local M = {
 		protection = false,
 		shockadin = false,
 		retribution = false,
-		sealTwisting = true,
-		sealTwistMinMana = 15,
 		hammerOfTheRighteous = true,
 		hammerOfTheRighteousMinMana = 10,
 		holyWrath = true,
@@ -1092,6 +1090,7 @@ local M = {
 		templarsBulwarkHP = 35,
 		hsicon = false,
 		healingAura = "CONCENTRATION",
+		healingOathOfLight = true,
 	},
 }
 
@@ -1177,6 +1176,7 @@ M.spells = {
 	{ 4987, "Cleanse" },
 	{ 20216, "Divine Favor" },
 	{ 1310911, "Light's Vigil" },
+	{ 0, "Oath of Light" },
 	{ 407632, "Hammer of the Righteous" },
 	{ 2812, "Holy Wrath" },
 	{ 20925, "Holy Shield" },
@@ -1228,7 +1228,7 @@ local MINLEVEL = {
 	["Redemption"] = 12,
 	["Blessing of Wisdom"] = 14,
 	["Retribution Aura"] = 16,
-	["Righteous Fury"] = 16,
+	["Righteous Fury"] = 10,
 	["Blessing of Freedom"] = 18,
 	["Exorcism"] = 20,
 	["Flash of Light"] = 20,
@@ -1295,8 +1295,6 @@ local furyCastIDs = { [1311649] = true, [1311656] = true, [20163] = true,
     [20419] = true, [20421] = true, [20422] = true, [20423] = true }
 local sealState, sealCache, sealAurasBlocked
 local sealDurations = {}
-local echoIDs = { [1311703] = true, [1311704] = true }
-local twistAuraCache, twistAurasBlocked, twistPending
 local holyStrikeCastIDs = { [679]=true, [678]=true, [1866]=true, [680]=true,
     [2495]=true, [5569]=true, [10332]=true, [10333]=true }
 local baseSpellIDs = {}
@@ -1308,12 +1306,11 @@ local controlCooldowns = { ["Judgement"] = 10, ["Hammer of Justice"] = 60,
     ["Holy Shield"] = 10, ["Swift Judgement"] = 60,
     ["Templar's Bulwark"] = 300, ["Righteous Fury"] = 0 }
 local tankBuffDurations = { ["Holy Shield"] = 10, ["Templar's Bulwark"] = 8,
-    ["Righteous Fury"] = 1800, ["Forbearance"] = 60, ["Swift Judgement"] = math.huge }
+    ["Righteous Fury"] = 1800, ["Forbearance"] = 60 }
 local tankBuffIDs = { [20925] = "Holy Shield", [20927] = "Holy Shield", [20928] = "Holy Shield",
     [1311015] = "Templar's Bulwark", [25780] = "Righteous Fury",
-    [25771] = "Forbearance", [1310994] = "Swift Judgement" }
+    [25771] = "Forbearance" }
 local tankBuffState, tankAuraCache, tankAurasBlocked = {}, nil, nil
-local swiftResetAt
 local forbearanceConsumers = { ["Divine Protection"] = true, ["Divine Shield"] = true, ["Blessing of Protection"] = true }
 local forbearanceCastIDs = { [498] = "Divine Protection", [5573] = "Divine Protection",
     [642] = "Divine Shield", [1020] = "Divine Shield",
@@ -1403,10 +1400,6 @@ local function ControlReady(name)
     if controlRetryAfter[name] and controlRetryAfter[name] > GetTime() then return false end
     local info = CooldownInfo(name)
     if info and Bool(info.isEnabled) == false then return false end
-    if name == "Judgement" and swiftResetAt then
-        local start = info and Number(info.startTime)
-        if not start or start <= swiftResetAt or GetTime() - swiftResetAt < 0.5 then return true end
-    end
     if info then
         local start, duration, rate = Number(info.startTime), Number(info.duration), Number(info.modRate)
         if SafeValue(info.modRate) and info.modRate == nil then rate = 1 end
@@ -1537,43 +1530,6 @@ local function SealStatus()
     end
 end
 
--- Twist of Light leaves an undated Echo, consumed by a landed auto attack.
--- Read the current seal and both Echoes together; missing/secret aura data
--- never means an Echo was consumed. No swing timer is estimated.
-local function TwistAuras()
-    local now = GetTime()
-    if twistAurasBlocked then return nil end
-    if twistAuraCache and now - twistAuraCache.at < 0.2 then return twistAuraCache end
-    local reader = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
-    if type(reader) ~= "function" then return nil end
-    local state = { at = now, echo = false }
-    for index = 1,40 do
-        local ok, aura = pcall(reader, "player", index, "HELPFUL")
-        if not ok or not SafeValue(aura) then twistAurasBlocked = true; return nil end
-        if aura == nil then twistAuraCache = state; return state end
-        if type(aura) ~= "table" then return nil end
-        local id, name = Number(aura.spellId), aura.name
-        if not id then return nil end -- completeness must be proven
-        if echoIDs[id] then state.echo = true end
-        if SafeValue(name) and type(name) == "string" then name = (AL.englishNames and AL.englishNames[name]) or name
-        else name = TrackedNameFromID(id) end
-        if name == "Seal of Command" or name == "Seal of Righteousness" then state.seal = name end
-    end
-end
-
-local function TwistLearned()
-    local learned = false
-    for _, reader in pairs({ IsPlayerSpell, IsSpellKnown, C_SpellBook and C_SpellBook.IsSpellKnown }) do
-        local value = Bool((SafeCall(reader, 1310735)))
-        if value == true then return true end
-        if value == false then learned = true end
-    end
-    if learned then return false end
-    -- Some clients expose passive talents in the spellbook, others only a
-    -- readable learned-spell API. Never infer a capstone from player level.
-    return LearnedID("Twist of Light") ~= nil
-end
-
 -- Divine Favor lasts until Holy Shock or a heal consumes it. Observe readable
 -- auras when possible; otherwise keep only confirmed activation/consumption.
 local function DivineFavorActive()
@@ -1617,12 +1573,11 @@ spellTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     if AL.playerClass ~= "PALADIN" then return end
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_DEAD" then
         sealState, sealCache, sealAurasBlocked = nil, nil, nil
-        twistAuraCache, twistAurasBlocked, twistPending = nil, nil, nil
         favorAuraAt, favorAurasBlocked = nil, nil
         if event == "PLAYER_DEAD" then favorActive, favorChangedAt = false, GetTime() end
         pendingCasts, finishedCasts, lastSent = {}, {}, nil
         tankAuraCache, tankAurasBlocked = nil, nil
-        if event == "PLAYER_DEAD" then tankBuffState, swiftResetAt = {}, nil end
+        if event == "PLAYER_DEAD" then tankBuffState = {} end
         controlRetryAfter = {}
         for name, expires in pairs(controlEnds) do
             if expires <= GetTime() then controlEnds[name], controlCastAt[name] = nil, nil end
@@ -1631,18 +1586,16 @@ spellTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     end
     if event == "PLAYER_REGEN_ENABLED" then
         sealCache, sealAurasBlocked, favorAuraAt, favorAurasBlocked = nil, nil, nil, nil
-        twistAuraCache, twistAurasBlocked, twistPending = nil, nil, nil
         tankAuraCache, tankAurasBlocked = nil, nil; return
     end
     if event == "SPELLS_CHANGED" or event == "PLAYER_TALENT_UPDATE" then
         controlDurations, sealDurations, sealCache = {}, {}, nil
         tankAuraCache, tankAurasBlocked = nil, nil
-        twistAuraCache, twistAurasBlocked, twistPending = nil, nil, nil; return
+        return
     end
     if event == "UNIT_AURA" then
         if SafeValue(unit) and unit == "player" then
             sealCache = nil
-            twistAuraCache = nil
             favorAuraAt = nil
             tankAuraCache = nil
             if not sealState or not sealState.castAt or GetTime() - sealState.castAt >= 0.5 then SealAura() end
@@ -1686,11 +1639,6 @@ spellTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
     end
     if name == "Templar's Bulwark" then
         tankBuffState.Forbearance = { castAt = GetTime(), expires = GetTime() + 60 }
-    elseif name == "Swift Judgement" then
-        controlEnds.Judgement, controlCastAt.Judgement, controlRetryAfter.Judgement = nil, nil, nil
-        swiftResetAt = GetTime()
-    elseif name == "Judgement" then
-        tankBuffState["Swift Judgement"], swiftResetAt, tankAuraCache = nil, nil, nil
     elseif name == "Divine Protection" or name == "Divine Shield" or name == "Blessing of Protection" then
         tankBuffState.Forbearance = { castAt = GetTime(), expires = GetTime() + 60 }
         tankAuraCache = nil
@@ -1699,17 +1647,11 @@ spellTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
         favorActive, favorChangedAt, favorAuraAt = name == "Divine Favor", GetTime(), nil
     end
     if sealNames[name] then
-        local old = sealState and sealState.name
-        if old and old ~= name and (old == "Seal of Command" or old == "Seal of Righteousness")
-            and (name == "Seal of Command" or name == "Seal of Righteousness") then
-            twistPending = true
-        end
         local duration = sealDurations[name] or 30
         local coreRemaining = Number((SafeCall(AL.BuffRemaining, "player", name)))
         if coreRemaining and coreRemaining > 0 and coreRemaining <= 300 then duration = coreRemaining end
         sealState = { name = name, castAt = GetTime(), expires = GetTime() + duration, duration = duration }
         sealCache = nil
-        twistAuraCache = nil
     elseif controlCooldowns[name] then
         local expires, duration = CooldownEnd(CooldownInfo(name))
         if duration then controlDurations[name] = duration end
@@ -1844,11 +1786,6 @@ end
 local function Retribution(s, role)
     return role == "DPS" and SafeValue(s.retribution) and s.retribution == true
 end
-local function TwistEnabled(s, role)
-	local mode = SettingChoice(s, "seal", { AUTO=true, COMMAND=true, RIGHTEOUSNESS=true, FURY=true, LIGHT=true, WISDOM=true }, "AUTO")
-    return Retribution(s, role) and s.sealTwisting == true and s.buffs == true and mode == "AUTO"
-        and Ok("Seal of Command") and Ok("Seal of Righteousness") and TwistLearned()
-end
 
 local function PreferredBlessing(s, role)
 	local mode = SettingChoice(s, "blessingMode", {
@@ -1884,7 +1821,6 @@ local function PreferredSeal(s, role)
 		AUTO = true, COMMAND = true, RIGHTEOUSNESS = true, FURY = true, LIGHT = true, WISDOM = true,
 	}, "AUTO")
 	if mode == "AUTO" and Shockadin(s, role) and Ok("Seal of Righteousness") then return "Seal of Righteousness" end
-	if mode == "AUTO" and TwistEnabled(s, role) and TwistAuras() then return "Seal of Command" end
 	if mode == "FURY" and Ok("Seal of Fury") then return "Seal of Fury" end
 	if mode == "COMMAND" and Ok("Seal of Command") then return "Seal of Command" end
 	if mode == "RIGHTEOUSNESS" and Ok("Seal of Righteousness") then return "Seal of Righteousness" end
@@ -1924,7 +1860,6 @@ end
 
 local function Affordable(name, usable, shortage)
     if shortage == true then return false end
-    if name == "Judgement" and swiftResetAt and TankBuff("Swift Judgement") then return true end
     local cost = SpellCost(name, 0)
     if cost == nil then return usable ~= false end
     if cost <= 0 then return true end
@@ -1994,6 +1929,17 @@ local function PlayerMoving()
     if moving ~= nil then return moving end
     local speed = Number((SafeCall(GetUnitSpeed, "player")))
     return speed ~= nil and speed > 0
+end
+
+local function SpellCastTimeMS(name)
+    local reference = LearnedID(name) or name
+    local info = SafeCall(C_Spell and C_Spell.GetSpellInfo, reference)
+    if SafeValue(info) and type(info) == "table" then
+        local milliseconds = Number(info.castTime)
+        if milliseconds ~= nil then return milliseconds end
+    end
+    local _, _, _, milliseconds = SafeCall(GetSpellInfo, reference)
+    return Number(milliseconds)
 end
 
 local function UnitWithin(unit, yards)
@@ -2115,10 +2061,6 @@ local function ApplyPreparation(s, role, sealNeeded, inCombat)
     local seal = PreferredSeal(s, role)
     if sealNeeded and seal then
         local active, remaining = SealStatus()
-        -- Both seals are deliberate choices while Echo-based twisting is
-        -- enabled. Preparation must not immediately undo a successful swap.
-        if TwistEnabled(s, role) and TwistAuras()
-            and (active == "Seal of Command" or active == "Seal of Righteousness") then seal = active end
         -- Three seconds leaves room to refresh before expiry. Keep the short
         -- precombat rule; idle preparation never renews an otherwise active seal.
         local refresh = inCombat and remaining ~= nil and remaining <= 3
@@ -2183,29 +2125,14 @@ end
 
 local function TankBurst(s, role, mana, targetHP)
     if role ~= "TANK" or not AL.burst or not s.swiftJudgement or not s.judgement
-        or not ActiveSeal() or not Ok("Judgement") or ControlReady("Judgement") or TankBuff("Swift Judgement") then return end
-    local range = Bool((SafeCall(C_Spell and C_Spell.IsSpellInRange, LearnedID("Judgement") or "Judgement", "target")))
-    if range == nil then range = Bool((SafeCall(AL.InRange, "Judgement"))) end
+        or not ActiveSeal() then return end
+    local range = Bool((SafeCall(C_Spell and C_Spell.IsSpellInRange,
+        LearnedID("Swift Judgement") or "Swift Judgement", "target")))
+    if range == nil then range = Bool((SafeCall(AL.InRange, "Swift Judgement"))) end
     if range == false or range ~= true and UnitWithin("target", 10) ~= true then return end
-    Offer("Swift Judgement", "Burst: reset Judgement", {
-        ManaGate(mana, SettingNumber(s, "judgementMinMana", 15, 0, 100), false),
+    Offer("Swift Judgement", "Burst: independent seal Judgement", {
         HealthGate("target", targetHP, SettingNumber(s, "judgementMinTargetHP", 20, 0, 100), false),
         HealthGate("target", targetHP, SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false) })
-end
-
-local function RetributionTwist(s, role, mana)
-    if not TwistEnabled(s, role) or not InMelee() then return end
-    local active = ActiveSeal()
-    if active ~= "Seal of Command" and active ~= "Seal of Righteousness" then return end
-    local state = TwistAuras()
-    if not state or state.seal ~= active then return end
-    if state.echo then twistPending = nil; return end
-    -- After a swap, observe its Echo before accepting an absence as consumed.
-    -- Stale/incomplete aura frames cannot trigger a chain of seal recasts.
-    if twistPending or sealState and sealState.castAt and GetTime() - sealState.castAt < 1.5 then return end
-    local other = active == "Seal of Command" and "Seal of Righteousness" or "Seal of Command"
-    Offer(other, "Twist of Light: prepare next swing", {
-        ManaGate(mana, SettingNumber(s, "sealTwistMinMana", 15, 0, 100), false) })
 end
 
 local function RetributionAoEStrike(s, role, mana)
@@ -2271,9 +2198,11 @@ local function OffensivePriority(s, role, mana, targetHP)
     TankBurst(s, role, mana, targetHP)
     ShockadinBurst(s, role, mana, targetHP)
     Judgement(s, mana, targetHP, InMelee() and "on cooldown" or "ranged opener")
-    RetributionTwist(s, role, mana)
     Consecration(s, role, mana)
-    if (Shockadin(s, role) or Retribution(s, role) or role == "TANK") and s.hammerOfWrath and not PlayerMoving() then
+    local hammerCastTime = SpellCastTimeMS("Hammer of Wrath")
+    local hammerCanMove = hammerCastTime ~= nil and hammerCastTime <= 0
+    if (Shockadin(s, role) or Retribution(s, role) or role == "TANK") and s.hammerOfWrath
+        and (not PlayerMoving() or hammerCanMove) then
         Offer("Hammer of Wrath", "execute", {
             ManaGate(mana, SettingNumber(s, "hammerOfWrathMinMana", 10, 0, 100), false),
             HealthGate("target", targetHP, 20, true) })
@@ -2360,7 +2289,7 @@ end
 if AL.selfCastSpells then
     for _, list in ipairs({ SEALS, AURAS, BLESSINGS, { "Righteous Fury", "Consecration", "Holy Light", "Flash of Light",
         "Divine Protection", "Divine Shield", "Lay on Hands", "Berserking", "Blood Fury", "Divine Favor", "Cleanse", "Holy Wrath",
-        "Holy Shield", "Swift Judgement", "Templar's Bulwark" } }) do
+        "Holy Shield", "Templar's Bulwark" } }) do
         for _, name in ipairs(list) do AL.selfCastSpells[name] = true end
     end
 end
@@ -2554,7 +2483,7 @@ AL.RegisterRotation("PALADIN", M)
     local paladinHealing = {
         effects = {}, applied = {}, cooldowns = {}, favorActive = false,
         favorChangedAt = 0, infusionUntil = 0, infusionChangedAt = 0,
-        vigil = nil, lastHeal = nil,
+        vigil = nil, oath = nil, lastHeal = nil,
         lastBlessing = nil, lastJudgement = nil,
     }
     local PL_SEALS = {
@@ -2833,6 +2762,11 @@ AL.RegisterRotation("PALADIN", M)
         if not ok or PLSecret(role) or type(role) ~= "string" then return "NONE" end
         return role
     end
+    local function PLTankUnit()
+        for _, unit in ipairs(PLRosterUnits()) do
+            if PLRole(unit) == "TANK" then return unit end
+        end
+    end
     local function PLAdjustedThreshold(context, unit, base)
         if PLRole(unit) == "DAMAGER" then base = base - (context.dpsThresholdOffset or 10) end
         return math.max(0, base)
@@ -2867,7 +2801,16 @@ AL.RegisterRotation("PALADIN", M)
         if type(profile) ~= "table" or PLSecret(profile.healingEngine)
             or profile.healingEngine ~= true then return end
         local now, unit = PLNow(), PLHealingUnit()
-        if spell == "Blessing of Kings" or spell == "Greater Blessing of Kings" then
+        if spell == "Oath of Light" then
+            unit = unit or PLTankUnit()
+            if unit then
+                for _, member in ipairs(PLRosterUnits()) do
+                    PLClearEffects(member, { "Oath of Light" })
+                end
+                PLSetEffect(unit, spell, 300)
+                paladinHealing.oath = { unit = unit, key = PLUnitKey(unit), expires = now + 300 }
+            end
+        elseif spell == "Blessing of Kings" or spell == "Greater Blessing of Kings" then
             unit = unit or "player"
             if spell == "Greater Blessing of Kings" then
                 local class = PLUnitClass(unit)
@@ -2986,6 +2929,7 @@ AL.RegisterRotation("PALADIN", M)
         local now = PLNow()
         if paladinHealing.infusionUntil <= now then paladinHealing.infusionUntil = 0 end
         if paladinHealing.vigil and paladinHealing.vigil.expires <= now then paladinHealing.vigil = nil end
+        if paladinHealing.oath and paladinHealing.oath.expires <= now then paladinHealing.oath = nil end
 
         local manual
         if context.manualTarget then
@@ -3018,6 +2962,16 @@ AL.RegisterRotation("PALADIN", M)
                     spell = blessing, reason = "Holy: maintain " .. blessing,
                     visibility = "always", requireReady = false,
                     unitFilter = function(unit) return not PLKingsActive(unit) end,
+                }
+            end
+            local oathEnabled = not PLSecret(profile.healingOathOfLight)
+                and profile.healingOathOfLight ~= false
+            local tank = oathEnabled and PLTankUnit() or nil
+            if tank and PLAvailable("Oath of Light", profile, true)
+                and not PLTrackedAura(tank, "Oath of Light", 300) then
+                maintenance[#maintenance + 1] = {
+                    spell = "Oath of Light", reason = "Holy: maintain Oath of Light on tank",
+                    unit = tank, visibility = "always", requireReady = false,
                 }
             end
             if context.enemyCombat then
@@ -3121,6 +3075,9 @@ AL.RegisterRotation("PALADIN", M)
             infusionSeconds = math.max(0, paladinHealing.infusionUntil - now),
             vigilUnit = PLVigilUnit(),
             vigilSeconds = paladinHealing.vigil and math.max(0, paladinHealing.vigil.expires - now) or 0,
+            oathUnit = paladinHealing.oath and (PLUnitForKey(paladinHealing.oath.key)
+                or paladinHealing.oath.unit) or nil,
+            oathSeconds = paladinHealing.oath and math.max(0, paladinHealing.oath.expires - now) or 0,
             cooldowns = cooldowns, effects = effects,
             mp5LockSeconds = engine and engine.FiveSecondRuleRemaining
                 and engine:FiveSecondRuleRemaining() or 0,
@@ -3144,6 +3101,7 @@ AL.RegisterRotation("PALADIN", M)
             paladinHealing.effects = {}
             paladinHealing.applied = {}
             paladinHealing.vigil = nil
+            paladinHealing.oath = nil
             paladinHealing.favorActive = false
             paladinHealing.favorChangedAt = 0
             paladinHealing.infusionUntil = 0

@@ -3099,7 +3099,7 @@ local M = {
 		shadowForm = true,
 		shadowMindFlay = true,
 		shadowWordDeath = true,
-		shadowDeathMinHP = 50,
+		shadowDeathMinHP = 70,
 		shadowInnerFocus = true,
 		shadowRacials = true,
 		shadowFiend = true,
@@ -5447,7 +5447,7 @@ local function Offense(s, role, mana, targetHP, moving)
         and mana > MindBlastManaThreshold(s) and AL.DPS60.Ready("Shadow Word: Death")
         and AL.SpellUsable("Shadow Word: Death") and SpellAffordable("Shadow Word: Death") then
         local hp = PlayerHealthPercent()
-        if type(hp) == "number" and hp > 35 then
+        if type(hp) == "number" and hp >= 70 then
             return "Shadow Word: Death", "Shadow damage; health safety passed"
         end
     end
@@ -5984,7 +5984,7 @@ function shadow.NextSpell(s,inCombat,hostile)
             end
             if not moving and shadow.Enabled(s,"mindBlast") then shadow.Offer("Mind Blast","Shadow Mind Blast",{shadow.AboveWandThreshold(s,mana,"mindBlastMana",50)}) end
             if shadow.Enabled(s,"shadowWordDeath") then shadow.Offer("Shadow Word: Death","Shadow Word: Death",{
-                shadow.HP("player",hp,shadow.Setting(s,"shadowDeathMinHP",50,20,95),false,true)}) end
+                shadow.HP("player",hp,math.max(70,shadow.Setting(s,"shadowDeathMinHP",70,20,95)),false,true)}) end
             if not moving then
                 if shadow.Enabled(s,"shadowMindFlay") then shadow.Offer("Mind Flay","Shadow filler") end
                 -- Forever Shadowform blocks healing, not offensive Smite.

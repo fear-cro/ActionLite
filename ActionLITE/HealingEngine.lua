@@ -43,6 +43,7 @@ local HEALING_CASTS = {
 	PALADIN = {
 		["Holy Light"] = true, ["Flash of Light"] = true, ["Holy Shock"] = true,
 		["Lay on Hands"] = true, ["Divine Favor"] = true, ["Light's Vigil"] = true,
+		["Oath of Light"] = true,
 		["Blessing of Kings"] = true, ["Greater Blessing of Kings"] = true,
 		["Seal of Light"] = true, ["Seal of Wisdom"] = true,
 		["Seal of Command"] = true, ["Seal of Righteousness"] = true,

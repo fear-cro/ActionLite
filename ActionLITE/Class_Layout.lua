@@ -35,7 +35,6 @@ local SCOPES = {
         tankRighteousFury = function(p) return p.protection == true or p.paladinRole == "TANK" end,
         tankConsecrationMinMana = function(p) return p.protection == true or p.paladinRole == "TANK" end,
         consecrationMinMana = function(p) return p.protection ~= true and p.paladinRole ~= "TANK" end,
-        sealTwisting = "retribution", sealTwistMinMana = "retribution",
         holyShock = "shockadin", holyShockMinMana = "shockadin", divineFavor = "shockadin",
         hammerOfWrath = { "shockadin", "retribution", "protection" },
         hammerOfWrathMinMana = { "shockadin", "retribution", "protection" },

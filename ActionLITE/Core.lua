@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-AL.buildId = "1.1.0-paladin-healing-20261030"
+AL.buildId = "1.1.0-class-tuning-20261031"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"

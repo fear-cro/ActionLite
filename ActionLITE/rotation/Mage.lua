@@ -1467,7 +1467,8 @@ local fireState = { clearEnd=0, clearChanged=-math.huge, clearSerial=0, combusti
     combustionChanged=-math.huge, crits=0, ends=0, at=-math.huge }
 local frostState = { barrierEnd=0, barrierChanged=-math.huge, fofSerial=0 }
 local FROST_COOLDOWNS = { ["Cold Snap"]=600, ["Ice Barrier"]=30,
-    ["Frost Nova"]=25, ["Cone of Cold"]=10, ["Ice Block"]=300, ["Fire Blast"]=8 }
+    ["Frost Nova"]=25, ["Cone of Cold"]=10, ["Ice Block"]=300,
+    ["Fire Blast"]=8, ["Ice Lance"]=8 }
 local FROST_RESETTABLE = { ["Ice Barrier"]=true, ["Frost Nova"]=true,
     ["Cone of Cold"]=true, ["Ice Block"]=true, ["Frost Ward"]=true }
 local ARCANE_COOLDOWNS = { ["Arcane Wrath"]=6, ["Arcane Power"]=180, ["Presence of Mind"]=180, ["Eureka!"]=120, ["Berserking"]=180 }
@@ -1581,7 +1582,7 @@ local function ReadArcaneState()
                 elseif aura.stacks and aura.stacks>=0 and aura.stacks<=4 then
                     arcaneState.charges=math.floor(aura.stacks)
                     if aura.expires and aura.expires>0 then arcaneState.expires=aura.expires
-                    elseif arcaneState.expires<=now then arcaneState.expires=now+15 end
+                    elseif arcaneState.expires<=now then arcaneState.expires=now+18 end
                 end
             elseif key=="barrage" then
                 if not aura then arcaneState.barrage=0
@@ -2738,7 +2739,7 @@ local function ArcaneOffensive(s,inCombat,targetHP,mana,moving)
             ManaGate(mana,SettingNumber(s,"arcaneTwoMana",20,0,100),true,true))) end
     end
     if canCast then
-        if Enabled(s,"arcaneBlast") and state.charges<4 then Offer("Arcane Blast","build fifteen-second Arcane buff",gates) end
+        if Enabled(s,"arcaneBlast") and state.charges<4 then Offer("Arcane Blast","build eighteen-second Arcane buff",gates) end
         if Enabled(s,"arcaneWrath") then Offer("Arcane Wrath","Arcane Wrath on cooldown",gates) end
         if not moving and Enabled(s,"arcaneMissiles") then
             Offer("Arcane Missiles","Arcane buff damage filler",gates)
@@ -3160,7 +3161,7 @@ end
 
 -- Observe real casts independently of Core's name inference. Arcane Blast
 -- grants its charge on successful cast even when damage misses. The buff
--- lasts fifteen seconds from its first application and survives other spells.
+-- lasts eighteen seconds from its first application and survives other spells.
 local arcanePending,arcaneFinished,arcaneProcSeen,arcaneLastSent={},{},{},nil
 local function ArcaneGUID(value)
     return SafeValue(value) and type(value)=="string" and value:find("^Cast%-") and value or nil
@@ -3174,7 +3175,7 @@ local function AcceptArcaneCast(name,sent)
     end
     if name=="Arcane Blast" then
         if arcaneState.expires<=now then arcaneState.charges=0 end
-        if arcaneState.charges==0 then arcaneState.expires=now+15 end
+        if arcaneState.charges==0 then arcaneState.expires=now+18 end
         arcaneState.charges=math.min(4,arcaneState.charges+1)
         arcaneChanged.charges=now
     end

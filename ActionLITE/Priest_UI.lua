@@ -56,8 +56,8 @@ AL.RegisterSimpleClassUI("PRIEST", {
                 { key="shadowForm",label="Maintain Shadowform",spell="Shadowform" },
                 { key="shadowMindFlay",label="Use Mind Flay filler",spell="Mind Flay" },
                 { key="shadowWordDeath",label="Use Shadow Word: Death",spell="Shadow Word: Death" },
-                { type="slider",key="shadowDeathMinHP",label="Shadow Word: Death above player health",min=20,max=95,step=5,default=50,suffix=" % HP" },
-                { type="info",text="Shadowform, Shadow Word: Pain, Devouring Plague, Mind Blast, Shadow Word: Death, then Mind Flay. Uses existing spell checkboxes and health/mana settings. Preserve active casts and channels; no automatic clipping." },
+                { type="slider",key="shadowDeathMinHP",label="Shadow Word: Death at or above player health",min=70,max=95,step=5,default=70,suffix=" % HP" },
+                { type="info",text="Shadowform, Shadow Word: Pain, Devouring Plague, Mind Blast, Shadow Word: Death, then Mind Flay. Shadow Word: Death has a 70% safety floor because its backlash is now 30%. Uses existing spell checkboxes and health/mana settings. Preserves active casts and channels; no automatic clipping." },
                 { type="info",text="Self-healing retains Renew below 80% and Lesser Heal below 60% in combat / below 80% out of combat after Renew. The build leaves a confirmed Shadowform to heal, then restores it. The shield health slider applies in combat." },
             },
         },
@@ -182,7 +182,7 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Min. Zielgesundheit für Burst", zh = "Burst 最低目标生命值" }, min = 0, max = 100, step = 5, default = 40, suffix = " % HP" },
         } },
 	},
-}, "0.31.0")
+}, "0.31.1")
 
 -- Selecting Smite returns the profile to Leveling Rotation.
 local BuildPriestUI = AL.classUIs and AL.classUIs.PRIEST

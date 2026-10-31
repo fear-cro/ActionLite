@@ -153,7 +153,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 				{ key = "catBite", label = "Use Ferocious Bite", spell = "Ferocious Bite" },
 				{ key = "catShiftingPower", label = "Use Shifting Power", spell = "Shifting Power", half = false },
 				{ type = "slider", key = "catShiftBelowEnergy", label = "Shifting Power below energy", min = 0, max = 100, step = 5, default = 40 },
-				{ type = "info", text = "Shifting Power spends mana to restore energy without leaving Cat Form. Uses the energy slider, actual mana cost and enough energy headroom. Once learned it replaces Tiger's Fury. The default build has Improved Shifting Power; readable cooldowns and learned talent ranks take priority." },
+				{ type = "info", text = "Shifting Power spends mana to restore energy without leaving Cat Form. Uses the energy slider, actual mana cost and enough energy headroom. Once learned it replaces Tiger's Fury. Its current eight-second cooldown is tracked from confirmed casts when combat cooldown data is protected." },
 				{ key = "catShred", label = "Use Shred from behind (optional)", spell = "Shred", half = false,
 					tooltip = { "Rear-position damage", "Default OFF for solo play. Enable when you can stay behind the target, as the simulator assumes. A failed rear-position attempt falls back to Claw for this target. Target changes allow a new attempt." } },
 				{ key = "catProwl", label = "Use Prowl before combat", spell = "Prowl" },
@@ -227,7 +227,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 			},
 		},
 	},
-}, "0.13.1")
+}, "0.13.2")
 
 
 -- Keep new Bear slider getters on the same bounded settings as the rotation,
@@ -247,5 +247,5 @@ if originalBuilder and AL.RegisterClassUI then
             return ui.Slider(host,opts)
         end
         return originalBuilder(page,adapter)
-    end,"0.13.1")
+    end,"0.13.2")
 end
