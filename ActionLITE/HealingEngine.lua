@@ -14,7 +14,8 @@ local ADDON, AL = ...
 -- ============================================================================
 
 local Engine = {
-	VERSION = "1.1.0",
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	VERSION = "1.1.5",
 	SUPPORTED_CLASSES = { DRUID = true, PALADIN = true, PRIEST = true, SHAMAN = true },
 	providers = {},
 	curves = {},

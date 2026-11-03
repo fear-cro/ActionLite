@@ -1,6 +1,7 @@
 local ADDON, AL = ...
 
--- ActionLITE Druid v0.13.0: original Leveling, optional builds and grouped healing.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- ActionLITE Druid v0.13.3: original Leveling, optional builds and grouped healing.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -590,7 +591,8 @@ local ADDON, AL = ...
 -- caster stage -> Bear Form at 10 -> Cat Form at 20
 local M = {
 	defaults = {
-        leveling = true,
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        leveling = true, healingWildGrowth = true,
         feralBear = false, bearAutoForm = true, bearPrimalBite = true,
         bearLacerate = true, bearLacerateFiller = true, bearLacerateStacks = 5,
         bearFaerieFire = true, bearDemoRoar = true, bearGrowl = true,
@@ -599,7 +601,7 @@ local M = {
         bearFrenzied = true, bearFrenziedHP = 35, bearFrenziedRage = 10,
         bearEnrageBelowRage = 20, bearEnrageMinHP = 75,
         bearMaul = true, bearMaulRage = 25, bearSwipe = true, bearAoeMinEnemies = 3,
-        bearBerserk = true, bearElunesLight = true, bearBerserking = true,
+        bearElunesLight = true, bearBerserking = true,
         bearBurstMinTargetHP = 35,
 		balance = false, balanceMoonkin = true, balanceInsectSwarm = true,
 		balanceMoonfire = true, balanceStarfire = true, balanceWrath = true,
@@ -609,9 +611,10 @@ local M = {
 		balanceElunesLight = true, balanceBerserking = true,
 		balanceBurstMinMana = 20, balanceBurstMinTargetHP = 35,
 		feralCat = false, catFaerieFire = true, catShiftingPower = true,
-		catShiftBelowEnergy = 40, catBite = true, catShred = false, catRavage = true,
+		catShiftBelowEnergy = 40, catBite = true, catShred = false,
+		catRavage = true, catPounce = false,
 		catProwl = true, catInnervate = true, catInnervateMana = 10,
-		catBerserk = true, catElunesLight = true, catBurstMinTargetHP = 35,
+		catElunesLight = true, catBurstMinTargetHP = 35,
 		catBurstMinEnergy = 30, catHurricane = false, catAoeMinEnemies = 3,
 		catAoeMinMana = 50,
 		buffs = true, thorns = true, heal = true, rake = true, rip = true,
@@ -659,9 +662,12 @@ function M.SetBuild(key, enabled, s)
     return selected
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Talent ranks added or moved by the bluepost resolve from the live learned
+-- spellbook. A zero ID deliberately avoids pinning Bite or Lacerate to an
+-- obsolete rank while preserving native icons and Universal-icon assignment.
 M.spells = {
 	{ 20554, "Berserking" },
-	{ 417141, "Berserk" },
 	{ 5211, "Bash" },
 	{ 22812, "Barkskin" },
 	{ 5487, "Bear Form" },
@@ -677,7 +683,7 @@ M.spells = {
 	{ 339, "Entangling Roots" },
 	{ 770, "Faerie Fire" },
 	{ 1238122, "Feral Charge" },
-	{ 22568, "Ferocious Bite" },
+	{ 0, "Ferocious Bite" },
 	{ 22842, "Frenzied Regeneration" },
 	{ 6795, "Growl" },
 	{ 5185, "Healing Touch" },
@@ -685,7 +691,7 @@ M.spells = {
 	{ 16914, "Hurricane" },
 	{ 29166, "Innervate" },
 	{ 5570, "Insect Swarm" },
-	{ 414644, "Lacerate" },
+	{ 0, "Lacerate" },
 	{ 1126, "Mark of the Wild" },
 	{ 6807, "Maul" },
 	{ 8921, "Moonfire" },
@@ -693,6 +699,7 @@ M.spells = {
 	{ 16689, "Nature's Grasp" },
 	{ 17116, "Nature's Swiftness" },
 	{ 5215, "Prowl" },
+	{ 9005, "Pounce" },
 	{ 407995, "Primal Bite" },
 	{ 1822, "Rake" },
 	{ 6785, "Ravage" },
@@ -1160,24 +1167,26 @@ local function CasterRotation(s, hp)
 end
 
 -- The selected Cat build is self-contained and does not depend on DPS60.lua.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 local CAT_LEVELS={['Cat Form']=20,Claw=20,Rip=20,Prowl=20,Shred=20,["Tiger's Fury"]=24,
  Moonfire=4,Rejuvenation=4,Thorns=6,
- Rake=24,Ravage=32,['Ferocious Bite']=32,['Faerie Fire']=18,['Shifting Power']=1,
- Berserk=40,Innervate=40,Hurricane=40,['Elune\'s Light']=1}
+ Rake=24,Ravage=32,Pounce=1,['Ferocious Bite']=24,['Faerie Fire']=18,['Shifting Power']=1,
+ Innervate=40,Hurricane=40,['Elune\'s Light']=1}
 local CatKnown,_,CatLearned=AL.LevelGates(CAT_LEVELS)
-local catCDBase={Berserk=180,["Elune's Light"]=180,['Shifting Power']=8,Innervate=360,Prowl=10}
-local catBuffDuration={Berserk=15,["Elune's Light"]=15,Innervate=20,Prowl=math.huge,
+local catCDBase={["Elune's Light"]=180,['Shifting Power']=8,Innervate=360,Prowl=10}
+local catBuffDuration={["Elune's Light"]=15,Innervate=20,Prowl=math.huge,
  ['Mark of the Wild']=1800,Thorns=600,Rejuvenation=12,["Tiger's Fury"]=6}
-local catDotDuration={Rake=9,Rip=12,['Faerie Fire']=40}
+local catDotDuration={Rake=9,Rip=12,Pounce=18,['Faerie Fire']=40}
 local catRankIDs={}
 local function CatRanks(name,ids)for _,id in ipairs(ids)do catRankIDs[id]=name end end
 CatRanks('Claw',{1082,3029,5201,9849,9850});CatRanks('Shred',{5221,6800,8992,9829,9830})
 CatRanks('Rake',{1822,1823,1824,9904});CatRanks('Rip',{1079,9492,9493,9752,9894,9896})
-CatRanks('Ravage',{6785,6787,9866,9867});CatRanks('Ferocious Bite',{22568,22827,22828,22829,31018})
+CatRanks('Ravage',{6785,6787,9866,9867});CatRanks('Pounce',{9005,9823,9827})
+CatRanks('Ferocious Bite',{22568,22827,22828,22829,31018})
 CatRanks('Faerie Fire',{770,778,9749,9907});CatRanks('Prowl',{5215,6783,9913})
 CatRanks("Tiger's Fury",{5217,6793,9845,9846});CatRanks('Hurricane',{16914,17401,17402})
 for _,row in ipairs(M.spells)do if not catRankIDs[row[1]] then catRankIDs[row[1]]=row[2] end end
-local catBuilders={Claw=true,Rake=true,Shred=true,Ravage=true}
+local catBuilders={Claw=true,Rake=true,Shred=true,Ravage=true,Pounce=true}
 local catFinishers={Rip=true,['Ferocious Bite']=true}
 local catCDEnds,catCastAt,catBuffs,catDots,catRetry={},{},{},{},{}
 local catPending,catCompleted,catLastSent={},{},nil
@@ -1391,7 +1400,9 @@ catTracker:SetScript('OnEvent',function(_,event,unit,a2,a3,a4)
  end
  if catBuilders[name]then
   local before=sent and sent.combo or catCombo
-  local rank=CatTalentRank('Blood Frenzy');local gain=CatBuff('Berserk') and rank==2 and 2 or 1
+  -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+  -- Berserk was removed. Hidden critical-hit combo gains remain unguessed.
+  local gain=1
   catLastCombo={name=name,before=before,at=now};catCombo,catComboAt=math.min(5,before+gain),now
  elseif catFinishers[name]then catLastCombo={name=name,before=sent and sent.combo or catCombo,at=now};catCombo,catComboAt,catSpentAt=0,now,now end
  if catDotDuration[name]then catDots[name]={at=now,expires=now+catDotDuration[name],target=CatTarget()};catAuraCache.target=nil end
@@ -1538,12 +1549,17 @@ local function CatBuildRotation(s,inCombat,hostile)
     if inCombat and AL.burst and InMelee('Claw')then
      local hpGate=CatSetting(s,'catBurstMinTargetHP',35,0,100)
      local gates={hpGate<=0 or HealthGate('target',HealthPercent('target'),hpGate,false),PowerGate(3,energy,CatSetting(s,'catBurstMinEnergy',30,0,100),false)}
-     if s.catBerserk and not CatBuff('Berserk')then CatOffer('Berserk','Burst: Feral builders',gates)end
-     if s.catElunesLight and not CatBuff('Berserk')and not CatBuff("Elune's Light")then CatOffer("Elune's Light",'Burst: racial critical chance',gates)end
+     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+     if s.catElunesLight and not CatBuff("Elune's Light")then CatOffer("Elune's Light",'Burst: racial critical chance',gates)end
     end
     local prowl=CatBuff('Prowl')or Bool((SafeCall(IsStealthed)))==true
     if not inCombat and s.catProwl and not prowl then CatOffer('Prowl','stealth preparation')end
-    if prowl and not openerBlocked and s.catRavage and InMelee('Ravage')then CatOffer('Ravage','learned stealth opener',nil,3,60)end
+    if prowl and not openerBlocked then
+     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+     -- Pounce is an explicit utility opener; Ravage remains the default.
+     if s.catPounce and InMelee('Pounce')then CatOffer('Pounce','selected stealth bleed opener',nil,3,50)
+     elseif s.catRavage and InMelee('Ravage')then CatOffer('Ravage','learned stealth opener',nil,3,60)end
+    end
     if s.catFaerieFire and not prowl and CatDotLeft('Faerie Fire')<=1 then CatOffer('Faerie Fire','maintain own armor reduction',nil,0)end
     if s.tigersfury and not CatLearned('Shifting Power')and not CatBuff("Tiger's Fury")then CatOffer("Tiger's Fury",'learned early Cat buff',nil,3,30)end
     local cp=CatComboPoints()
@@ -1552,7 +1568,11 @@ local function CatBuildRotation(s,inCombat,hostile)
     if s.rip and cp>=5 and ripLeft<=0 and(not ttd or ttd>=10)and InMelee('Rip')then CatOffer('Rip','five combo points',nil,3,30)end
     local ripUsable,ripShortage=SpellUsability('Rip')
     local ripUnavailable=s.rip==false or not CatKnown('Rip')or ttd and ttd<10 or ripUsable==false and ripShortage==false
-    if s.catBite and cp>=5 and not CatBuff('Clearcasting')and(ripLeft>5 or ripUnavailable)and InMelee('Ferocious Bite')then
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- Predatory Discipline prevents Bite from consuming excess Energy, so a
+    -- Clearcasting Bite is safe when the new talent is actually learned.
+    local discipline=(CatTalentRank('Predatory Discipline')or 0)>0
+    if s.catBite and cp>=5 and(discipline or not CatBuff('Clearcasting'))and(ripLeft>5 or ripUnavailable)and InMelee('Ferocious Bite')then
      CatOffer('Ferocious Bite','five combo points / Rip protected',nil,3,35)
     end
     if s.catShred and not openerBlocked and InMelee('Shred')then CatOffer('Shred','rear-position builder',nil,3,60)end
@@ -1965,27 +1985,27 @@ end
 -- Feral Bear 0/41/10. This state is private to the selected Tank build.
 local B={cd={},castAt={},durations={},retry={},buffs={},dots={},pending={},done={},epoch=0,
  formAt=-math.huge,maulAt=-math.huge,maulWindow=2.8}
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 B.levels={['Bear Form']=10,['Dire Bear Form']=40,Maul=10,Growl=10,Enrage=12,Bash=14,
  ['Demoralizing Roar']=10,Swipe=16,['Faerie Fire']=18,['Feral Charge']=20,
  ['Primal Bite']=1,['Challenging Roar']=28,['Frenzied Regeneration']=36,
- Berserk=40,Lacerate=1,Barkskin=44,Rejuvenation=4,Thorns=6}
--- The launch tree moved Lacerate, Primal Bite and Shifting Power between
--- talent rows. Their learned spellbook state is authoritative; a fixed
--- character-level fallback must not hide a talent the player actually knows.
+ Lacerate=1,Barkskin=44,Rejuvenation=4,Thorns=6}
+-- Lacerate is no longer baseline. Its learned spellbook state is authoritative,
+-- and the level-one fallback cannot make an unlearned talent castable.
 B.ok,B.levelReady,B.learned=AL.LevelGates(B.levels)
 B.base={['Primal Bite']=6,Growl=8,Bash=60,Enrage=60,['Feral Charge']=15,
  ['Challenging Roar']=600,['Frenzied Regeneration']=180,Barkskin=60,
- Berserk=180,["Elune's Light"]=180,Berserking=180}
-B.buffDuration={Barkskin=15,['Frenzied Regeneration']=10,Enrage=10,Berserk=15,
+ ["Elune's Light"]=180,Berserking=180}
+B.buffDuration={Barkskin=15,['Frenzied Regeneration']=10,Enrage=10,
  ["Elune's Light"]=15,Berserking=10,Rejuvenation=12,['Mark of the Wild']=1800,Thorns=600}
 B.dotDuration={Lacerate=15,['Demoralizing Roar']=30,['Faerie Fire']=40}
 B.ranks={}
-for name,ids in pairs({['Primal Bite']={407995,1238069,1238070,1238073},
+for name,ids in pairs({['Primal Bite']={407995,1238069,1238070},
  Lacerate={414644,1235826,1235827},Maul={6807,6808,6809,8972,9745,9880,9881},
  Swipe={779,780,769,9754,9908},Bash={5211,6798,8983},['Demoralizing Roar']={99,1735,9490,9747,9898},
  ['Faerie Fire']={770,778,9749,9907},['Bear Form']={5487},['Dire Bear Form']={9634},Growl={6795},
  ['Feral Charge']={1238122},['Challenging Roar']={5209},['Frenzied Regeneration']={22842},
- Barkskin={22812},Enrage={5229},Berserk={417141},["Elune's Light"]={1259799},Berserking={20554,26297},
+ Barkskin={22812},Enrage={5229},["Elune's Light"]={1259799},Berserking={20554,26297},
  Rejuvenation={774,1058,1430,2090,2091,3627,8910,9839,9840,9841,25299},
  ['Mark of the Wild']={1126,5232,6756,5234,8907,9884,9885},Thorns={467,782,1075,8914,9756,9910}})do
  for _,id in ipairs(ids)do B.ranks[id]=name;balanceRanks[id]=name end
@@ -2089,12 +2109,9 @@ function B.ready(name)
    if start and start>0 and duration and duration>1.5 and rate and rate>0 then
     B.durations[name]=duration/rate;B.cd[name]=start+duration/rate
    end
-   -- Berserk resets Primal Bite's spell cooldown, not the global cooldown.
-   if name=='Primal Bite'and B.buff('Berserk')then return true end
    return ready
   end
  end
- if name=='Primal Bite'and B.buff('Berserk')then return true end
  if B.base[name]then return not B.cd[name]or B.cd[name]<=GetTime()end
  return AL.IsReady(name)
 end
@@ -2238,8 +2255,7 @@ bearTracker:SetScript('OnEvent',function(_,event,unit,a2,a3,a4)
  if not name or sent and sent.name and sent.name~=name then return end
  if sent then sent.done=true end;if guid then B.done[guid]=now end
  B.retry[name]=nil
- if name=='Primal Bite'and B.buff('Berserk')then B.castAt[name]=now;B.cd[name]=now
- elseif B.base[name]then
+ if B.base[name]then
   local fallback=B.fallback(name);B.castAt[name]=now
   local info=SafeCall(C_Spell and C_Spell.GetSpellCooldown,CatID(name)or name)
   if SafeValue(info)and type(info)=='table'then
@@ -2328,15 +2344,13 @@ function B.rotation(s,inCombat,hostile)
      if inCombat and AL.burst then
       local threshold=M.BearSetting(s,'bearBurstMinTargetHP')
       local gates={threshold<=0 or HealthGate('target',HealthPercent('target'),threshold,false)}
-      -- Berserk makes Primal Bite cleave. Its activation and empowered
-      -- attack therefore require the selected, confirmed AoE branch.
-      if aoe and s.bearBerserk and not B.buff('Berserk')then B.offer('Berserk','Burst: Bear AoE Primal Bite',gates)end
+      -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
       if s.bearElunesLight and not B.buff("Elune's Light")then B.offer("Elune's Light",'Burst: racial critical chance',gates)end
       if s.bearBerserking and not B.buff('Berserking')then B.offer('Berserking','Burst: learned racial attack speed',gates,1,5)end
      end
      local left,stacks=B.dot('Lacerate')
      if s.bearLacerate and stacks>0 and left<=4.5 then B.offer('Lacerate','protect expiring own bleed stacks',nil,1,15)end
-     if s.bearPrimalBite and(not B.buff('Berserk')or aoe)then B.offer('Primal Bite','Tank primary strike',nil,1,20)end
+     if s.bearPrimalBite then B.offer('Primal Bite','Tank primary strike',nil,1,20)end
      if s.bearSwipe and aoe then B.offer('Swipe','Tank AoE',nil,1,20)end
      if s.bearLacerate and stacks<M.BearSetting(s,'bearLacerateStacks')then B.offer('Lacerate','build own bleed stacks',nil,1,15)end
      if s.bearMaul and not B.maulQueued()then B.offer('Maul','queued Bear Rage dump',{
@@ -2424,8 +2438,9 @@ function M.NextSpell(s,inCombat,hostile)
 end
 
 if AL.selfCastSpells then
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
     for _, name in ipairs({ "Mark of the Wild", "Thorns", "Rejuvenation", "Healing Touch", "Regrowth",
-        "Bear Form", "Dire Bear Form", "Cat Form", "Moonkin Form", "Prowl", "Enrage", "Tiger's Fury", "Dash", "Berserking", "Shifting Power", "Berserk", "Elune's Light", "Nature's Swiftness", "Tranquility", "Innervate", "Barkskin", "Frenzied Regeneration", "Challenging Roar" }) do
+        "Bear Form", "Dire Bear Form", "Cat Form", "Moonkin Form", "Prowl", "Enrage", "Tiger's Fury", "Dash", "Berserking", "Shifting Power", "Elune's Light", "Nature's Swiftness", "Tranquility", "Innervate", "Barkskin", "Frenzied Regeneration", "Challenging Roar" }) do
         AL.selfCastSpells[name] = true
     end
 end
@@ -2583,6 +2598,50 @@ AL.RegisterRotation("DRUID", M)
             units[#units + 1] = "player"
         end
         return units
+    end
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- Wild Growth uses protected primary/secondary health masks. Public roster
+    -- checks and raid subgroups bound its candidate pairs without reading HP.
+    local function HEUnitEligible(unit)
+        if not HEExists(unit) then return false end
+        if unit ~= "player" then
+            local assist = HEBool(UnitCanAssist, "player", unit)
+            local friend = HEBool(UnitIsFriend, "player", unit)
+            if assist ~= true and friend ~= true then return false end
+        end
+        if HEBool(UnitIsDeadOrGhost, unit) == true then return false end
+        if HEBool(UnitIsConnected, unit) == false then return false end
+        if HEBool(UnitIsVisible, unit) == false then return false end
+        return true
+    end
+    local function HEUnitRole(unit)
+        if type(UnitGroupRolesAssigned) ~= "function" then return "NONE" end
+        local ok, role = pcall(UnitGroupRolesAssigned, unit)
+        if not ok or HESecret(role) or type(role) ~= "string" then return "NONE" end
+        if role == "TANK" or role == "HEALER" or role == "DAMAGER" then return role end
+        return "NONE"
+    end
+    local function HERaidSubgroup(unit)
+        local index = type(unit) == "string" and tonumber(unit:match("^raid(%d+)$")) or nil
+        if not index then return nil end
+        if type(GetRaidRosterInfo) == "function" then
+            local values = { pcall(GetRaidRosterInfo, index) }
+            local subgroup = values[1] and values[4]
+            if not HESecret(subgroup) and type(subgroup) == "number" then return subgroup end
+        end
+        return math.floor((index - 1) / 5) + 1
+    end
+    local function HESameHealingGroup(primary, secondary)
+        local left, right = HERaidSubgroup(primary), HERaidSubgroup(secondary)
+        if left or right then return left ~= nil and left == right end
+        return true
+    end
+    local function HESecondaryThreshold(context, unit)
+        local threshold = context.settings.initiate
+        if HEUnitRole(unit) == "DAMAGER" then
+            threshold = threshold - (context.dpsThresholdOffset or 10)
+        end
+        return math.max(0, threshold)
     end
     local function HEGroupUnitFor(source)
         if not HEExists(source) or type(UnitIsUnit) ~= "function" then return nil end
@@ -2841,6 +2900,30 @@ AL.RegisterRotation("DRUID", M)
                 unitFilter = function(unit) return not HEEffectActive(unit, "Regrowth") end,
             },
         }
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- Wild Growth now has a three-second base cast. The live spell data
+        -- supplies Naturalist's reduction; two protected injured-member masks
+        -- ensure the group heal does not interrupt MP5 for a single target.
+        if profile.healingWildGrowth ~= false and HEAvailable("Wild Growth", profile) then
+            local roster = HEGroupUnits()
+            for left = 1, #roster - 1 do
+                local primary = roster[left]
+                if HEUnitEligible(primary) then
+                    for right = left + 1, #roster do
+                        local secondary = roster[right]
+                        if HEUnitEligible(secondary) and HESameHealingGroup(primary, secondary) then
+                            routine[#routine + 1] = {
+                                spell = "Wild Growth", reason = "Healing Rotation: multi-member Wild Growth",
+                                unit = primary,
+                                secondaryHealthUnit = secondary,
+                                secondaryHealthThreshold = HESecondaryThreshold(context, secondary),
+                                manaAbove = 50,
+                            }
+                        end
+                    end
+                end
+            end
+        end
 
         local emergency
         if healState.natureSwiftnessUntil > now then

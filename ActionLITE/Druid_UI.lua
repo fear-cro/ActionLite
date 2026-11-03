@@ -35,7 +35,10 @@ AL.RegisterSimpleClassUI("DRUID", {
 				  tooltip = { "Enable Healing Rotation", "Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation." } },
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
-				{ type = "info", text = "Tank and healer thresholds use the selected values; known DPS members use each value minus 10 points. Tracks Regrowth and Rejuvenation, follows direct heals with Rejuvenation, protects the five-second mana rule, maintains tank Thorns, and uses Swiftmend, Nature's Swiftness and Elune's Light for emergencies. Selecting a friendly group member requests immediate care; out of combat it can apply Mark of the Wild or top off above 80% mana." },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "healingWildGrowth", label = "Use Wild Growth for group healing", spell = "Wild Growth", half = false,
+				  tooltip = { "Protected group heal", "Requires two eligible injured members in the same party or raid subgroup and more than 50% mana. The live learned spell supplies Naturalist's cast-time reduction." } },
+				{ type = "info", text = "Tank and healer thresholds use the selected values; known DPS members use each value minus 10 points. Tracks Regrowth and Rejuvenation, protects the five-second mana rule, and uses protected two-member health gates for Wild Growth. Swiftmend, Nature's Swiftness and Elune's Light remain emergency tools. Selecting a friendly group member requests immediate care; out of combat it can apply Mark of the Wild or top off above 80% mana." },
 			},
 		},
         {
@@ -47,12 +50,13 @@ AL.RegisterSimpleClassUI("DRUID", {
                 { key="bearAutoForm",label="Maintain learned Bear Form",spell="Dire Bear Form",half=false,
                     tooltip={"Tank form","Uses Dire Bear Form when actually learned, otherwise Bear Form. Preserves travel forms and finishes casts/channels. The Tank build does not shift out to cast a heal during combat."} },
                 { key="bearPrimalBite",label="Use Primal Bite",spell="Primal Bite" },
-                { key="bearLacerate",label="Maintain Lacerate",spell="Lacerate" },
+                -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+                { key="bearLacerate",label="Maintain learned Lacerate",spell="Lacerate" },
                 { type="slider",key="bearLacerateStacks",label="Tank Lacerate stacks",min=1,max=5,step=1,default=5 },
-                { key="bearLacerateFiller",label="Use Lacerate as damage filler",spell="Lacerate",half=false },
+                { key="bearLacerateFiller",label="Use learned Lacerate as damage filler",spell="Lacerate",half=false },
                 { key="bearFaerieFire",label="Tank: maintain Faerie Fire",spell="Faerie Fire" },
                 { key="bearDemoRoar",label="Tank: maintain Demoralizing Roar",spell="Demoralizing Roar" },
-                { type="info",text="Primal Bite is Forever's renamed Mangle-style Bear attack. Use its learned rank, maintain own Lacerate stacks and refresh an expiring bleed, then queue Maul at the chosen Rage threshold. Optional Lacerate filler can repeat between primary cooldowns. Faerie Fire uses the mana pool while in Bear; Rage is never treated as mana." },
+                { type="info",text="Primal Bite is Forever's renamed Mangle-style Bear attack. Lacerate is now a Feral talent and is only suggested when learned. Maintain own Lacerate stacks and refresh an expiring bleed, then queue Maul at the chosen Rage threshold. Optional Lacerate filler can repeat between primary cooldowns. Faerie Fire uses the mana pool while in Bear; Rage is never treated as mana." },
                 { key="bearMaul",label="Use queued Maul",spell="Maul" },
                 { type="slider",key="bearMaulRage",label="Tank Maul minimum Rage",min=0,max=100,step=5,default=25 },
                 { type="info",text="Maul uses the exact selected Rage threshold and its actual spell cost. It is not repeatedly queued while already active. Learned attacks continue between queued swings. The existing Bash, Enrage and preparation/healing checkboxes below also apply to Tank." },
@@ -89,12 +93,11 @@ AL.RegisterSimpleClassUI("DRUID", {
         {
             title="BEAR BURST", id="bear-burst", build="feralBear", group="burst",
             controls={
-                { key="bearBerserk",label="Burst + AoE: use Berserk",spell="Berserk" },
                 { key="bearElunesLight",label="Tank Burst: learned Elune's Light",spell="Elune's Light" },
                 { key="bearBerserking",label="Tank Burst: learned Berserking",spell="Berserking" },
                 { type="slider",key="bearBurstMinTargetHP",label="Tank Burst minimum target health",min=0,max=100,step=5,default=35,suffix=" %" },
-                { type="info",text="Offensive cooldowns require Burst On, their checkbox, combat, Bear Form and a melee target. Zero removes the target-health limit. Berserk makes Primal Bite hit up to three enemies, so Berserk and empowered Primal Bite also require AoE On and the confirmed enemy threshold. Turning AoE off during Berserk uses single-target Lacerate/Maul until the buff ends. Only actually learned racials are used; the reference Night Elf has Elune's Light." },
-                { type="info",text="New Spells-tab entries support Universal icons 1-10: Primal Bite, Lacerate, Barkskin, Frenzied Regeneration, Feral Charge and Challenging Roar. Note: Use a Universal icon for Demoralizing Roar." },
+                { type="info",text="Offensive racial cooldowns require Burst On, their checkbox, combat, Bear Form and a melee target. Zero removes the target-health limit. Berserk was removed from the Feral tree and is no longer suggested. Only actually learned racials are used; the reference Night Elf has Elune's Light." },
+                { type="info",text="Spells-tab entries support Universal icons 1-10 for Primal Bite, learned Lacerate, Barkskin, Frenzied Regeneration, Feral Charge and Challenging Roar. Note: Use a Universal icon for Demoralizing Roar." },
             },
         },
 
@@ -158,7 +161,9 @@ AL.RegisterSimpleClassUI("DRUID", {
 					tooltip = { "Rear-position damage", "Default OFF for solo play. Enable when you can stay behind the target, as the simulator assumes. A failed rear-position attempt falls back to Claw for this target. Target changes allow a new attempt." } },
 				{ key = "catProwl", label = "Use Prowl before combat", spell = "Prowl" },
 				{ key = "catRavage", label = "Use learned Ravage opener", spell = "Ravage" },
-				{ type = "info", text = "With Feral Cat selected, the shared Rake and Rip checkboxes below still apply. Maintain Rake, use Rip at five points on durable targets, then Bite at five points when Rip has more than five seconds left. Short confirmed lifetimes use Bite. Zero points always uses a builder. Ordinary hidden critical hits are not guessed." },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "catPounce", label = "Use Pounce opener instead of Ravage", spell = "Pounce", half = false },
+				{ type = "info", text = "With Feral Cat selected, the shared Rake and Rip checkboxes below still apply. Pounce is an optional stealth bleed/stun opener and replaces Ravage only when selected. Maintain Rake, use Rip at five points on durable targets, then Bite at five points when Rip has more than five seconds left. Ferocious Bite is available from level 24 when learned. Short confirmed lifetimes use Bite. Zero points always uses a builder. Ordinary hidden critical hits are not guessed." },
 			},
 		},
 		{
@@ -173,11 +178,10 @@ AL.RegisterSimpleClassUI("DRUID", {
         {
             title="FERAL CAT BURST", id="feral-cat-burst", build="feralCat", group="burst",
             controls={
-				{ key = "catBerserk", label = "Use Berserk", spell = "Berserk" },
 				{ key = "catElunesLight", label = "Use Elune's Light", spell = "Elune's Light" },
 				{ type = "slider", key = "catBurstMinTargetHP", label = "Cat Burst minimum target health", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 				{ type = "slider", key = "catBurstMinEnergy", label = "Cat Burst minimum energy", min = 0, max = 100, step = 5, default = 30 },
-				{ type = "info", text = "Berserk and the learned Night Elf racial require Burst On, combat, Cat Form and melee range. Elune's Light waits until Berserk ends to avoid wasting its critical chance bonus. Neither spell is assumed learned from this checkbox." },
+				{ type = "info", text = "The learned Night Elf racial requires Burst On, combat, Cat Form and melee range. Berserk was removed from the Feral tree and is no longer selectable or suggested. The racial is never assumed learned from this checkbox." },
 			},
 		},
 		{
@@ -227,7 +231,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 			},
 		},
 	},
-}, "0.13.2")
+}, "0.13.3")
 
 
 -- Keep new Bear slider getters on the same bounded settings as the rotation,

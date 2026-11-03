@@ -1,5 +1,6 @@
 local ADDON, AL = ...
-AL.buildId = "1.1.0-class-tuning-20261031"
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+AL.buildId = "1.1.5-prelaunch-bluepost-20261103"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"

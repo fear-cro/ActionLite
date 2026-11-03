@@ -1,6 +1,6 @@
 # Writing ActionLITE rotations
 
-This guide describes the v1.1.0 class-rotation and HealingEngine contracts for WoW Forever.
+This guide describes the v1.1.5 class-rotation and HealingEngine contracts for WoW Forever.
 
 ## Repository layout
 
@@ -212,10 +212,10 @@ The Druid provider implements the first class-specific Healing Rotation:
 - Routine tank healing prioritizes tracked Regrowth and Rejuvenation. Other eligible members receive Rejuvenation and Healing Touch according to the initiate threshold.
 - A successful Healing Touch or Regrowth schedules Rejuvenation on the same unit when that HoT is not already tracked. Damage and Thorns requests pause during the five-second mana-recovery window.
 - Emergency healing prioritizes tracked Swiftmend, then Elune's Light, Nature's Swiftness and Healing Touch. Elune's Light is not used outside the emergency category.
-- Successful Rejuvenation, Regrowth, Thorns and Mark of the Wild casts create per-unit expiration timers. Swiftmend does not consume the tracked HoT in Forever.
+- Successful Rejuvenation, Regrowth, Thorns and Mark of the Wild casts create per-unit expiration timers. Swiftmend requires one of the casting Druid's own qualifying HoTs; because the consumed effect may be secret, a confirmed Swiftmend conservatively clears both tracked HoT timers on that member.
 - The tank receives tracked Thorns at the start of combat. A selected friendly group member can receive Mark of the Wild out of combat, then a health-masked Healing Touch top-off only above 80% readable mana and while the Druid is not eating or drinking.
 - A living selected elite enemy receives timed Faerie Fire, followed by timed Moonfire. These requests use the shared strict-above-80% mana mask and are suppressed during the mana-recovery window.
-- Dispel, Entangling Roots and Hibernate decisions remain manual because the required combat conditions are not safely observable. Tranquility and Wild Growth are registered for Universal icon assignment and manual queuing; automatic group use waits for a safe multiple-injured-member signal.
+- Dispel, Entangling Roots and Hibernate decisions remain manual because the required combat conditions are not safely observable. Tranquility remains manually queued. Wild Growth uses paired protected health masks for two eligible injured members in the same party or raid subgroup, with a 50% mana floor; its learned live cast time includes Naturalist.
 
 ## Priest Healing Rotation providers
 

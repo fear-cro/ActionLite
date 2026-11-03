@@ -1,6 +1,6 @@
 # ActionLITE developer documentation
 
-ActionLITE v1.1.0 supports combat rotations and protected party-healing recommendations for WoW Forever.
+ActionLITE v1.1.5 supports combat rotations and protected party-healing recommendations for WoW Forever.
 
 - [Rotation development](Rotation-Development.md) explains class modules, settings, spell registration, HealingEngine providers and validation.
 - The current addon source is in [`../ActionLITE/`](../ActionLITE/).
