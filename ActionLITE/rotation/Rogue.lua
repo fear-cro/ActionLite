@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 
--- ActionLITE Rogue v0.16.3: original Leveling plus optional talent builds.
+-- ActionLITE Rogue v0.16.4: original Leveling plus optional talent builds.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -65,6 +65,7 @@ local M = {
 		rupture = false,
 		expose = false,
 		bladeFlurry = true,
+		shank = true,
 		aoe = false,
 		sinisterMinEnergy = 45,
 		backstabMinEnergy = 60,
@@ -98,6 +99,8 @@ M.spells = {
 	{ 14251, "Riposte" },
 	{ 1943, "Rupture" },
 	{ 6770, "Sap" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 0, "Shank" },
 	{ 1752, "Sinister Strike" },
 	{ 5171, "Slice and Dice" },
 	{ 2983, "Sprint" },
@@ -127,6 +130,8 @@ local MINLEVEL = {
 	["Rupture"] = 20,
 	["Vanish"] = 22,
 	["Distract"] = 22,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Shank"] = 24,
 	["Cheap Shot"] = 26,
 	["Kidney Shot"] = 30,
 }
@@ -241,6 +246,14 @@ local function MainHandIsDagger()
 	if not okInfo or not SafeValue(classID) or not SafeValue(subclassID) then return nil end
 	local daggerID = Enum and Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Dagger or 15
 	return classID == 2 and subclassID == daggerID
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function ShankEligible()
+	local item = SafeCall(GetInventoryItemID, "player", 17)
+	if SafeValue(item) and item == nil then return false end
+	local usable, shortage = SpellUsability("Shank")
+	return usable ~= false or shortage == true
 end
 
 -- The interact check is approximately ten yards, not melee range. It is only
@@ -405,6 +418,56 @@ local lastSuccessfulCastAt
 local lastRotation
 local AddAction, FinishDecision, EnergyGate, EnergyCost
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Shank's live cooldown is eight to ten seconds after Flash of Steel. Forever
+-- can protect the cooldown payload in combat, so successful casts provide the
+-- fallback while readable cooldown data always wins.
+local levelingShankEnd, levelingShankRetry = 0, 0
+local function LevelingTalentRank(wanted)
+	for tab = 1, 3 do
+		for index = 1, 40 do
+			local name, _, _, _, rank = SafeCall(GetTalentInfo, tab, index, false, false)
+			if SafeValue(name) and type(name) == "string" and ReadableNumber(rank) then
+				local english = (AL.englishNames and AL.englishNames[name]) or name
+				if english == wanted then return rank end
+			end
+		end
+	end
+end
+
+local function LevelingShankFallback()
+	local rank = LevelingTalentRank("Flash of Steel")
+	if rank then return math.max(8, 10 - 0.4 * math.max(0, math.min(5, rank))) end
+	return 10
+end
+
+local function LevelingShankCooldown()
+	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs["Shank"]
+	local identifier = ref and ReadableNumber(ref.id) or "Shank"
+	local info = SafeCall(C_Spell and C_Spell.GetSpellCooldown, identifier)
+	if SafeValue(info) and type(info) == "table" then
+		local start, duration = ReadableNumber(info.startTime), ReadableNumber(info.duration)
+		local rate = ReadableNumber(info.modRate) or 1
+		if start and duration and start >= 0 and duration >= 0 and rate > 0 then
+			return (start == 0 or duration <= 1.5) and 0 or start + duration / rate
+		end
+	end
+	local start, duration = SafeCall(GetSpellCooldown, identifier)
+	start, duration = ReadableNumber(start), ReadableNumber(duration)
+	if start and duration and start >= 0 and duration >= 0 then
+		return (start == 0 or duration <= 1.5) and 0 or start + duration
+	end
+end
+
+local function LevelingShankReady()
+	if not Ok("Shank") then return false end
+	local now = GetTime()
+	if levelingShankRetry > now then return false end
+	local expires = LevelingShankCooldown()
+	if expires ~= nil then levelingShankEnd = expires end
+	return levelingShankEnd <= now
+end
+
 function M.OnTargetChanged()
 	openerBlocked = false
 	lastRotation, AL.rogueSecretVisual = nil, nil
@@ -423,6 +486,14 @@ function M.OnCastResult(name, event)
 	if event == "UNIT_SPELLCAST_SUCCEEDED" then
 		lastSuccessfulCastAt = GetTime()
 		if name == "Backstab" then openerBlocked = false end
+		if name == "Shank" then
+			local expires = LevelingShankCooldown()
+			levelingShankEnd = expires and expires > GetTime() and expires or GetTime() + LevelingShankFallback()
+			levelingShankRetry = 0
+		end
+	elseif name == "Shank" and (event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
+		or event == "UNIT_SPELLCAST_INTERRUPTED") then
+		levelingShankRetry = GetTime() + 0.5
 	end
 end
 
@@ -873,6 +944,14 @@ function M.NextSpell(s, inCombat, hostile)
 	if cp >= 5 and targetHP == nil and eviscerateAllowed and not CurveAvailable("health") then
 		AddAction(nil, "Target health unavailable"); return FinishDecision()
 	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Shank is a baseline strike and net Energy gain. Finishers remain ahead of
+	-- it so a guaranteed Boot Knife proc cannot waste points at the cap.
+	if s.shank and cp < 5 and LevelingShankReady() and ShankEligible() and InMeleeRange("Shank") then
+		AddAction("Shank", "energy-generating strike", {
+			EnergyGate(energy, EnergyCost("Shank", 5), "Shank") })
+		AddAction(nil, "Pool energy for Shank"); return FinishDecision()
+	end
 	local builder, minimumEnergy = Builder(s)
 	if builder then
 		minimumEnergy = math.max(minimumEnergy, EnergyCost(builder, 45))
@@ -909,7 +988,7 @@ AL.RegisterRotation("ROGUE", M)
 -- BEGIN OPTIONAL TALENT BUILD IMPLEMENTATION
 local ADDON, AL = ...
 
--- ActionLITE Rogue 0.16.3: Assassination 38/11/2, Subtlety, Combat and leveling 1-60.
+-- ActionLITE Rogue 0.16.4: Assassination 38/11/2, Subtlety, Combat and leveling 1-60.
 -- Combat reference: MythicSim Forever 0025d73986ee (1.60.1.70338).
 -- Protected values are never treated as zero.
 
@@ -926,6 +1005,7 @@ local M = {
 		subtletyHemorrhage = true, subtletyHemorrhageEnergy = 0,
 		subtletyGhostlyStrike = true, subtletyAmbush = true,
 		subtletyRupture = true, subtletyRuptureCP = 3, subtletyRuptureHP = 50,
+		subtletyDeathMark = true, subtletyDeathMarkHP = 50,
 		subtletyEviscerateCP = 4,
 		subtletyPremeditation = true, subtletyVanish = false,
 		subtletyPreparation = true, subtletyRacials = true,
@@ -946,6 +1026,7 @@ local M = {
 		rupture = false,
 		expose = false,
 		bladeFlurry = true,
+		shank = true,
 		aoe = false,
 		sinisterMinEnergy = 45,
 		backstabMinEnergy = 60,
@@ -1009,6 +1090,8 @@ M.spells = {
 	{ 20572, "Blood Fury" },
 	{ 1833, "Cheap Shot" },
 	{ 14177, "Cold Blood" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 0, "Death Mark" },
 	{ 1725, "Distract" },
 	{ 5277, "Evasion" },
 	{ 2098, "Eviscerate" },
@@ -1027,12 +1110,12 @@ M.spells = {
 	{ 14251, "Riposte" },
 	{ 1943, "Rupture" },
 	{ 6770, "Sap" },
+	{ 0, "Shank" },
 	{ 1752, "Sinister Strike" },
 	{ 5171, "Slice and Dice" },
 	{ 2983, "Sprint" },
 	{ 1784, "Stealth" },
 	{ 1856, "Vanish" },
-	{ 1310703, "Venom" },
 }
 
 -- Class spells verified by level. Riposte and Blade Flurry talents
@@ -1057,6 +1140,8 @@ local MINLEVEL = {
 	["Rupture"] = 20,
 	["Vanish"] = 22,
 	["Distract"] = 22,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Shank"] = 24,
 	["Cheap Shot"] = 26,
 	["Kidney Shot"] = 30,
 }
@@ -1094,7 +1179,8 @@ local function SettingChoice(s, key, allowed, defaultValue)
 	return allowed[value] and value or defaultValue
 end
 
-local SubReady, SubCastResult, SubTargetChanged, SubAura, RoguePoints, SubtletyRotation, AssassinationRotation
+local SubReady, SubCastResult, SubTargetChanged, SubAura, SubTalent, RoguePoints, SubtletyRotation, AssassinationRotation
+local subGhostlyUntil = 0
 local subReset = {}
 local function ReadyUsable(name)
 	if SubReady and (AL.S().subtlety == true or AL.S().assassination == true or subReset[name]) then
@@ -1180,6 +1266,14 @@ end
 
 local function MainHandIsDagger() return WeaponIsDagger(16) end
 local function TwoDaggers() return MainHandIsDagger() == true and WeaponIsDagger(17) == true end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function ShankEligible()
+	local item = SafeCall(GetInventoryItemID, "player", 17)
+	if SafeValue(item) and item == nil then return false end
+	local usable, shortage = SpellUsability("Shank")
+	return usable ~= false or shortage == true
+end
 
 -- The interact check is approximately ten yards, not melee range. It is only
 -- used outside combat to prepare Stealth; attacks require their own spell range.
@@ -1345,6 +1439,7 @@ local AddAction, FinishDecision, EnergyGate, EnergyCost, CombatCastResult
 
 function M.OnTargetChanged()
 	if SubTargetChanged then SubTargetChanged() end
+	subGhostlyUntil = 0
 	openerBlocked = false
 	lastRotation, AL.rogueSecretVisual = nil, nil
 end
@@ -1592,13 +1687,24 @@ end
 -- own successful casts. Talent spells are gated by learning, not a guessed level.
 local combatCooldowns = { ["Adrenaline Rush"] = 300, ["Blade Flurry"] = 120,
 	["Blood Fury"] = 120, ["Berserking"] = 180, ["Cold Blood"] = 180,
-	["Ghostly Strike"] = 20, ["Premeditation"] = 120, ["Preparation"] = 600, ["Vanish"] = 300, ["Stealth"] = 10 }
+	["Ghostly Strike"] = 20, ["Premeditation"] = 120, ["Preparation"] = 600, ["Vanish"] = 300, ["Stealth"] = 10,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Shank"] = 10, ["Death Mark"] = 10 }
 local combatDurations = { ["Adrenaline Rush"] = 15, ["Blade Flurry"] = 15,
 	["Blood Fury"] = 15, ["Berserking"] = 10, ["Ghostly Strike"] = 7, ["Vanish"] = 10,
 	["Cold Blood"] = math.huge }
 local combatEnds, combatCastAt, combatBuffEnds, combatRetry = {}, {}, {}, {}
 local combatIDs = {}
 for _, entry in ipairs(M.spells) do combatIDs[entry[2]] = entry[1] end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function CombatFallbackCooldown(name)
+	if name == "Shank" and SubTalent then
+		local rank = SubTalent("Flash of Steel")
+		if rank then return math.max(8, 10 - 0.4 * math.max(0, math.min(5, rank))) end
+	end
+	return combatCooldowns[name]
+end
 
 local function CombatID(name)
 	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[name]
@@ -1674,7 +1780,7 @@ CombatCastResult = function(name, event)
 	if event == "UNIT_SPELLCAST_SUCCEEDED" then
 		combatCastAt[name] = now
 		local _, expires = CombatCooldown(name)
-		combatEnds[name] = expires and expires > now and expires or now + combatCooldowns[name]
+		combatEnds[name] = expires and expires > now and expires or now + CombatFallbackCooldown(name)
 		combatBuffEnds[name] = combatDurations[name] and now + combatDurations[name] or nil
 		combatRetry[name] = nil
 	elseif event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
@@ -1765,6 +1871,12 @@ local function CombatRotation(s, cp, energy, targetHP)
 	-- builder that cannot add points. Interrupts and defensives were checked first.
 	if cp >= 5 then
 		AddAction(nil, "Combat: waiting for an enabled finisher"); return FinishDecision()
+	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if s.shank and CombatReady("Shank") and ShankEligible() and InMeleeRange("Shank") then
+		AddAction("Shank", "Combat: energy-generating strike", {
+			EnergyGate(energy, EnergyCost("Shank", 5), "Shank") })
+		AddAction(nil, "Pool energy for Shank"); return FinishDecision()
 	end
 	local builder, minimum = Builder(s)
 	if builder then
@@ -1921,8 +2033,9 @@ local subStealth, subStealthAt
 local subBuilders = { ["Sinister Strike"] = 1, Backstab = 1, Gouge = 1, Ambush = 1,
 	Garrote = 1, ["Cheap Shot"] = 2, Riposte = 1, Hemorrhage = 1, ["Ghostly Strike"] = 1 }
 subBuilders.Mutilate = 2
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 local subFinishers = { Eviscerate = true, ["Slice and Dice"] = true, Rupture = true,
-	["Kidney Shot"] = true, ["Expose Armor"] = true, Venom = true }
+	["Kidney Shot"] = true, ["Expose Armor"] = true, ["Death Mark"] = true }
 local subResetSpells = { "Vanish", "Premeditation", "Ghostly Strike", "Stealth", "Sprint",
 	"Evasion", "Gouge", "Kick", "Kidney Shot", "Riposte", "Blade Flurry", "Adrenaline Rush", "Cold Blood" }
 
@@ -1931,7 +2044,7 @@ local function SubGUID(unit)
 	if SafeValue(guid) and type(guid) == "string" then return guid end
 end
 
-local function SubTalent(name)
+SubTalent = function(name)
 	if not subTalents then
 		subTalents = {}
 		for tab = 1, 3 do for index = 1, 40 do
@@ -1948,6 +2061,22 @@ local function SubTalent(name)
 		end end
 	end
 	return subTalents[name]
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Blood Splatter is passive, but its extra duration must be present in both
+-- ActionLITE's protected target timers and the Subtlety-owned aura tracker.
+function M.DebuffDuration(name, comboPoints, baseDuration)
+	local duration = ReadableNumber(baseDuration)
+	if not duration then return end
+	if (name == "Rupture" or name == "Garrote") and (SubTalent("Blood Splatter") or 0) > 0 then
+		duration = duration + (name == "Rupture" and 6 or 9)
+	end
+	return duration
+end
+
+function M.ComboPointsGenerated(name)
+	if name == "Shank" and SubTalent("Boot Knife") == 5 then return 2 end
 end
 
 SubAura = function(unit, name)
@@ -2046,7 +2175,10 @@ end
 
 SubTargetChanged = function(comboOnly)
 	subCombo, subLast, subSpentAt, subBefore, subPremedUntil, subPremedOnly = nil, nil, nil, nil, nil, nil
-	if not comboOnly then subEpoch = subEpoch + 1; subDots = {}; subAuraCache = {} end
+	if not comboOnly then
+		subEpoch = subEpoch + 1
+		subDots, subAuraCache, subGhostlyUntil = {}, {}, 0
+	end
 end
 
 SubReady = function(name)
@@ -2077,6 +2209,11 @@ SubCastResult = function(name, event, sent)
 	end
 	local now = GetTime()
 	subReset[name] = nil
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Ghostly Strike grants one seven-second Ambush/Garrote opportunity without
+	-- Stealth. A confirmed follow-up consumes the window immediately.
+	if name == "Ghostly Strike" then subGhostlyUntil = now + 7
+	elseif name == "Ambush" or name == "Garrote" then subGhostlyUntil = 0 end
 	-- The current Forever Mutilate hits can retain Cold Blood. Ordinary
 	-- consuming attacks clear our fallback; readable aura data still wins.
 	if name == "Sinister Strike" or name == "Backstab" or name == "Ambush" or name == "Eviscerate" then combatBuffEnds["Cold Blood"] = nil end
@@ -2087,8 +2224,9 @@ SubCastResult = function(name, event, sent)
 		if not nativeEnd or nativeEnd <= now then
 			local rank = SubTalent(name == "Vanish" and "Elusiveness" or "Camouflage")
 			if rank then
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				local reduction = name == "Vanish" and 45 * math.max(0, math.min(2, rank))
-					or rank > 0 and 1 + math.min(5, rank) or 0
+					or 2 * math.max(0, math.min(3, rank))
 				combatEnds[name] = now + math.max(0, combatCooldowns[name] - reduction)
 			end
 		end
@@ -2105,15 +2243,21 @@ SubCastResult = function(name, event, sent)
 		subAuraCache["player:Slice and Dice"] = nil
 	end
 	local currentTarget = SubGUID("target")
-	local matching = snapshot and snapshot.epoch == subEpoch and (not snapshot.foreign or name == "Slice and Dice" or name == "Venom")
+	local matching = snapshot and snapshot.epoch == subEpoch and (not snapshot.foreign or name == "Slice and Dice")
 		or not snapshot and currentTarget ~= nil and (not sent or sent.targetGUID == currentTarget)
 	if not matching then return end
 	local oldDot = subDots[name]
-	if name == "Rupture" or name == "Hemorrhage" then
-		subDots[name] = { at = now, expires = now + (name == "Rupture" and 6 + 2 * math.max(1, before) or 15) }
+	if name == "Rupture" or name == "Hemorrhage" or name == "Garrote" or name == "Death Mark" then
+		local duration = name == "Rupture" and 6 + 2 * math.max(1, before)
+			or name == "Hemorrhage" and 15 or name == "Garrote" and 18 or 6
+		duration = M.DebuffDuration(name, before, duration) or duration
+		subDots[name] = { at = now, expires = now + duration }
 		subAuraCache["target:" .. name] = nil
 	end
 	local points = subBuilders[name] or (name == "Premeditation" and 2)
+	-- Boot Knife is probabilistic below rank five. Only its guaranteed max-rank
+	-- two points are inferred; readable native combo points still override us.
+	if name == "Shank" and SubTalent("Boot Knife") == 5 then points = 2 end
 	local active = AL.S().subtlety == true or AL.S().assassination == true or subCombo ~= nil or name == "Premeditation"
 	if active and (points or subFinishers[name]) then
 		if (name == "Ambush" or name == "Garrote") and SubTalent("Initiative") == 3 then points = points + 1 end
@@ -2156,13 +2300,15 @@ if AL.playerClass == "ROGUE" and CreateFrame then
 			local playerGUID, targetGUID = SubGUID("player"), SubGUID("target")
 			if not ok or not playerGUID or not targetGUID or not SafeValue(kind)
 				or not SafeValue(source) or source ~= playerGUID or not SafeValue(dest) or dest ~= targetGUID then return end
-			-- At rank five a readable builder crit guarantees one Seal Fate point.
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			-- At the new rank three maximum, a readable builder crit guarantees one Seal Fate point.
 			-- Both Mutilate hands share its 0.5 second proc window; never count two.
 			-- Protected crits and probabilistic lower ranks do not invent points.
 			if kind == "SPELL_DAMAGE" and AL.S().assassination == true and subLast
 				and subLast.epoch == subEpoch and GetTime() - subLast.at < 0.5
 				and not subLast.sealFate and subBuilders[subLast.name]
-				and SafeValue(critical) and critical == true and SubTalent("Seal Fate") == 5 then
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			and SafeValue(critical) and critical == true and SubTalent("Seal Fate") == 3 then
 				local english = SafeValue(name) and type(name) == "string" and ((AL.englishNames and AL.englishNames[name]) or name)
 				if english == subLast.name or ReadableNumber(id) and id == CombatID(subLast.name) then
 					subLast.sealFate = true
@@ -2173,12 +2319,19 @@ if AL.playerClass == "ROGUE" and CreateFrame then
 			if kind ~= "SPELL_MISSED" then return end
 			if not SafeValue(missType) or type(missType) ~= "string" or missType == "ABSORB" or missType == "BLOCK" then return end
 			if not SafeValue(name) or type(name) ~= "string" then name = nil end
-			if ReadableNumber(id) then for spell in pairs(subBuilders) do if CombatID(spell) == id then name = spell end end
-				if CombatID("Rupture") == id then name = "Rupture" end end
+				if ReadableNumber(id) then
+					for spell in pairs(subBuilders) do if CombatID(spell) == id then name = spell end end
+					for _, finisher in ipairs({ "Rupture", "Death Mark" }) do
+						if CombatID(finisher) == id then name = finisher end
+					end
+				end
 			name = name and ((AL.englishNames and AL.englishNames[name]) or name)
 			if subLast and subLast.name == name and subLast.epoch == subEpoch and GetTime() - subLast.at < 3 then
 				subCombo = subLast.before
-				if name == "Rupture" or name == "Hemorrhage" then subDots[name] = subLast.dotBefore; subAuraCache["target:" .. name] = nil end
+					if name == "Rupture" or name == "Hemorrhage" or name == "Garrote" or name == "Death Mark" then
+						subDots[name] = subLast.dotBefore
+						subAuraCache["target:" .. name] = nil
+					end
 				subLast, subSpentAt = nil, nil
 			end
 		end
@@ -2191,6 +2344,22 @@ local function SubOffer(name, reason, energy, cost, gates)
 	for _, gate in ipairs(gates or {}) do conditions[#conditions + 1] = gate end
 	conditions[#conditions + 1] = EnergyGate(energy, EnergyCost(name, cost or 0), name)
 	return AddAction(name, reason, conditions)
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function GhostlyFollowup(s, cp, energy)
+	if not s.subtletyGhostlyStrike or subGhostlyUntil <= GetTime() or cp >= 5 or openerBlocked then return false end
+	local choices = {}
+	if s.subtletyAmbush and MainHandIsDagger() == true then choices[#choices + 1] = "Ambush" end
+	if not SubDot("Garrote") then choices[#choices + 1] = "Garrote" end
+	for _, name in ipairs(choices) do
+		if Ok(name) and SubReady(name) and InMeleeRange(name) and ReadablePositionalUsable(name) ~= false then
+			SubOffer(name, "Subtlety: Ghostly Strike follow-up", energy, name == "Garrote" and 50 or 60)
+			AddAction(nil, "Pool energy for Ghostly Strike follow-up")
+			return true
+		end
+	end
+	return false
 end
 
 SubtletyRotation = function(s, inCombat, hostile, cp, energy, targetHP)
@@ -2264,17 +2433,29 @@ SubtletyRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 		SubOffer("Eviscerate", "Subtlety: low-health execute", energy, 35, { execute })
 		AddAction(nil, "Pool energy for Eviscerate", { execute })
 	end
+	if GhostlyFollowup(s, cp, energy) then return FinishDecision() end
 	local remaining
 	if A and A.Unit then
 		local unit = SafeCall(A.Unit, "target")
 		if SafeValue(unit) and type(unit) == "table" then remaining = ReadableNumber((SafeCall(unit.TimeToDie, unit))) end
 	end
-	if s.subtletyRupture and (not remaining or remaining <= 0 or remaining > 8)
+	local ruptureLife = 8 + ((SubTalent("Blood Splatter") or 0) > 0 and 6 or 0)
+	if s.subtletyRupture and (not remaining or remaining <= 0 or remaining > ruptureLife)
 		and cp >= SettingNumber(s, "subtletyRuptureCP", 3, 1, 5) and not SubDot("Rupture")
 		and Ok("Rupture") and FinisherAvailable("Rupture") then
 		local healthGate = HealthGate("target", targetHP, SettingNumber(s, "subtletyRuptureHP", 50, 0, 100), false)
 		SubOffer("Rupture", "Subtlety: maintain own bleed", energy, 25, { healthGate })
 		AddAction(nil, "Pool energy for Rupture", { healthGate })
+	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Death Mark is delayed by six seconds, so do not spend five points on it
+	-- for a target below the configured survival floor. Rupture stays ahead so
+	-- its doubled storage rate is present when the mark begins.
+	if s.subtletyDeathMark and cp >= 5 and (not remaining or remaining <= 0 or remaining > 6)
+		and Ok("Death Mark") and SubReady("Death Mark") and not SubDot("Death Mark") then
+		local healthGate = HealthGate("target", targetHP, SettingNumber(s, "subtletyDeathMarkHP", 50, 0, 100), false)
+		SubOffer("Death Mark", "Subtlety: five-point damage mark", energy, 25, { healthGate })
+		AddAction(nil, "Pool energy for Death Mark", { healthGate })
 	end
 	if cp >= finishPoints and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
 		SubOffer("Eviscerate", "Subtlety: damage finisher", energy, 35)
@@ -2286,6 +2467,10 @@ SubtletyRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 		AddAction(nil, "Pool energy for Expose Armor"); return FinishDecision()
 	end
 	if cp >= 5 then AddAction(nil, "Subtlety: waiting for an enabled finisher"); return FinishDecision() end
+	if s.shank and SubReady("Shank") and ShankEligible() and InMeleeRange("Shank") then
+		SubOffer("Shank", "Subtlety: energy-generating strike", energy, 5)
+		AddAction(nil, "Pool energy for Shank"); return FinishDecision()
+	end
 	if s.subtletyGhostlyStrike and SubDot("Hemorrhage") then SubOffer("Ghostly Strike", "Subtlety: learned builder cooldown", energy, 40) end
 	if s.subtletyHemorrhage and Ok("Hemorrhage") then
 		local minimum = math.max(SettingNumber(s, "subtletyHemorrhageEnergy", 0, 0, 100), EnergyCost("Hemorrhage", 35))
@@ -2296,9 +2481,9 @@ SubtletyRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 	AddAction(nil, "Pool energy"); return FinishDecision()
 end
 
--- Poison-free Assassination: the reference's Venom buff only increases
--- consumable poisons, so it remains available in Spells/manual queue rather
--- than spending points automatically. Mutilate itself does not need poison.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Venom is now a passive six-second poison bonus triggered by Shank. Poison
+-- application remains manual; Mutilate itself does not require poison.
 AssassinationRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 	if not hostile or not ConfirmedHostileTarget() then AddAction(nil, inCombat and "No target" or "Ready"); return FinishDecision() end
 	if not inCombat then
@@ -2358,6 +2543,10 @@ AssassinationRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 		end
 		if cp >= 5 then AddAction(nil, "Assassination: waiting for an enabled finisher"); return FinishDecision() end
 	end
+	if s.shank and SubReady("Shank") and ShankEligible() and InMeleeRange("Shank") then
+		SubOffer("Shank", "Assassination: trigger Venom and generate energy", energy, 5)
+		AddAction(nil, "Pool energy for Shank"); return FinishDecision()
+	end
 	if s.assassinationMutilate and Ok("Mutilate") and SubReady("Mutilate") and TwoDaggers() and InMeleeRange("Mutilate") then
 		local usable, shortage = SpellUsability("Mutilate")
 		if usable ~= false or shortage == true then
@@ -2380,6 +2569,10 @@ function M.NextSpell(s, inCombat, hostile)
 	if not inCombat then
 		curveFailures, energyMaximumCache = {}, nil
 		subAuraBlocked = {}
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- Cache the revised talent tree while its rows are readable so combat
+		-- fallbacks can honor Flash of Steel, Blood Splatter and Boot Knife.
+		SubTalent("Flash of Steel")
 		if s.subtlety == true then SubTalent("Initiative") end
 		if s.assassination == true then SubTalent("Seal Fate") end
 		-- Carry readable pre-combat cooldowns into combat when the API becomes protected.
@@ -2533,7 +2726,8 @@ function M.GetUIState()
 	}
 end
 
-for _, name in ipairs({ "Adrenaline Rush", "Blade Flurry", "Blood Fury", "Berserking", "Cold Blood", "Venom", "Preparation", "Slice and Dice", "Evasion", "Vanish", "Stealth" }) do
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+for _, name in ipairs({ "Adrenaline Rush", "Blade Flurry", "Blood Fury", "Berserking", "Cold Blood", "Preparation", "Slice and Dice", "Evasion", "Vanish", "Stealth" }) do
 	AL.selfCastSpells = AL.selfCastSpells or {}
 	AL.selfCastSpells[name] = true
 end

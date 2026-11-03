@@ -570,6 +570,8 @@ local CP_BUILDERS = {
 local CP_FINISHERS = {
 	["Eviscerate"] = true, ["Slice and Dice"] = true, ["Rupture"] = true,
 	["Kidney Shot"] = true, ["Expose Armor"] = true,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Death Mark"] = true,
 	["Ferocious Bite"] = true, ["Rip"] = true,
 }
 local inferredCp = 0
@@ -578,16 +580,26 @@ local rogueComboChangedAt, rogueComboBefore = -math.huge, nil
 
 function AL.TrackComboCast(name)
 	local before = inferredCp
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Shank only grants combo points through Boot Knife. The Rogue module
+	-- returns a value only for the guaranteed max-rank proc; lower ranks remain
+	-- native-readable rather than inventing a probabilistic point gain.
+	local points = CP_BUILDERS[name]
+	if not points and AL.playerClass == "ROGUE" then
+		local mod = AL.rotations and AL.rotations.ROGUE
+		local ok, generated = pcall(function() return mod and mod.ComboPointsGenerated and mod.ComboPointsGenerated(name) end)
+		if ok and type(generated) == "number" and generated > 0 then points = generated end
+	end
 	if trackedComboClass then
 		if CP_FINISHERS[name] then
 			rogueComboChangedAt, rogueComboBefore = GetTime(), before
-		elseif CP_BUILDERS[name] then
+		elseif points then
 			rogueComboChangedAt, rogueComboBefore = -math.huge, nil
 		end
 	end
-	if CP_BUILDERS[name] then
+	if points then
 		pendingComboCast = { name = name, before = before, at = GetTime() }
-		inferredCp = math.min(5, inferredCp + CP_BUILDERS[name])
+		inferredCp = math.min(5, inferredCp + points)
 	elseif CP_FINISHERS[name] then
 		pendingComboCast = { name = name, before = before, at = GetTime() }
 		inferredCp = 0
@@ -828,6 +840,8 @@ local DEBUFF_DURATIONS = {
 	["Frost Nova"] = 8, ["Frostbolt"] = 5, ["Cone of Cold"] = 8,
 	["Gouge"] = 4, ["Expose Armor"] = 30, ["Rupture"] = 10,
 	["Garrote"] = 18,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Death Mark"] = 6,
 }
 
 -- 1.60 blocks aura reads, so player buffs are inferred entirely from our own
@@ -886,6 +900,8 @@ local STEALTH_BREAKERS = {
 	["Backstab"] = true,
 	["Sinister Strike"] = true,
 	["Mutilate"] = true, ["Hemorrhage"] = true, ["Ghostly Strike"] = true,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Shank"] = true, ["Death Mark"] = true,
 }
 
 local selfBuffs = {}
@@ -1025,6 +1041,8 @@ local SPELL_COOLDOWNS = {
 	["Rapid Regeneration"] = 180,
 	["Gouge"] = 10, ["Kick"] = 10, ["Evasion"] = 300, ["Blade Flurry"] = 120, ["Stealth"] = 10,
 	["Vanish"] = 300, ["Riposte"] = 6,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Shank"] = 10, ["Death Mark"] = 10,
 	["Charge"] = 15, ["Bloodrage"] = 60, ["Bash"] = 60, ["Enrage"] = 600, ["Tiger's Fury"] = 1,
 	["Swiftmend"] = 15, ["Nature's Swiftness"] = 180, ["Tranquility"] = 300,
 	["Elune's Light"] = 180,
@@ -1454,7 +1472,10 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		if not ok then return end
 		if issecretvalue and (issecretvalue(sub) or issecretvalue(srcGUID) or issecretvalue(spellName) or issecretvalue(missType)) then return end
 		if sub ~= "SPELL_MISSED" or type(spellName) ~= "string" then return end
-		if AL.playerClass == "DRUID" or AL.playerClass == "HUNTER" or AL.playerClass == "SHAMAN" then spellName = (AL.englishNames and AL.englishNames[spellName]) or spellName end
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		if AL.playerClass == "DRUID" or AL.playerClass == "HUNTER" or AL.playerClass == "SHAMAN" or AL.playerClass == "ROGUE" then
+			spellName = (AL.englishNames and AL.englishNames[spellName]) or spellName
+		end
 		if srcGUID ~= UnitGUID("player") then return end
 		-- ABSORB/BLOCK stop the damage but the aura still lands
 		if missType == "ABSORB" or missType == "BLOCK" then return end
@@ -1690,6 +1711,14 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	end
 	if name == "Rupture" and spentCombo and spentCombo > 0 then
 		dur = 6 + 2 * spentCombo
+	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if AL.playerClass == "ROGUE" and dur and (name == "Rupture" or name == "Garrote" or name == "Death Mark") then
+		local mod = AL.rotations and AL.rotations.ROGUE
+		local ok, adjusted = pcall(function()
+			return mod and mod.DebuffDuration and mod.DebuffDuration(name, spentCombo, dur)
+		end)
+		if ok and type(adjusted) == "number" and adjusted >= dur and adjusted <= 60 then dur = adjusted end
 	end
 	if dur and UnitExists("target") and (not trackedCastClass or not sent or matches) then
 		if AL.playerClass == "WARLOCK" and UTILITY_CURSES[name] then

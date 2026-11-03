@@ -1,5 +1,6 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.16.3"
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local UI_VERSION = "0.16.4"
 
 -- Dedicated Rogue interface. Every key written here is read directly
 -- by rotation\Rogue.lua; no combat priorities are duplicated in the UI.
@@ -109,9 +110,9 @@ local function BuildRogueUI(page, ui)
 	Check(subtlety, "subtletyHemorrhage", "Use Hemorrhage", "Hemorrhage",
 		"Preferred learned combat builder. Uses its current energy cost, including readable discounts. Falls back to learned Sinister Strike when disabled, unlearned or unusable.")
 	Slider(subtlety, "subtletyHemorrhageEnergy", "Hemorrhage minimum energy", 0, 100, 0, " energy",
-		"Additional energy minimum. Zero uses the spell's actual cost and allows readable Thousand Cuts discounts. Unknown proc stacks never invent an energy discount.")
+		"Additional energy minimum. Zero uses the spell's actual cost, including the current Efficient Strikes discount when readable.")
 	Check(subtlety, "subtletyGhostlyStrike", "Use Ghostly Strike", "Ghostly Strike",
-		"Uses the learned builder cooldown while your own Hemorrhage effect is active, before returning to Hemorrhage. Does not require standing behind the target.")
+		"Uses the learned builder cooldown while your own Hemorrhage effect is active. After a successful cast, its seven-second window immediately uses enabled Ambush or an absent Garrote without requiring Stealth. A positional failure falls through to normal builders.")
 	Check(subtlety, "subtletyRupture", "Maintain own Rupture", "Rupture",
 		"Use at the selected combo-point minimum and target-health threshold, only while your own bleed is absent. Normal-target low-health Eviscerate has priority.")
 	ComboSlider(subtlety, "subtletyRuptureCP", "Subtlety Rupture combo points", 3)
@@ -119,6 +120,11 @@ local function BuildRogueUI(page, ui)
 		"At or above this target health. Helps avoid a new bleed on a nearly defeated target. This is separate from Burst's target-health slider.")
 	ComboSlider(subtlety, "subtletyEviscerateCP", "Subtlety Eviscerate combo points", 4,
 		"Normal targets use this minimum above 50% health. At or below 50%, the existing 1+ point execute fallback applies. Rare/elite/unknown targets still require five points.")
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	Check(subtlety, "subtletyDeathMark", "Use Death Mark", "Death Mark",
+		"Uses the learned ten-second-cooldown finisher at five combo points. A tracked Rupture is established first when enabled so its damage stores at twice the rate. Death Mark is skipped for targets below its health slider or known to have six seconds or less remaining.")
+	Slider(subtlety, "subtletyDeathMarkHP", "Death Mark minimum target health", 0, 100, 50, " % HP",
+		"Use Death Mark at or above this target health so its delayed six-second damage has time to complete.")
 	Check(subtlety, "subtletyAmbush", "Use Ambush from Stealth", "Ambush",
 		"Requires a learned spell, a confirmed dagger and melee range. Ambush still needs rear position. A reported positional failure switches to a non-positional builder. The reference's Ironfoe main hand uses Hemorrhage.")
 	local subtletyBurst=ui.Card(stack,"SUBTLETY BURST",nil,{id="subtlety-burst",build="subtlety",group="burst"})
@@ -148,7 +154,7 @@ local function BuildRogueUI(page, ui)
 	Check(assassinationBurst, "assassinationRacials", "Use Assassination offensive racials", "Berserking",
 		"Blood Fury or Berserking, if learned and ready, only during Burst On. The Burst target-health slider and individual Spells checkboxes apply.")
 	ui.Help(assassination, "Applies a missing Slice and Dice at 1+ combo points, including after Mutilate, and preserves its active player buff. Uses four-point Eviscerates on normal enemies by default; rare/elite enemies retain five. Readable combo points take priority; successful casts provide a fallback when points are hidden.")
-	ui.Help(assassination, "The reference learns Venom, a player buff for weapon poisons. This no-consumables rotation spends points on Eviscerate instead. Venom is available in Spells for a Universal icon and manual queue. Mutilate and Cold Blood also have their own spell entries.")
+	ui.Help(assassination, "Venom is now a passive effect triggered by Shank, so it is no longer listed as a castable spell. Learned Shank is used on cooldown after required finishers to generate Energy and activate Venom. Poison application remains manual. Mutilate and Cold Blood retain their spell entries.")
 	ui.Help(assassination, "The 38/11/2 build has no area attack. AoE On retains its single-target priorities. A different talent arrangement can use learned Blade Flurry only with AoE On and enough confirmed engaged enemies. No poison application, item cooldowns or consumables are automated.")
 
 	local opening = ui.Card(stack,
@@ -169,7 +175,9 @@ local function BuildRogueUI(page, ui)
 	local builders = ui.Card(stack,
 		Text({ en = "BUILDERS & PROCS", fr = "GENERATEURS ET PROCS", pt = "GERADORES E PROCS", es = "GENERADORES Y PROCS", de = "AUFBAUER & PROCS", zh = "生成技与触发" }), nil, { id="builders", group="damage" })
 	ui.Help(builders, "Energy sliders set the minimum energy before using a builder. The spell must also be affordable.")
-	ui.Help(builders, "Combat and leveling use Sinister Strike; Subtlety prefers Hemorrhage/Ghostly Strike and Assassination prefers two-dagger Mutilate. Each selected build has a learned Sinister Strike fallback. Backstab remains a Stealth opener; general usability does not prove rear position.")
+	ui.Help(builders, "Combat and leveling use Sinister Strike; Subtlety prefers Hemorrhage/Ghostly Strike and Assassination prefers two-dagger Mutilate. Learned Shank is shared by every rotation. Each selected build has a learned Sinister Strike fallback. Backstab remains a Stealth opener; general usability does not prove rear position.")
+	Check(builders, "shank", "Use Shank", "Shank",
+		"Learned at level 24 and requires an off-hand weapon. Uses the live five-Energy cost and ten-second cooldown, including Flash of Steel's reduction. It is recommended after required finishers and before the ordinary builder. Max-rank Boot Knife's guaranteed two combo points are tracked; lower probabilistic ranks rely on readable points.")
 	Slider(builders, "sinisterMinEnergy", "Sinister Strike", 20, 100, 45, " energy",
 		{ en = "Minimum energy before suggesting Sinister Strike.", fr = "Energie minimale avant de proposer Sinister Strike.", pt = "Energia mínima antes de sugerir Sinister Strike.", es = "Energía mínima antes de sugerir Sinister Strike.", de = "Minimale Energie, bevor Sinister Strike vorgeschlagen wird.", zh = "建议 Sinister Strike 前所需的最低能量。" })
 	Slider(builders, "backstabMinEnergy", "Backstab", 20, 100, 60, " energy",
