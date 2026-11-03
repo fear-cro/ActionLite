@@ -51,10 +51,14 @@ local L = AL.L
 local THEME = UI.Theme
 local GRID = UI.GRID
 
-local W, H = 660, 670
-local MIN_W, MIN_H = 560, 450
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- The production shell now uses the approved left-navigation layout. The
+-- wider minimum keeps the Spells toolbar and fixed action columns separated.
+local W, H = 900, 720
+local MIN_W, MIN_H = 780, 620
 local MAX_W, MAX_H = 1200, 1000
-local HEADER_H, FOOTER_H = 88, 22
+local HEADER_H, FOOTER_H, NAV_W = 82, 22, 186
+local PORTRAIT_PATH = "Interface\\AddOns\\ActionLITE\\Media\\ClassPortraits\\"
 
 local menu
 local menuSerial = 0
@@ -252,34 +256,38 @@ local function BuildMenu()
 
 	-- ------------------------------------------------------------------ header
 	local header = CreateFrame("Frame", nil, menu)
-	header:SetPoint("TOPLEFT", 2, -2)
-	header:SetPoint("TOPRIGHT", -2, -2)
+	header:SetPoint("TOPLEFT", 8, -8)
+	header:SetPoint("TOPRIGHT", -8, -8)
 	header:SetHeight(HEADER_H)
 	UI.Fill(header, THEME.sidebar)
+	UI.Border(header, THEME.line)
 	header:EnableMouse(true)
 	header:RegisterForDrag("LeftButton")
 	header:SetScript("OnDragStart", function() menu:StartMoving() end)
 
-	local headerLine = header:CreateTexture(nil, "OVERLAY")
-	headerLine:SetHeight(1)
-	headerLine:SetPoint("BOTTOMLEFT")
-	headerLine:SetPoint("BOTTOMRIGHT")
-	UI.Tint(headerLine, THEME.bronze, 0.55)
-
-	-- Row 1: session, title, profile, version and close button.
-
 	local title = UI.Text(header, "GameFontNormalLarge", THEME.bronze)
-	title:SetPoint("TOP", 0, -6)
-	local function PaintTitle()
-		local g = THEME.bronze
-		title:SetText("|c" .. UI.Hex({ g[1] * 0.9, g[2] * 0.9, g[3] * 0.9 }) .. "Action|r|c" .. UI.Hex(g) .. "LITE|r")
+	title:SetPoint("TOPLEFT", 20, -13)
+	title:SetText("ACTIONLITE")
+	local subtitle = UI.Text(header, "GameFontNormalSmall", THEME.gold)
+	subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -4)
+	subtitle:SetText("WOW FOREVER  /  v" .. AL.Version())
+
+	local headerLine = header:CreateTexture(nil, "ARTWORK")
+	headerLine:SetHeight(2)
+	headerLine:SetPoint("BOTTOMLEFT", 455, 20)
+	headerLine:SetPoint("BOTTOMRIGHT", -48, 20)
+	UI.Tint(headerLine, THEME.bronze)
+	local motif = { THEME.motifA or THEME.ok, THEME.motifB or THEME.danger, THEME.motifC or THEME.gold }
+	for i = 0, 8 do
+		local pixel = header:CreateTexture(nil, "OVERLAY")
+		pixel:SetSize(5, 5)
+		pixel:SetPoint("CENTER", headerLine, "CENTER", -52 + i * 13, 11)
+		UI.Tint(pixel, motif[math.floor(i / 3) + 1])
 	end
-	PaintTitle()
-	UI.Register(PaintTitle)
 
 	local close = CreateFrame("Button", nil, header)
-	close:SetSize(18, 18)
-	close:SetPoint("TOPRIGHT", -8, -7)
+	close:SetSize(28, 28)
+	close:SetPoint("TOPRIGHT", -12, -12)
 	local closeBg = UI.Fill(close, UI.Derived.closeBg)
 	local closeEdge = UI.Border(close, THEME.crimson)
 	local closeX = UI.Text(close, "GameFontNormalSmall", THEME.text)
@@ -295,49 +303,50 @@ local function BuildMenu()
 	end)
 	close:SetScript("OnClick", function() menu.AnimateClose() end)
 
-	local themeButton = AL.ThemeButton(header)
-	themeButton:SetPoint("RIGHT", close, "LEFT", -6, 0)
-	local themeDrawer = AL.BuildThemeDrawer(menu, themeButton)
-	themeButton:SetScript("OnClick", function() themeDrawer.Toggle() end)
+	-- ----------------------------------------------------------- left navigation
+	local nav = CreateFrame("Frame", nil, menu)
+	nav:SetPoint("TOPLEFT", 8, -(HEADER_H + 16))
+	nav:SetPoint("BOTTOMLEFT", 8, FOOTER_H + 8)
+	nav:SetWidth(NAV_W)
+	UI.Fill(nav, THEME.sidebar)
+	UI.Border(nav, THEME.line)
 
-	local headerLeftOf = themeButton
+	local navLabel = UI.Text(nav, "GameFontNormalSmall", THEME.gold)
+	navLabel:SetPoint("TOPLEFT", 16, -14)
+	navLabel:SetText("SYSTEM MODULES")
 
-	local profileText = UI.Text(header, "GameFontNormalSmall", THEME.text)
-	profileText:SetPoint("TOPRIGHT", headerLeftOf, "TOPLEFT", -8, -1)
-	profileText:SetJustifyH("RIGHT")
+	local profileText = UI.Text(nav, "GameFontNormalSmall", THEME.text)
+	profileText:SetPoint("TOPLEFT", 16, -34)
+	profileText:SetPoint("TOPRIGHT", -16, -34)
+	profileText:SetJustifyH("LEFT")
 
-	local versionText = UI.Text(header, "GameFontNormalSmall", THEME.textFaint)
-	versionText:SetPoint("TOPRIGHT", headerLeftOf, "TOPLEFT", -8, -15)
-	versionText:SetJustifyH("RIGHT")
-	versionText:SetText("v" .. AL.Version())
-
-	-- Row 2: profile selector; status badges follow the tabs.
 	local ddOptions = {}
 	for i, token in ipairs(AL.CLASS_TOKENS) do
 		ddOptions[i] = {
-			label = UI.ClassColored(token),
-			value = token,
+			label = UI.ClassColored(token), value = token,
 			icon = function(tex) AL.SetClassIcon(tex, token) end,
 		}
 	end
-	local classDD = UI.Dropdown(header, {
-		width = 176,
-		height = 20,
-		align = "LEFT",
-		options = ddOptions,
-		get = ActiveToken,
-		set = function(v) ActionLiteDB.activeProfile = v end,
+	local classDD = UI.Dropdown(nav, {
+		width = NAV_W - 28, height = 22, align = "LEFT", options = ddOptions,
+		get = ActiveToken, set = function(v) ActionLiteDB.activeProfile = v end,
 		onSelect = function()
 			if menu.RebuildSpells then menu.RebuildSpells() end
+			UI.Repaint()
 		end,
 	})
-	classDD:SetPoint("TOPLEFT", 10, -40)
+	classDD:SetPoint("TOPLEFT", 14, -50)
 	UI.Tooltip(classDD, L("CLASS_PROFILE"), { L("CLASS_PROFILE_1"), L("CLASS_PROFILE_2") })
 
+	local contentHost = CreateFrame("Frame", nil, menu)
+	contentHost:SetPoint("TOPLEFT", nav, "TOPRIGHT", 8, 0)
+	contentHost:SetPoint("BOTTOMRIGHT", -8, FOOTER_H + 8)
+	UI.Fill(contentHost, THEME.surface)
+	UI.Border(contentHost, THEME.line)
 
-	-- Row 3: horizontal tabs.
 	local function ShowPage(i)
-		if i ~= 1 and i ~= 2 and i ~= 3 and i ~= 4 then i = 1 end
+		i = tonumber(i) or 1
+		if i < 1 or i > 5 then i = 1 end
 		for n, p in ipairs(pages) do p:SetShown(n == i) end
 		if tabStrip then tabStrip:SetActive(i) end
 		ActionLiteDB.lastTab = i
@@ -345,36 +354,55 @@ local function BuildMenu()
 	end
 	menu.ShowPage = ShowPage
 
-	tabStrip = UI.Tabs(header, {
+	tabStrip = UI.SideTabs(nav, {
 		{ label = L("GENERAL"), onClick = function() ShowPage(1) end },
-		{ label = L("CLASS"),   onClick = function() ShowPage(2) end },
-		{ label = L("SPELLS"),  onClick = function() ShowPage(3) end },
+		{ label = L("CLASS"), onClick = function() ShowPage(2) end },
+		{ label = L("SPELLS"), onClick = function() ShowPage(3) end },
 		{ label = L("BUG_REPORT"), onClick = function() ShowPage(4) end },
-	}, { minWidth = 86 })
-	tabStrip:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 8, 0)
-	tabStrip:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -8, 0)
-	local lastErrorCount
+		{ label = L("THEMES"), onClick = function() ShowPage(5) end },
+	}, { width = NAV_W - 28, height = 36, gap = 8 })
+	tabStrip:SetPoint("TOPLEFT", 14, -84)
+
+	local portrait = nav:CreateTexture(nil, "ARTWORK")
+	portrait:SetSize(92, 92)
+	portrait:SetPoint("BOTTOM", 0, 56)
+	local portraitNames = {
+		DRUID="Druid", HUNTER="Hunter", MAGE="Mage", PALADIN="Paladin", PRIEST="Priest",
+		SHAMAN="Shaman", ROGUE="Rogue", WARLOCK="Warlock", WARRIOR="Warrior",
+	}
+	local function PaintPortrait()
+		portrait:SetTexture(PORTRAIT_PATH .. (portraitNames[ActiveToken()] or "Warrior") .. ".tga")
+	end
+	PaintPortrait()
+	UI.Register(PaintPortrait)
+
+	local navVersion = UI.Text(nav, "GameFontNormalSmall", THEME.danger)
+	navVersion:SetPoint("BOTTOM", 0, 30)
+	navVersion:SetText("ActionLITE v" .. AL.Version())
+
+	local lastErrorCount, lastErrorColor
 	local function UpdateStatus()
 		local panel = classPanels[ActiveToken()]
 		if panel and panel:IsShown() and panel.classLayout then panel.classLayout.Refresh() end
 		local count = AL.Debug and AL.Debug.sessionErrors
 		if (issecretvalue and issecretvalue(count)) or type(count) ~= "number" then count = 0 end
-		if count == lastErrorCount then return end
+		local dangerHex = UI.Hex(THEME.danger)
+		if count == lastErrorCount and dangerHex == lastErrorColor then return end
 		lastErrorCount = count
+		lastErrorColor = dangerHex
 		local label = L("BUG_REPORT")
-		if count > 0 then label = label .. " |c" .. UI.Hex(THEME.danger) .. "(" .. math.min(count, 999) .. ")|r" end
+		if count > 0 then label = label .. " |c" .. dangerHex .. "(" .. math.min(count, 999) .. ")|r" end
 		tabStrip.buttons[4].label:SetText(label)
 		tabStrip:Layout()
 	end
 	UI.Register(UpdateStatus)
 
 	local function NewPage(index, caption)
-		local page = CreateFrame("Frame", nil, menu)
-		page:SetPoint("TOPLEFT", 2, -(HEADER_H + 2))
-		page:SetPoint("BOTTOMRIGHT", -2, FOOTER_H + 2)
+		local page = CreateFrame("Frame", nil, contentHost)
+		page:SetAllPoints(contentHost)
 		page:Hide()
 		local cap = UI.Text(page, "GameFontNormal", THEME.gold)
-		cap:SetPoint("TOP", 0, -8)
+		cap:SetPoint("TOPLEFT", 18, -14)
 		cap:SetText(caption or "")
 		page.caption = cap
 		pages[index] = page
@@ -385,6 +413,8 @@ local function BuildMenu()
 	local classPage = NewPage(2, L("CLASS"))
 	local spellsPage = NewPage(3, L("SPELLS"))
 	local bugReportPage = NewPage(4, L("BUG_REPORT"))
+	local themesPage = NewPage(5, L("THEMES"))
+	if AL.BuildThemesPage then AL.BuildThemesPage(themesPage) end
 
 	-- ------------------------------------------------------------------ footer
 	local footer = CreateFrame("Frame", nil, menu)
@@ -400,7 +430,7 @@ local function BuildMenu()
 
 	local footerLeft = UI.Text(footer, "GameFontNormalSmall", THEME.textFaint)
 	footerLeft:SetPoint("LEFT", 12, 0)
-	footerLeft:SetText("ActionLITE v" .. AL.Version())
+	footerLeft:SetText("WoW Forever")
 
 	local footerRight = UI.Text(footer, "GameFontNormalSmall", THEME.textFaint)
 	footerRight:SetPoint("RIGHT", -26, 0)

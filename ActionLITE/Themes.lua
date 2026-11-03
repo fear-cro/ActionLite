@@ -3,9 +3,9 @@ local ADDON, AL = ...
 -- ============================================================================
 -- ActionLITE - Themes.lua
 -- ----------------------------------------------------------------------------
--- Preset themes, a saved custom theme and an editor drawer that
--- opens to the right of the options window. Every change is applied
--- immediately through UI.ApplyTheme.
+-- Preset themes, a saved custom theme, an embedded Themes page and the
+-- retained legacy editor drawer. Every change is applied immediately through
+-- UI.ApplyTheme.
 -- ============================================================================
 
 local UI = AL.UI
@@ -25,42 +25,77 @@ local function Copy(colors)
 	return out
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- The ACTIONLITE id is retained so existing SavedVariables select the new
+-- Nova Console palette without migration. Motif colors are decorative only;
+-- status colors keep their semantic meaning.
 local PRESETS = {
-	{ id = "ACTIONLITE", name = function() return "ActionLITE" end, colors = Copy(THEME) },
+	{ id = "ACTIONLITE", name = function() return "Nova Console" end, colors = {
+		shell = { .055, .060, .058, .98 }, sidebar = { .085, .090, .086, .98 },
+		surface = { .085, .090, .086, .98 }, surfaceAlt = { .115, .120, .112, 1 },
+		raised = { .015, .018, .017, 1 }, line = { .420, .780, .780, 1 },
+		lineSoft = { .220, .430, .430, .10 }, bronze = { .420, .780, .780, 1 },
+		gold = { .880, .830, .660, 1 }, goldDim = { .470, .440, .350, 1 },
+		crimson = { .515, .190, .165, 1 }, text = { .910, .890, .810, 1 },
+		textDim = { .580, .610, .570, 1 }, textFaint = { .465, .490, .455, 1 },
+		ok = { .300, .660, .490, 1 }, green = { .300, .660, .490, 1 },
+		warn = { .880, .830, .660, 1 }, danger = { .780, .290, .250, 1 },
+		motifA = { .300, .660, .490, 1 }, motifB = { .780, .290, .250, 1 },
+		motifC = { .880, .830, .660, 1 },
+	} },
 	{ id = "ARCANE", name = function() return L("THEME_ARCANE") end, colors = {
-		shell = Hex("0c0a17", 0.97), sidebar = Hex("110e20"), surface = Hex("16132a"), surfaceAlt = Hex("1f1b3a"),
-		raised = Hex("29244b"), line = Hex("342e5c"), lineSoft = Hex("ffffff", 0.06),
-		bronze = Hex("7b5cff"), gold = Hex("b69cff"), goldDim = Hex("8a6ee0"), crimson = Hex("7a2350"),
-		text = Hex("e8e4ff"), textDim = Hex("a59fcc"), textFaint = Hex("817bad"),
-		ok = Hex("4fd1c5"), green = Hex("5eead4"), warn = Hex("f0b75a"), danger = Hex("ff5c8a"),
+		shell = { .047,.039,.090,.98 }, sidebar = { .086,.074,.165,.98 }, surface = { .086,.074,.165,.98 },
+		surfaceAlt = { .125,.106,.227,1 }, raised = { .018,.012,.032,1 }, line = { .714,.612,1,1 },
+		lineSoft = { .34,.27,.59,.10 }, bronze = { .714,.612,1,1 }, gold = { .89,.83,1,1 },
+		goldDim = { .50,.42,.70,1 }, crimson = { .66,.24,.36,1 }, text = { .91,.89,1,1 },
+		textDim = { .62,.59,.78,1 }, textFaint = { .50,.47,.63,1 }, ok = { .37,.91,.83,1 },
+		green = { .37,.91,.83,1 }, warn = { .89,.83,1,1 }, danger = { 1,.36,.54,1 },
+		motifA = { .37,.91,.83,1 }, motifB = { 1,.36,.54,1 }, motifC = { .89,.83,1,1 },
 	} },
 	{ id = "FROST", name = function() return L("THEME_FROST") end, colors = {
-		shell = Hex("0a1016", 0.97), sidebar = Hex("0e1720"), surface = Hex("121e29"), surfaceAlt = Hex("182836"),
-		raised = Hex("1f3344"), line = Hex("2a4256"), lineSoft = Hex("ffffff", 0.06),
-		bronze = Hex("5fa8d3"), gold = Hex("9fe3ff"), goldDim = Hex("6cbfe6"), crimson = Hex("5a2a3a"),
-		text = Hex("e6f4ff"), textDim = Hex("9db7c9"), textFaint = Hex("6f8b9f"),
-		ok = Hex("58d6a8"), green = Hex("7ef0c0"), warn = Hex("ffd479"), danger = Hex("ff6b6b"),
+		shell = { .039,.063,.086,.98 }, sidebar = { .071,.118,.161,.98 }, surface = { .071,.118,.161,.98 },
+		surfaceAlt = { .094,.157,.212,1 }, raised = { .012,.024,.036,1 }, line = { .624,.890,1,1 },
+		lineSoft = { .25,.49,.65,.10 }, bronze = { .624,.890,1,1 }, gold = { .88,.96,1,1 },
+		goldDim = { .45,.64,.73,1 }, crimson = { .66,.28,.28,1 }, text = { .90,.96,1,1 },
+		textDim = { .61,.72,.79,1 }, textFaint = { .49,.58,.64,1 }, ok = { .49,.94,.75,1 },
+		green = { .49,.94,.75,1 }, warn = { .88,.96,1,1 }, danger = { 1,.42,.42,1 },
+		motifA = { .49,.94,.75,1 }, motifB = { 1,.42,.42,1 }, motifC = { .88,.96,1,1 },
 	} },
 	{ id = "FEL", name = function() return L("THEME_FEL") end, colors = {
-		shell = Hex("070b06", 0.97), sidebar = Hex("0b1109"), surface = Hex("0f170c"), surfaceAlt = Hex("152012"),
-		raised = Hex("1c2b17"), line = Hex("26391f"), lineSoft = Hex("ffffff", 0.05),
-		bronze = Hex("5fae1f"), gold = Hex("a4ff3c"), goldDim = Hex("79d12a"), crimson = Hex("5c1f14"),
-		text = Hex("e9f7dc"), textDim = Hex("a2b894"), textFaint = Hex("728866"),
-		ok = Hex("7dff5a"), green = Hex("a4ff3c"), warn = Hex("ffc93c"), danger = Hex("ff5a3c"),
+		shell = { .027,.043,.024,.98 }, sidebar = { .059,.090,.047,.98 }, surface = { .059,.090,.047,.98 },
+		surfaceAlt = { .110,.169,.090,1 }, raised = { .008,.018,.006,1 }, line = { .64,1,.24,1 },
+		lineSoft = { .26,.50,.12,.10 }, bronze = { .64,1,.24,1 }, gold = { .91,.97,.86,1 },
+		goldDim = { .48,.62,.39,1 }, crimson = { .66,.23,.16,1 }, text = { .91,.97,.86,1 },
+		textDim = { .61,.72,.55,1 }, textFaint = { .49,.58,.44,1 }, ok = { .49,1,.35,1 },
+		green = { .49,1,.35,1 }, warn = { .91,.97,.86,1 }, danger = { 1,.35,.24,1 },
+		motifA = { .49,1,.35,1 }, motifB = { 1,.35,.24,1 }, motifC = { .91,.97,.86,1 },
 	} },
 	{ id = "BLOOD", name = function() return L("THEME_BLOOD") end, colors = {
-		shell = Hex("0d0708", 0.97), sidebar = Hex("140a0c"), surface = Hex("1a0e10"), surfaceAlt = Hex("241315"),
-		raised = Hex("2e181b"), line = Hex("3d2024"), lineSoft = Hex("ffffff", 0.05),
-		bronze = Hex("b3303a"), gold = Hex("ff5a5f"), goldDim = Hex("d0434a"), crimson = Hex("8f1d24"),
-		text = Hex("f6e6e6"), textDim = Hex("c29a9c"), textFaint = Hex("9b7476"),
-		ok = Hex("5fcf80"), green = Hex("7ae495"), warn = Hex("ffb347"), danger = Hex("ff4d4d"),
+		shell = { .051,.027,.031,.98 }, sidebar = { .102,.055,.063,.98 }, surface = { .102,.055,.063,.98 },
+		surfaceAlt = { .180,.094,.106,1 }, raised = { .022,.006,.008,1 }, line = { 1,.35,.37,1 },
+		lineSoft = { .53,.16,.19,.10 }, bronze = { 1,.35,.37,1 }, gold = { .96,.90,.82,1 },
+		goldDim = { .66,.43,.44,1 }, crimson = { .66,.20,.20,1 }, text = { .96,.90,.90,1 },
+		textDim = { .72,.57,.58,1 }, textFaint = { .58,.46,.47,1 }, ok = { .47,.89,.58,1 },
+		green = { .47,.89,.58,1 }, warn = { .96,.90,.82,1 }, danger = { 1,.30,.30,1 },
+		motifA = { .47,.89,.58,1 }, motifB = { 1,.30,.30,1 }, motifC = { .96,.90,.82,1 },
 	} },
 	{ id = "ROYAL", name = function() return L("THEME_ROYAL") end, colors = {
-		shell = Hex("080c16", 0.97), sidebar = Hex("0c1220"), surface = Hex("10182a"), surfaceAlt = Hex("162136"),
-		raised = Hex("1d2b45"), line = Hex("283a5c"), lineSoft = Hex("ffffff", 0.06),
-		bronze = Hex("c9a227"), gold = Hex("ffd65a"), goldDim = Hex("d4b04a"), crimson = Hex("6b1f2a"),
-		text = Hex("eef2ff"), textDim = Hex("a3b0cc"), textFaint = Hex("7583a0"),
-		ok = Hex("4fd18b"), green = Hex("6ee7a0"), warn = Hex("ffc857"), danger = Hex("ff6363"),
+		shell = { .031,.047,.086,.98 }, sidebar = { .063,.094,.165,.98 }, surface = { .063,.094,.165,.98 },
+		surfaceAlt = { .114,.169,.271,1 }, raised = { .008,.016,.035,1 }, line = { 1,.84,.35,1 },
+		lineSoft = { .55,.43,.13,.10 }, bronze = { 1,.84,.35,1 }, gold = { .93,.95,1,1 },
+		goldDim = { .54,.60,.73,1 }, crimson = { .66,.26,.26,1 }, text = { .93,.95,1,1 },
+		textDim = { .64,.69,.80,1 }, textFaint = { .51,.55,.64,1 }, ok = { .43,.91,.63,1 },
+		green = { .43,.91,.63,1 }, warn = { .93,.95,1,1 }, danger = { 1,.39,.39,1 },
+		motifA = { .43,.91,.63,1 }, motifB = { 1,.39,.39,1 }, motifC = { .93,.95,1,1 },
+	} },
+	{ id = "SNES", name = function() return "SNES" end, colors = {
+		shell = { .042,.041,.044,.98 }, sidebar = { .086,.084,.090,.98 }, surface = { .086,.084,.090,.98 },
+		surfaceAlt = { .155,.151,.160,1 }, raised = { .020,.019,.022,1 }, line = { .690,.675,.700,1 },
+		lineSoft = { .350,.330,.390,.10 }, bronze = { .405,.355,.600,1 }, gold = { .835,.825,.835,1 },
+		goldDim = { .490,.480,.500,1 }, crimson = { .572,.083,.083,1 }, text = { .905,.900,.905,1 },
+		textDim = { .585,.575,.590,1 }, textFaint = { .470,.460,.475,1 }, ok = { .420,.700,.525,1 },
+		green = { .470,.760,.575,1 }, warn = { .835,.825,.835,1 }, danger = { .867,.125,.125,1 },
+		motifA = { .405,.355,.600,1 }, motifB = { .867,.125,.125,1 }, motifC = { .835,.825,.835,1 },
 	} },
 }
 -- Quick accent choices: gold, ember, crimson, rose, violet, frost, emerald, fel.
@@ -92,6 +127,7 @@ local GROUPS = {
 		set("gold", c)
 		set("goldDim", Mul(c, 0.78))
 		set("bronze", Mul(c, 0.8))
+		set("motifC", c)
 	end },
 	{ id = "text", base = "text", apply = function(c, set)
 		set("text", c)
@@ -101,11 +137,13 @@ local GROUPS = {
 	{ id = "positive", base = "ok", apply = function(c, set)
 		set("ok", c)
 		set("green", Lift(c, 0.06))
+		set("motifA", c)
 	end },
 	{ id = "warning", base = "warn", apply = function(c, set) set("warn", c) end },
 	{ id = "danger", base = "danger", apply = function(c, set)
 		set("danger", c)
 		set("crimson", Mul(c, 0.66))
+		set("motifB", c)
 	end },
 }
 
@@ -131,6 +169,15 @@ end
 
 local function CurrentColors(st)
 	if st.preset == "CUSTOM" and st.custom and type(st.custom.colors) == "table" then
+		-- Custom themes saved before the header motif existed inherit the three
+		-- decorative colors from their original base preset.
+		local base = (PRESET_BY_ID[st.custom.base] or PRESETS[1]).colors
+		for _, token in ipairs({ "motifA", "motifB", "motifC" }) do
+			if type(st.custom.colors[token]) ~= "table" and base[token] then
+				local c = base[token]
+				st.custom.colors[token] = { c[1], c[2], c[3], c[4] or 1 }
+			end
+		end
 		return st.custom.colors
 	end
 	return (PRESET_BY_ID[st.preset] or PRESETS[1]).colors
@@ -180,27 +227,8 @@ local function Swatch(parent, size, color)
 	return f
 end
 
-function AL.BuildThemeDrawer(menu, toggleButton)
-	local drawer = CreateFrame("Frame", nil, menu)
-	drawer:SetWidth(DRAWER_W)
-	drawer:SetFrameLevel(menu:GetFrameLevel() + 30)
-	drawer:EnableMouse(true)
-	UI.Fill(drawer, THEME.shell)
-	UI.Border(drawer, UI.Derived.frameEdge)
-	drawer:Hide()
-
-	local function Place(dx)
-		drawer:ClearAllPoints()
-		drawer:SetPoint("TOPLEFT", menu, "TOPRIGHT", 4 - dx, 0)
-		drawer:SetPoint("BOTTOMLEFT", menu, "BOTTOMRIGHT", 4 - dx, 0)
-	end
-	Place(0)
-
-	local head = UI.Text(drawer, "GameFontNormal", THEME.gold)
-	head:SetPoint("TOP", 0, -12)
-	head:SetText(L("THEMES"))
-
-	local _, _, stack = UI.ScrollArea(drawer, { pad = 10, padTop = 34, spacing = 8 })
+local function BuildThemeControls(host, stack)
+	local controller = { host = host, stack = stack }
 
 	-- ------------------------------------------------------------ presets
 	local presetCard = UI.Card(stack, L("THEME_PRESETS"))
@@ -245,7 +273,7 @@ function AL.BuildThemeDrawer(menu, toggleButton)
 		row:SetScript("OnLeave", function() row:Paint() end)
 		row:SetScript("OnClick", function()
 			SelectPreset(id)
-			drawer.Refresh()
+			controller.Refresh()
 		end)
 		st:Add(row, 24)
 		UI.Register(function() row:Paint() end)
@@ -259,7 +287,7 @@ function AL.BuildThemeDrawer(menu, toggleButton)
 
 	-- Only one update per frame, even when several sliders move.
 	local dirty = false
-	drawer:SetScript("OnUpdate", function()
+	host:HookScript("OnUpdate", function()
 		if not dirty then return end
 		dirty = false
 		UI.ApplyTheme(Saved().custom.colors)
@@ -380,7 +408,7 @@ function AL.BuildThemeDrawer(menu, toggleButton)
 		row:SetScript("OnLeave", function() row:Paint() end)
 		row:SetScript("OnClick", function()
 			onPick()
-			drawer.Refresh()
+			controller.Refresh()
 		end)
 		st:Add(row, 22, { gap = 2 })
 		UI.Register(function() row:Paint() end)
@@ -451,7 +479,7 @@ function AL.BuildThemeDrawer(menu, toggleButton)
 				st.custom.colors = Copy((PRESET_BY_ID[st.custom.base] or PRESETS[1]).colors)
 				st.preset = "CUSTOM"
 				UI.ApplyTheme(st.custom.colors)
-				drawer.Refresh()
+				controller.Refresh()
 			end,
 		},
 		{
@@ -459,7 +487,7 @@ function AL.BuildThemeDrawer(menu, toggleButton)
 			onClick = function()
 				advancedShown = not advancedShown
 				stack:SetItemShown(advanced, advancedShown)
-				drawer.Refresh()
+				controller.Refresh()
 			end,
 		},
 	}, { gapBefore = 8 })
@@ -488,11 +516,49 @@ function AL.BuildThemeDrawer(menu, toggleButton)
 		advEditing:SetText(L("THEME_EDITING", L("THEME_C_" .. token)))
 		mainButtons[2].text:SetText(L(advancedShown and "THEME_ADVANCED_HIDE" or "THEME_ADVANCED_SHOW"))
 	end
-	function drawer.Refresh()
+	function controller.Refresh()
 		PaintLabels()
 		UI.Repaint()
 	end
 	UI.Register(PaintLabels)
+	return controller
+end
+
+-- Full in-window Themes page. Menu.lua supplies a normal page frame; the
+-- shared ScrollArea keeps both presets and advanced controls inside it.
+function AL.BuildThemesPage(parent)
+	local _, _, stack = UI.ScrollArea(parent, { pad = 14, padTop = 30, spacing = 8 })
+	local controller = BuildThemeControls(parent, stack)
+	parent.themeController = controller
+	parent:HookScript("OnShow", function() controller.Refresh() end)
+	return controller
+end
+
+-- Legacy slide-out entry point retained for compatibility. It uses the exact
+-- same controls and state as the embedded Themes page.
+function AL.BuildThemeDrawer(menu, toggleButton)
+	local drawer = CreateFrame("Frame", nil, menu)
+	drawer:SetWidth(DRAWER_W)
+	drawer:SetFrameLevel(menu:GetFrameLevel() + 30)
+	drawer:EnableMouse(true)
+	UI.Fill(drawer, THEME.shell)
+	UI.Border(drawer, UI.Derived.frameEdge)
+	drawer:Hide()
+
+	local function Place(dx)
+		drawer:ClearAllPoints()
+		drawer:SetPoint("TOPLEFT", menu, "TOPRIGHT", 4 - dx, 0)
+		drawer:SetPoint("BOTTOMLEFT", menu, "BOTTOMRIGHT", 4 - dx, 0)
+	end
+	Place(0)
+
+	local head = UI.Text(drawer, "GameFontNormal", THEME.gold)
+	head:SetPoint("TOP", 0, -12)
+	head:SetText(L("THEMES"))
+
+	local _, _, stack = UI.ScrollArea(drawer, { pad = 10, padTop = 34, spacing = 8 })
+	local controller = BuildThemeControls(drawer, stack)
+	function drawer.Refresh() controller.Refresh() end
 
 	-- ---------------------------------------------------------- animation
 	local progress, target, duration = 0, 0, 0.18

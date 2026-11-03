@@ -86,27 +86,32 @@ function AL.Version()
 end
 
 -- ----------------------------------------------------------------------------
--- Palette: ActionIcon's dark translucent panels, blue accents and gold headings.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Approved Nova Console palette. Motif colors drive the three grouped header
+-- pixels without borrowing any background token.
 -- ----------------------------------------------------------------------------
 local THEME = {
-	shell      = { 0.020, 0.025, 0.040, 0.98 },
-	sidebar    = { 0.030, 0.040, 0.060, 0.92 },
-	surface    = { 0.035, 0.045, 0.065, 0.92 },
-	surfaceAlt = { 0.160, 0.340, 0.520, 1.00 },
-	raised     = { 0.055, 0.070, 0.100, 1.00 },
-	line       = { 0.250, 0.550, 0.900, 1.00 },
+	shell      = { 0.055, 0.060, 0.058, 0.98 },
+	sidebar    = { 0.085, 0.090, 0.086, 0.98 },
+	surface    = { 0.090, 0.095, 0.090, 0.96 },
+	surfaceAlt = { 0.220, 0.430, 0.430, 1.00 },
+	raised     = { 0.115, 0.120, 0.112, 1.00 },
+	line       = { 0.220, 0.430, 0.430, 1.00 },
 	lineSoft   = { 1.000, 1.000, 1.000, 0.07 },
-	bronze     = { 0.380, 0.710, 1.000, 1.00 },
-	gold       = { 1.000, 0.820, 0.180, 1.00 },
-	crimson    = { 0.650, 0.130, 0.180, 1.00 },
-	text       = { 0.880, 0.910, 0.960, 1.00 },
-	textDim    = { 0.700, 0.720, 0.780, 1.00 },
-	textFaint  = { 0.660, 0.690, 0.750, 1.00 },
-	ok         = { 0.200, 0.920, 0.320, 1.00 },
-	green      = { 0.200, 0.920, 0.320, 1.00 },
-	goldDim    = { 1.000, 0.860, 0.300, 1.00 },
-	warn       = { 1.000, 0.780, 0.160, 1.00 },
-	danger     = { 1.000, 0.200, 0.200, 1.00 },
+	bronze     = { 0.420, 0.780, 0.780, 1.00 },
+	gold       = { 0.880, 0.830, 0.660, 1.00 },
+	crimson    = { 0.520, 0.190, 0.170, 1.00 },
+	text       = { 0.910, 0.890, 0.810, 1.00 },
+	textDim    = { 0.580, 0.610, 0.570, 1.00 },
+	textFaint  = { 0.470, 0.500, 0.460, 1.00 },
+	ok         = { 0.300, 0.660, 0.490, 1.00 },
+	green      = { 0.300, 0.660, 0.490, 1.00 },
+	goldDim    = { 0.470, 0.440, 0.350, 1.00 },
+	warn       = { 0.880, 0.700, 0.320, 1.00 },
+	danger     = { 0.780, 0.290, 0.250, 1.00 },
+	motifA    = { 0.300, 0.660, 0.490, 1.00 },
+	motifB    = { 0.780, 0.290, 0.250, 1.00 },
+	motifC    = { 0.880, 0.830, 0.660, 1.00 },
 }
 UI.Theme = THEME
 
@@ -433,17 +438,29 @@ function UI.Card(host, title, subtitle, opts)
 	local card = CreateFrame("Frame", nil, st.frame)
 	UI.Fill(card, THEME.surface)
 	card.border = UI.Border(card, THEME.line)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- A shallow header band mirrors the approved console sections while the
+	-- existing stack height and collapse contract remain unchanged.
+	local headerBand = card:CreateTexture(nil, "BACKGROUND")
+	headerBand:SetPoint("TOPLEFT", 1, -1)
+	headerBand:SetPoint("TOPRIGHT", -1, -1)
+	headerBand:SetHeight(26)
+	UI.Tint(headerBand, THEME.surfaceAlt, 0.72)
+	card.headerBand = headerBand
 
 	local head = UI.Text(card, "GameFontNormal", THEME.gold)
-	head:SetPoint("TOP", 0, -9)
+	head:SetPoint("TOPLEFT", 12, -9)
+	head:SetPoint("TOPRIGHT", -36, -9)
+	head:SetJustifyH("LEFT")
 	head:SetText(title or "")
 	card.title = head
 
 	local top = 34
 	if subtitle then
 		local sub = UI.Text(card, "GameFontNormalSmall", THEME.textFaint)
-		sub:SetPoint("TOP", 0, -27)
-		sub:SetJustifyH("CENTER")
+		sub:SetPoint("TOPLEFT", 12, -30)
+		sub:SetPoint("TOPRIGHT", -12, -30)
+		sub:SetJustifyH("LEFT")
 		sub:SetText(subtitle)
 		card.subtitle = sub
 		top = 50
@@ -782,6 +799,37 @@ function UI.Slider(host, opts)
 	fill:SetPoint("LEFT", 1, 0)
 	UI.Tint(fill, THEME.goldDim)
 
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Responsive tick marks: keep exact step divisions when they fit, then
+	-- reduce visual density on narrow rows. They are presentation only and do
+	-- not alter the slider's value, callbacks, or debug recorder.
+	local tickPool = {}
+	for i = 1, 21 do
+		local tick = slider:CreateTexture(nil, "OVERLAY")
+		tick:SetSize(1, (i == 1 or i == 21) and 5 or 3)
+		UI.Tint(tick, THEME.textFaint, 0.62)
+		tick:Hide()
+		tickPool[i] = tick
+	end
+	local function UpdateTicks()
+		local width = slider:GetWidth() or 0
+		if width <= 2 then return end
+		local natural = math.max(1, math.floor((maxV - minV) / step + 0.5))
+		local cap = width < 180 and 5 or (width < 300 and 10 or 20)
+		local segments = math.min(natural, cap)
+		for i, tick in ipairs(tickPool) do
+			if i <= segments + 1 then
+				local ratio = (i - 1) / segments
+				tick:ClearAllPoints()
+				tick:SetPoint("CENTER", slider, "LEFT", 1 + (width - 2) * ratio, 0)
+				tick:SetHeight((i == 1 or i == segments + 1) and 5 or 3)
+				tick:Show()
+			else
+				tick:Hide()
+			end
+		end
+	end
+
 	slider:SetThumbTexture(WHITE)
 	local thumb = slider:GetThumbTexture()
 	local function PaintThumb()
@@ -809,6 +857,7 @@ function UI.Slider(host, opts)
 	f.pending = nil
 
 	slider:SetScript("OnSizeChanged", function()
+		UpdateTicks()
 		Display(RoundStep(slider:GetValue(), step, minV, maxV))
 	end)
 
@@ -850,6 +899,7 @@ function UI.Slider(host, opts)
 		f.applying = true
 		slider:SetValue(v)
 		f.applying = false
+		UpdateTicks()
 		Display(v)
 	end
 
@@ -1247,6 +1297,86 @@ function UI.Tabs(parent, defs, opts)
 	return strip
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Vertical navigation used by the approved console shell. It deliberately
+-- mirrors UI.Tabs' public contract so Menu.lua can switch layouts without
+-- changing page selection logic: .buttons, :Layout(), and :SetActive().
+function UI.SideTabs(parent, defs, opts)
+	opts = opts or {}
+	local strip = CreateFrame("Frame", nil, parent)
+	strip:SetWidth(opts.width or 158)
+	local buttons = {}
+	local rowHeight = opts.height or 34
+
+	for i, def in ipairs(defs) do
+		local b = CreateFrame("Button", nil, strip)
+		b:SetHeight(rowHeight)
+		local bg = UI.Fill(b, THEME.surface)
+		local edge = UI.Border(b, THEME.line)
+		local marker = b:CreateTexture(nil, "OVERLAY")
+		marker:SetSize(5, math.max(12, rowHeight - 14))
+		marker:SetPoint("LEFT", 10, 0)
+		UI.Tint(marker, THEME.bronze)
+		marker:Hide()
+		local text = UI.Text(b, "GameFontNormalSmall", THEME.textDim)
+		text:SetPoint("LEFT", 28, 0)
+		text:SetPoint("RIGHT", -8, 0)
+		text:SetJustifyH("LEFT")
+		text:SetText(def.label or "")
+		b.label = text
+
+		function b:SetActive(active)
+			b.active = active and true or false
+			marker:SetShown(b.active)
+			if b.active then
+				bg:SetColorTexture(UI.Color(THEME.raised))
+				edge:SetColor(UI.Color(THEME.bronze))
+				text:SetTextColor(UI.Color(THEME.gold))
+			else
+				bg:SetColorTexture(UI.Color(THEME.surface))
+				edge:SetColor(UI.Color(THEME.line))
+				text:SetTextColor(UI.Color(THEME.textDim))
+			end
+		end
+		b:SetScript("OnEnter", function()
+			if not b.active then
+				edge:SetColor(UI.Color(THEME.bronze))
+				text:SetTextColor(UI.Color(THEME.text))
+			end
+		end)
+		b:SetScript("OnLeave", function() b:SetActive(b.active) end)
+		b:SetScript("OnClick", function()
+			if def.onClick then def.onClick(i) end
+		end)
+		b:SetActive(false)
+		buttons[i] = b
+	end
+
+	function strip:Layout()
+		local y = opts.padTop or 0
+		for _, b in ipairs(buttons) do
+			b:ClearAllPoints()
+			b:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, -y)
+			b:SetPoint("TOPRIGHT", strip, "TOPRIGHT", 0, -y)
+			b:SetHeight(rowHeight)
+			y = y + rowHeight + (opts.gap or 8)
+		end
+		strip.usedHeight = math.max(0, y - (opts.gap or 8))
+		strip:SetHeight(strip.usedHeight)
+	end
+
+	function strip:SetActive(index)
+		for i, b in ipairs(buttons) do b:SetActive(i == index) end
+	end
+
+	strip.buttons = buttons
+	strip:Layout()
+	UI.Register(function()
+		for _, b in ipairs(buttons) do b:SetActive(b.active) end
+	end)
+	return strip
+end
+
 -- ----------------------------------------------------------------------------
 -- ScrollArea: scroll area with a custom scrollbar and mouse wheel.
 -- Returns scroll, content, stack.
@@ -1255,7 +1385,10 @@ function UI.ScrollArea(parent, opts)
 	opts = opts or {}
 	local pad = opts.pad or UI.GRID.pad
 	local padTop = opts.padTop or pad
-	local barW = 16
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Wider scrollbar from the approved shell, with inset thumb geometry so it
+	-- remains easy to grab without looking like a solid block.
+	local barW = 22
 
 	local scroll = CreateFrame("ScrollFrame", nil, parent)
 	scroll:SetPoint("TOPLEFT", pad, -padTop)
@@ -1270,11 +1403,12 @@ function UI.ScrollArea(parent, opts)
 	track:SetPoint("TOPRIGHT", -pad, -padTop)
 	track:SetPoint("BOTTOMRIGHT", -pad, pad)
 	UI.Fill(track, THEME.lineSoft)
+	UI.Border(track, THEME.line)
 
 	local thumb = CreateFrame("Button", nil, track)
 	local thumbTex = UI.Fill(thumb, THEME.bronze, "ARTWORK")
-	thumb:SetPoint("LEFT")
-	thumb:SetPoint("RIGHT")
+	thumb:SetPoint("LEFT", 3, 0)
+	thumb:SetPoint("RIGHT", -3, 0)
 	thumb:SetHeight(30)
 
 	local function UpdateThumb()
@@ -1291,8 +1425,8 @@ function UI.ScrollArea(parent, opts)
 		thumb:SetHeight(size)
 		local pos = (th - size) * ((scroll:GetVerticalScroll() or 0) / range)
 		thumb:ClearAllPoints()
-		thumb:SetPoint("TOPLEFT", track, "TOPLEFT", 0, -pos)
-		thumb:SetPoint("TOPRIGHT", track, "TOPRIGHT", 0, -pos)
+		thumb:SetPoint("TOPLEFT", track, "TOPLEFT", 3, -pos)
+		thumb:SetPoint("TOPRIGHT", track, "TOPRIGHT", -3, -pos)
 	end
 
 	local function ScrollBy(delta)
