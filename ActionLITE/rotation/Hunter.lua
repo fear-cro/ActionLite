@@ -1,6 +1,7 @@
 local ADDON, AL = ...
 
--- ActionLITE Hunter v0.13.3: original Leveling plus optional talent builds.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- ActionLITE Hunter v0.13.4: original Leveling plus optional talent builds.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -81,6 +82,9 @@ local M = {
 }
 
 -- Rank-one IDs used to identify spells and supply their icons.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Every castable ability named by the bluepost remains in the spell menu.
+-- Frost Trap is manual rotation utility but still needs Universal-icon access.
 M.spells = {
 	{ 19434, "Aimed Shot" },
 	{ 3044, "Arcane Shot" },
@@ -97,6 +101,7 @@ M.spells = {
 	{ 1002, "Eyes of the Beast" },
 	{ 6991, "Feed Pet" },
 	{ 1499, "Freezing Trap" },
+	{ 13809, "Frost Trap" },
 	{ 1130, "Hunter's Mark" },
 	{ 13795, "Immolation Trap" },
 	{ 136, "Mend Pet" },
@@ -137,6 +142,7 @@ local MINLEVEL = {
 	["Eagle Eye"] = 16,
 	["Multi-Shot"] = 18,
 	["Freezing Trap"] = 20,
+	["Frost Trap"] = 28,
 	["Aimed Shot"] = 20,
 	["Disengage"] = 20,
 	["Aspect of the Cheetah"] = 20,
@@ -1008,6 +1014,9 @@ function M.SetBuild(key, enabled, s)
     return selected
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- This is the final registered spell list used by the Spells tab. Utility
+-- traps remain manually queued but must retain native/Universal icon support.
 M.spells = {
 	{ 19434, "Aimed Shot" },
 	{ 3044, "Arcane Shot" },
@@ -1030,6 +1039,7 @@ M.spells = {
 	{ 1002, "Eyes of the Beast" },
 	{ 6991, "Feed Pet" },
 	{ 1499, "Freezing Trap" },
+	{ 13809, "Frost Trap" },
 	{ 1130, "Hunter's Mark" },
 	{ 13795, "Immolation Trap" },
 	{ 13813, "Explosive Trap" },
@@ -1085,6 +1095,7 @@ local MINLEVEL = {
 	["Eagle Eye"] = 16,
 	["Multi-Shot"] = 18,
 	["Freezing Trap"] = 20,
+	["Frost Trap"] = 28,
 	["Aimed Shot"] = 20,
 	["Disengage"] = 20,
 	["Aspect of the Cheetah"] = 20,
@@ -1118,14 +1129,19 @@ local aspectState, aspectChangedAt, aspectCache, aspectAurasBlocked
 local loneWolfKnown, loneWolfChecked
 local hunterTalentRanks
 local trueshotExpires, trueshotChangedAt, trueshotCache, trueshotAurasBlocked = 0, nil, nil, nil
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local trapNames = {
+    ["Freezing Trap"] = true, ["Frost Trap"] = true,
+    ["Immolation Trap"] = true, ["Explosive Trap"] = true,
+}
 local controlBase = { ["Raptor Strike"]=6, ["Mongoose Bite"]=5, ["Strider Kick"]=8,
-    ["Immolation Trap"]=30, ["Explosive Trap"]=30, ["Rapid Fire"]=300, ["Blood Fury"]=120,
+    ["Freezing Trap"]=30, ["Frost Trap"]=30, ["Immolation Trap"]=30, ["Explosive Trap"]=30,
+    ["Rapid Fire"]=300, ["Blood Fury"]=120,
     ["Arcane Shot"]=6, ["Summon Hawk"]=6, ["Aimed Shot"]=6, ["Multi-Shot"]=6,
     ["Sniper Shot"]=15, ["Bestial Wrath"]=120, ["Intimidation"]=60,
     ["Berserking"]=180, ["Elune's Light"]=180 }
 local cooldownPairs = { ["Arcane Shot"]="Summon Hawk", ["Summon Hawk"]="Arcane Shot",
-    ["Aimed Shot"]="Multi-Shot", ["Multi-Shot"]="Aimed Shot",
-    ["Immolation Trap"]="Explosive Trap", ["Explosive Trap"]="Immolation Trap" }
+    ["Aimed Shot"]="Multi-Shot", ["Multi-Shot"]="Aimed Shot" }
 local aspectNames = { ["Aspect of the Hawk"]=true, ["Aspect of the Beast"]=true,
     ["Aspect of the Monkey"]=true, ["Aspect of the Cheetah"]=true }
 local castIDs = {
@@ -1133,6 +1149,7 @@ local castIDs = {
     ["Berserking"]={20554,26297}, ["Elune's Light"]={1259799},
     ["Raptor Strike"]={2973,14260,14261,14262,14263,14264,14265,14266},
     ["Mongoose Bite"]={1495,14269,14270,14271}, ["Strider Kick"]={1317257},
+    ["Freezing Trap"]={1499,14310,14311}, ["Frost Trap"]={13809},
     ["Immolation Trap"]={13795,14302,14303,14304,14305},
     ["Explosive Trap"]={13813,14316,14317}, ["Rapid Fire"]={3045}, ["Blood Fury"]={20572},
     ["Aspect of the Beast"]={13161,1299445,1299446,1299447},
@@ -1196,7 +1213,7 @@ local function NoPet(s)
 end
 local function Controlled(name)
     return controlBase[name] and (ReferenceBuild(AL.S()) or name == "Strider Kick" or name == "Sniper Shot"
-        or cooldownPairs[name]~=nil or name == "Blood Fury")
+        or cooldownPairs[name]~=nil or trapNames[name] or name == "Blood Fury")
 end
 
 -- A reference checkbox never grants talents. Native cooldowns win; when they
@@ -1244,6 +1261,13 @@ local function CooldownEnd(info)
 end
 local function SetControlEnd(name, expires)
     controlEnds[name], controlCastAt[name] = expires, GetTime()
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    if trapNames[name] then
+        for trap in pairs(trapNames) do
+            controlEnds[trap], controlCastAt[trap] = expires, GetTime()
+        end
+        return
+    end
     local other=cooldownPairs[name]
     if other then
         controlEnds[other], controlCastAt[other] = expires, GetTime()
@@ -1264,12 +1288,21 @@ local function ControlReady(name)
         elseif Bool(info.isActive) == false then ready = true
         elseif Bool(info.isActive) == true and Bool(info.isOnGCD) == false then ready = false end
         if ready ~= nil then
+            -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+            -- A protected/GCD-only native read must not release another trap
+            -- before the shared confirmed-cast timer has finished.
+            if ready and trapNames[name] and (controlEnds[name] or 0) > GetTime()
+                and (not start or start == 0 or not duration or duration <= 1.5) then return false end
             if ready and controlCastAt[name] and GetTime()-controlCastAt[name] < 0.5
                 and (controlEnds[name] or 0) > GetTime() then return false end
             if ready and controlEnds[name] then
-                controlEnds[name] = GetTime()
-                local other=cooldownPairs[name]
-                if other then controlEnds[other]=GetTime() end
+                if trapNames[name] then
+                    for trap in pairs(trapNames) do controlEnds[trap]=GetTime() end
+                else
+                    controlEnds[name] = GetTime()
+                    local other=cooldownPairs[name]
+                    if other then controlEnds[other]=GetTime() end
+                end
             end
             return ready
         end
@@ -1416,7 +1449,7 @@ local function Offer(name, reason, gates, procOnly)
     local usable, shortage = SpellUsability(name)
     if usable == false or shortage == true then return false end
     if procOnly and usable ~= true and GetTime() >= mongooseUntil then return false end
-    if name ~= "Immolation Trap" and name ~= "Explosive Trap" and name ~= "Trueshot Aura"
+    if not trapNames[name] and name ~= "Trueshot Aura"
         and Bool((SafeCall(AL.InRange, name))) == false then return false end
     local conditions = {}
     for _, gate in ipairs(gates or {}) do conditions[#conditions + 1] = gate end
@@ -1770,6 +1803,9 @@ local function Mend(s, petUp, reason)
 end
 
 local function Mark(s, targetHP, reason)
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- One name-based timer covers every rank. Casting by name always selects
+    -- the highest learned rank and cannot create rank-specific reapplications.
     if s.mark and not AL.HasDebuff("target", "Hunter's Mark") then
         Offer("Hunter's Mark", reason, { HealthGate("target", targetHP,
             SettingNumber(s, "markMinTargetHP", 45, 0, 100), false) })
@@ -1905,6 +1941,9 @@ local function MarksmanshipRanged(s,mana,targetHP)
         if s.volley then Offer("Volley","ranged ground AoE",{
             ManaGate(mana,SettingNumber(s,"volleyMinMana",35,0,100),false)}) end
     end
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- The strengthened Aimed Shot remains the stationary primary shot. The
+    -- doubled Sniper Shot stays ahead of the strengthened instant Arcane Shot.
     if s.aimed and not moving then Offer("Aimed Shot","Marksmanship primary shot") end
     -- The reference has no Summon Hawk point. Preserve its checkbox for
     -- characters that actually learn it, without granting the talent.

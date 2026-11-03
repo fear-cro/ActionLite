@@ -84,12 +84,14 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ key = "survivalNoPet", half = false, label = "Use learned Lone Wolf (no pet)", spell = "Dismiss Pet" },
 				{ type = "info", text = "With Survival selected and Lone Wolf confirmed learned, this disables Call/Revive/Mend Pet and dismisses an active pet only out of combat, when Dismiss Pet is learned and you are stationary. Before Lone Wolf is learned, normal pet controls remain available. Disable this option for a pet-based build." },
 				{ key = "striderKick", label = "Use Strider Kick", spell = "Strider Kick" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				{ key = "immolationTrap", label = "Use Immolation Trap", spell = "Immolation Trap" },
 				{ key = "survivalWingFiller", half = false, label = "Survival: Wing Clip damage filler", spell = "Wing Clip" },
 				{ type = "info", text = "Optional filler uses Wing Clip between Raptor Strike and Strider Kick opportunities. The existing Wing Clip checkbox is also required. Defensive Wing Clip remains available when chased." },
 				{ type = "slider", key = "survivalMinMana", label = "Survival melee minimum mana", min = 0, max = 100, step = 5, default = 0, suffix = " %" },
 				{ type = "slider", key = "trapMinMana", label = "Trap minimum mana", min = 0, max = 100, step = 5, default = 20, suffix = " %" },
 				{ type = "slider", key = "trapMinTargetHP", label = "Trap minimum target health", min = 0, max = 100, step = 5, default = 25, suffix = " %" },
+				{ type = "info", text = "All Hunter traps share one tracked 30-second cooldown. The rotation automatically uses enabled damage traps only. Freezing Trap and Frost Trap remain manual and are available in the Spells tab for Universal icon assignment and queuing." },
 			},
 		},
 		{
@@ -112,6 +114,8 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ key = "mark", label = "Hunter's Mark", spell = "Hunter's Mark" },
 				{ type = "slider", key = "markMinTargetHP", label = { en = "Hunter's Mark minimum target health", fr = "Vie cible minimum pour Hunter's Mark", pt = "Vida mínima do alvo para Hunter's Mark", es = "Salud mínima del objetivo para Hunter's Mark", de = "Hunter's Mark: Mindestgesundheit des Ziels", zh = "Hunter's Mark目标最低生命值" },
 					min = 0, max = 100, step = 5, default = 45, suffix = " %", half = true },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ type = "info", text = "Hunter's Mark is tracked once by spell name across every rank. ActionLITE casts the highest learned rank and does not cycle lower ranks." },
 				{ key = "drink", label = { en = "Drink reminder", fr = "Rappel de boisson", pt = "Lembrete de bebida", es = "Recordatorio de bebida", de = "Trink-Erinnerung", zh = "喝水提醒" } },
 				{ type = "slider", key = "drinkMana", label = { en = "Drink at or below mana", fr = "Boire à ce niveau de mana ou en dessous", pt = "Beber com mana igual ou abaixo de", es = "Beber con maná igual o inferior", de = "Trinken bei oder unter Mana", zh = "法力值等于或低于时喝水" },
 					min = 0, max = 80, step = 5, default = 30, suffix = " %", half = true },
@@ -130,6 +134,8 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ type = "slider", key = "arcaneMinMana", label = { en = "Arcane Shot minimum mana", fr = "Mana minimum pour Arcane Shot", pt = "Mana mínima para Arcane Shot", es = "Maná mínimo para Arcane Shot", de = "Arcane Shot Mindestmana", zh = "Arcane Shot最低法力值" },
 					min = 0, max = 80, step = 5, default = 20, suffix = " %", half = true },
 				{ key = "concussive", label = { en = "Concussive Shot when chased", fr = "Concussive Shot si poursuivi", pt = "Concussive Shot se perseguido", es = "Concussive Shot si te persiguen", de = "Concussive Shot bei Verfolgung", zh = "被追击时Concussive Shot" }, spell = "Concussive Shot" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ type = "info", text = "The strengthened Aimed Shot remains the stationary primary shot. Serpent Sting is maintained on eligible targets; Sniper Shot remains ahead of Arcane Shot in Marksmanship, while Arcane Shot remains the instant ranged fallback." },
 			},
 		},
 		{
@@ -161,7 +167,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ key = "explosiveTrap", label = "Survival: Explosive Trap AoE", spell = "Explosive Trap" },
 				{ key = "volley", label = "Volley at range (all builds)", spell = "Volley" },
 				{ type = "slider", key = "volleyMinMana", label = "Volley minimum mana", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
-				{ type = "info", text = "Explosive Trap requires AoE On and enough engaged enemies in melee, and shares its cooldown with Immolation Trap. Optional Volley is ground-targeted, requires AoE On and a stationary player, and defaults OFF." },
+				{ type = "info", text = "Explosive Trap requires AoE On and enough engaged enemies in melee. It shares the same tracked 30-second cooldown with Immolation, Freezing and Frost Trap. Optional Volley is ground-targeted, requires AoE On and a stationary player, and defaults OFF." },
 				{ type = "info", text = {
 					en = "Multi-Shot requires the selected number of confirmed enemies. An unknown count does not enable AoE.",
 					fr = "Multi-Shot nécessite le nombre choisi d'ennemis confirmés. Un nombre inconnu ne déclenche pas l'AoE.",
@@ -183,4 +189,4 @@ AL.RegisterSimpleClassUI("HUNTER", {
 			},
 		},
 	},
-}, "0.13.3")
+}, "0.13.4")
