@@ -1,9 +1,11 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.10.4"
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local UI_VERSION = "0.10.5"
 local L = AL.L
 
 -- ============================================================================
--- ActionLITE - Warrior_UI.lua - v0.10.4
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- ActionLITE - Warrior_UI.lua - v0.10.5
 -- ----------------------------------------------------------------------------
 -- Warrior options page with a compact two-column layout.
 -- No combat rules here: all displayed values come from
@@ -152,9 +154,15 @@ local function BuildWarriorUI(page, ui)
 		label = "Use Intercept", icon = SpellIcon("Intercept"), half = true,
 		tooltip = { "Intercept", "Combat gap closer in Berserker Stance. Requires a learned spell, positively verified range, enough Rage and a ready cooldown." },
 	})
-	ui.Help(fury, "Area attacks require AoE On. Death Wish and Recklessness require Burst On and their individual checkboxes. Only learned and enabled spells are used.")
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	ui.Help(fury, "Area attacks require AoE On. Reckless Swings, Death Wish and Recklessness require Burst On and their individual checkboxes. Only learned and enabled spells are used.")
 
 	local burst = ui.Card(stack, "FURY BURST", "Requires Burst On at the spell icon", { id="burst", build="fury", group="burst" })
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	ui.SettingCheck(burst, "furyRecklessSwings", {
+		label = "Use Reckless Swings", icon = SpellIcon("Reckless Swings"), half = true,
+		tooltip = { "Reckless Swings", "Fury Burst On only. When learned and ready, use above 70% player health to generate 5 additional Rage from each of the next four melee attacks. Costs 25% of base health and has a 15-second cooldown." },
+	})
 	ui.SettingCheck(burst, "furyDeathWish", {
 		label = "Use Death Wish", icon = SpellIcon("Death Wish"), half = true,
 		tooltip = { "Death Wish", "Fury Burst On only: physical damage boost when learned, ready and affordable. Costs 10 Rage; three-minute cooldown. Also increases damage taken." },
@@ -219,7 +227,8 @@ local function BuildWarriorUI(page, ui)
 			elseif rotation and rotation.FuryUsesTalentSettings(p) then p.furySlam = value else p.slam = value end
 		end,
 		onChange = ui.Repaint,
-		tooltip = { "Slam", L("SLAM_HELP"), "After Bloodthirst is learned, Fury defaults Slam OFF for the 18/31/2 reference. This checkbox saves a separate Fury choice and preserves the earlier leveling DPS choice." },
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		tooltip = { "Slam", L("SLAM_HELP"), "Uses the live 15-second cooldown. When combat cooldown data is protected, Arms applies Improved Slam's 2.5/5-second reduction. After Bloodthirst is learned, Fury defaults Slam OFF for the 18/31/2 reference. Fury and Leveling choices remain separate." },
 	})
 	ui.SettingCheck(core, "spear", {
 		label = "Spearing Strike", icon = SpellIcon("Spearing Strike"), half = true,
@@ -414,7 +423,8 @@ local function BuildWarriorUI(page, ui)
 	ui.Divider(aoe)
 	ui.SettingCheck(aoe, "whirlwind", {
 		label = "Use Whirlwind", icon = SpellIcon("Whirlwind"),
-		tooltip = { "Whirlwind", "Fury AoE only: requires AoE On, learned Whirlwind, Berserker Stance, range, enough Rage and a ready cooldown." },
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		tooltip = { "Whirlwind", "Fury AoE only: requires AoE On, learned Whirlwind, Berserker Stance, range, enough Rage and a ready cooldown. Improved Whirlwind uses the live cooldown, with a 9/8-second protected fallback by actual talent rank." },
 	})
 	ui.Help(aoe, L("SWEEPING_INFO"),
 		{ icon = SpellIcon("Sweeping Strikes") })

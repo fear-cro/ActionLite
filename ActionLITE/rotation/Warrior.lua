@@ -1,6 +1,7 @@
 local ADDON, AL = ...
 
--- ActionLITE Warrior v0.10.4: original Leveling plus optional talent builds.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- ActionLITE Warrior v0.10.5: original Leveling plus optional talent builds.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -121,6 +122,9 @@ M.spells = {
 	{ 5246, "Intimidating Shout" },
 	{ 694, "Mocking Blow" },
 	{ 7384, "Overpower" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 12323, "Piercing Howl" },
+	{ 0, "Reckless Swings" },
 	{ 772, "Rend" },
 	{ 20230, "Retaliation" },
 	{ 6572, "Revenge" },
@@ -202,7 +206,8 @@ local CLEAVE_AUTO_RANGE = 7
 
 local LOCAL_COOLDOWNS = {
 	["Victory Rush"] = 30,
-	["Slam"] = 18,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Slam"] = 15,
 	["Spearing Strike"] = 20,
 	["Sweeping Strikes"] = 30,
 	["Thunder Clap"] = 6,
@@ -2041,7 +2046,8 @@ AL.RegisterRotation("WARRIOR", M)
 local ADDON, AL = ...
 
 -- WoW Forever Warrior DPS / Tank leveling 1-60
--- ActionLITE Warrior rotation v0.10.4 - Protection 0/20/31, Arms 39/10/2 and Fury 18/31/2
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- ActionLITE Warrior rotation v0.10.5 - Protection 0/20/31, Arms 39/10/2 and Fury 18/31/2
 -- Reference: MythicSim Forever b1137248e6b4 (1.60.1.70338).
 -- Validate learned spells and combat behavior in the live Forever client.
 
@@ -2077,6 +2083,8 @@ local M = {
 		armsFillerReserveRage = 20,
 		fury = false,
 		furyDeathWish = true,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		furyRecklessSwings = true,
 		furyRecklessness = true,
 		furyBurstMinTargetHP = 35,
 		furySlam = false,
@@ -2210,8 +2218,11 @@ M.spells = {
 	{ 12975, "Last Stand" },
 	{ 12294, "Mortal Strike" },
 	{ 7384, "Overpower" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 12323, "Piercing Howl" },
 	{ 6552, "Pummel" },
 	{ 1719, "Recklessness" },
+	{ 0, "Reckless Swings" },
 	{ 772, "Rend" },
 	{ 20230, "Retaliation" },
 	{ 6572, "Revenge" },
@@ -2263,6 +2274,9 @@ local MINLEVEL = {
 	["Sweeping Strikes"] = 30,
 	["Berserker Rage"] = 30,
 	["Death Wish"] = 30,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Piercing Howl"] = 20,
+	["Reckless Swings"] = 25,
 	["Whirlwind"] = 36,
 	["Pummel"] = 38,
 	["Bloodthirst"] = 40,
@@ -2305,7 +2319,8 @@ local CLEAVE_AUTO_RANGE = 7
 
 local LOCAL_COOLDOWNS = {
 	["Victory Rush"] = 30,
-	["Slam"] = 18,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Slam"] = 15,
 	["Spearing Strike"] = 20,
 	["Sweeping Strikes"] = 30,
 	["Thunder Clap"] = 6,
@@ -2318,6 +2333,8 @@ local LOCAL_COOLDOWNS = {
 	["Overpower"] = 5,
 	["Intercept"] = 30,
 	["Death Wish"] = 180,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Reckless Swings"] = 15,
 	["Recklessness"] = 1800,
 	["Mortal Strike"] = 6,
 	["Blood Fury"] = 120,
@@ -2390,7 +2407,8 @@ end
 
 -- Talent reads are cached between public talent/spell changes. A selected
 -- reference build never grants talents that the character has not learned.
-local armsTalentRanks, tankTalentRanks
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local armsTalentRanks, furyTalentRanks, tankTalentRanks
 local function ArmsTalentRank(name)
 	if armsTalentRanks then return armsTalentRanks[name] end
 	armsTalentRanks = {}
@@ -2417,11 +2435,33 @@ local function ArmsTalentRank(name)
 	end
 	return armsTalentRanks[name]
 end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Improved Whirlwind is passive: read the character's actual Fury rank so a
+-- protected cooldown can use 9/8 seconds without granting the talent from a preset.
+local function FuryTalentRank(name)
+	if furyTalentRanks then return furyTalentRanks[name] end
+	furyTalentRanks = {}
+	if type(GetTalentInfo) ~= "function" then return nil end
+	for index = 1, 40 do
+		local ok, talent, _, _, _, rank = pcall(GetTalentInfo, 2, index, false, false)
+		if ok and SafeValue(talent) and type(talent) == "string" then
+			local value = HamstringNumber(rank)
+			if value and value >= 0 and value <= 5 then
+				furyTalentRanks[talent] = value
+				local english = AL.englishNames and AL.englishNames[talent]
+				if english then furyTalentRanks[english] = value end
+			end
+		end
+	end
+	return furyTalentRanks[name]
+end
 local armsTalentEvents = CreateFrame("Frame")
 for _,event in ipairs({"PLAYER_ENTERING_WORLD","PLAYER_REGEN_ENABLED","PLAYER_TALENT_UPDATE",
 	"ACTIVE_TALENT_GROUP_CHANGED","SPELLS_CHANGED"}) do pcall(armsTalentEvents.RegisterEvent,armsTalentEvents,event) end
 armsTalentEvents:SetScript("OnEvent",function(_,event)
-	armsTalentRanks,tankTalentRanks=nil,nil
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	armsTalentRanks,furyTalentRanks,tankTalentRanks=nil,nil,nil
 	if event~="PLAYER_REGEN_ENABLED" then tankCooldownDurations={} end
 end)
 
@@ -2476,9 +2516,22 @@ local function ArmsCooldownFallback(name, fallback)
 	if not s or s.arms~=true then return fallback end
 	if name=="Slam" then
 		local rank=ArmsTalentRank("Improved Slam")
-		-- The client curve scales cast time/GCD by rank, while its separate
-		-- cooldown effect is a flat three seconds at either learned rank.
-		if rank and rank<=2 then return rank>0 and 15 or 18 end
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- Base cooldown is 15 seconds; Improved Slam removes 2.5/5 seconds.
+		if rank then
+			local reduction = rank >= 2 and 5 or rank == 1 and 2.5 or 0
+			return math.max(0, 15 - reduction)
+		end
+	end
+	return fallback
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function FuryCooldownFallback(name, fallback)
+	local s=AL.Profile("WARRIOR")
+	if s and s.fury==true and name=="Whirlwind" then
+		local rank=FuryTalentRank("Improved Whirlwind")
+		if rank then return math.max(0, 10 - math.min(2, rank)) end
 	end
 	return fallback
 end
@@ -2687,7 +2740,9 @@ end
 local function TrackSuccessfulCast(name, targetMatches)
 	local now = GetTime()
 	furyRetryAfter[name] = nil
-	local cooldown = ArmsCooldownFallback(name, TankCooldownFallback(name, LOCAL_COOLDOWNS[name]))
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local cooldown = FuryCooldownFallback(name, ArmsCooldownFallback(name,
+		TankCooldownFallback(name, LOCAL_COOLDOWNS[name])))
 	if cooldown then
 		localCastAt[name] = now
 		local expires = now + cooldown
@@ -2759,6 +2814,8 @@ local TRACKED_CASTS = {
 	["Overpower"] = true,
 	["Intercept"] = true,
 	["Death Wish"] = true,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Reckless Swings"] = true,
 	["Recklessness"] = true,
 	["Mortal Strike"] = true,
 	["Blood Fury"] = true,
@@ -2783,7 +2840,8 @@ local furyCastIDs = {
 }
 local furyCooldownNames = { ["Bloodrage"] = true, ["Bloodthirst"] = true, ["Whirlwind"] = true,
 	["Pummel"] = true, ["Berserker Rage"] = true, ["Overpower"] = true, ["Intercept"] = true,
-	["Death Wish"] = true, ["Recklessness"] = true, ["Mortal Strike"] = true,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Death Wish"] = true, ["Reckless Swings"] = true, ["Recklessness"] = true, ["Mortal Strike"] = true,
 	["Blood Fury"] = true, ["Berserking"] = true }
 local armsCooldownNames={ ["Slam"]=true,["Spearing Strike"]=true }
 local function ArmsOwnsCooldown(name)
@@ -4041,7 +4099,8 @@ local function FuryOffer(name, reason, rage, fallbackCost, gates)
 	if not ReadyRageSpell(name) then return false end
 	if name ~= "Whirlwind" and name ~= "Battle Shout" and name ~= "Bloodrage"
 		and name ~= "Berserker Rage" and name ~= "Berserker Stance" and name ~= "Battle Stance"
-		and name ~= "Death Wish" and name ~= "Recklessness" and name ~= "Blood Fury" and name ~= "Berserking"
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		and name ~= "Death Wish" and name ~= "Reckless Swings" and name ~= "Recklessness" and name ~= "Blood Fury" and name ~= "Berserking"
 		and name ~= "Defensive Stance" and name ~= "Shield Block" and name ~= "Shield Wall"
 		and name ~= "Last Stand" and name ~= "Challenging Shout" then
 		if SpellRangeState(name) == false then return false end
@@ -4077,10 +4136,17 @@ function M.FuryBurstMinimum(s)
 	return math.max(0, math.min(100, math.floor((value or 35) + 0.5)))
 end
 
-local function FuryBurst(s, rage, targetHP, stance)
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function FuryBurst(s, rage, targetHP, stance, playerHP)
 	if not AL.burst then return end
 	local minimum = M.FuryBurstMinimum(s)
 	local gate = minimum <= 0 or FuryGate("health", "target", targetHP, minimum, false, false, false)
+	-- Reckless Swings costs 25% of base Health. Keep a conservative 70% current-
+	-- health floor and use it only as a learned, enabled Fury Burst action.
+	if s.furyRecklessSwings and not FuryBurstActive("Reckless Swings", 8) then
+		FuryOffer("Reckless Swings", "Burst: Rage from next four attacks", rage, 0, {
+			gate, FuryGate("health", "player", playerHP, 70, false, false, false) })
+	end
 	if s.furyDeathWish and not FuryBurstActive("Death Wish", 30) then
 		FuryOffer("Death Wish", "Burst: physical damage", rage, 10, { gate })
 	end
@@ -4155,7 +4221,8 @@ local function NextFury(s, inCombat, hostile)
 			FuryGate("health", "target", targetHP, SUNDER_STOP_HP, false, false, true) })
 	end
 
-	FuryBurst(s, rage, targetHP, stance)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	FuryBurst(s, rage, targetHP, stance, hp)
 
 	-- Area attacks exist only here and require the selected AoE mode.
 	if aoeActive then
@@ -4588,7 +4655,8 @@ function M.DebugState()
 	local rendActive = RendActive()
 
 	return {
-		build = "0.10.4",
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		build = "0.10.5",
 		rage = rage,
 		rageReadable = type(rage) == "number",
 		rageOverflowAt = RAGE_OVERFLOW_DUMP,
@@ -4655,7 +4723,8 @@ function M.CanTrackSuggestedSpell(name)
 end
 
 if AL.selfCastSpells then
-    for _, name in ipairs({ "Berserker Rage", "Death Wish", "Recklessness", "Whirlwind", "Blood Fury", "Berserking",
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    for _, name in ipairs({ "Berserker Rage", "Death Wish", "Reckless Swings", "Recklessness", "Whirlwind", "Blood Fury", "Berserking",
 		"Last Stand", "Shield Block", "Shield Wall", "Defensive Stance", "Challenging Shout" }) do
         AL.selfCastSpells[name] = true
     end
