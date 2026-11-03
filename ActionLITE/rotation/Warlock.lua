@@ -1,6 +1,7 @@
 local ADDON, AL = ...
 
--- ActionLITE Warlock v0.20.3: original Leveling plus optional talent builds.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- ActionLITE Warlock v0.20.4: original Leveling plus optional talent builds.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -48,7 +49,8 @@ local ADDON, AL = ...
 local M = {
 	defaults = {
 		armor = true, pet = true, immolate = true, agony = true,
-		curseElements = false, curseWeakness = false, curseRecklessness = false, curseTongues = false,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		curseElements = false, curseWeakness = false, curseRecklessness = false, curseTongues = false, curseExhaustion = false,
 		lifetap = true, lifeTapMana = 25, shootMana = 25, drainsoul = true, fear = true, drink = true,
 		healthfunnel = true, healthFunnelPetHP = 40, healthFunnelMinPlayerHP = 60,
 		drainSoulMinShards = 1,
@@ -60,9 +62,13 @@ M.spells = {
 	{ 710, "Banish" },
 	{ 172, "Corruption" },
 	{ 6201, "Create Healthstone" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 0, "Create Spellstone" },
 	{ 693, "Create Soulstone" },
 	{ 0, "Curse of Agony" }, -- Legacy name fallback; Forever uses Bane of Agony.
 	{ 440892, "Curse of the Elements" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 18223, "Curse of Exhaustion" },
 	{ 704, "Curse of Recklessness" },
 	{ 1714, "Curse of Tongues" },
 	{ 702, "Curse of Weakness" },
@@ -586,6 +592,8 @@ end
 -- every frame. An unusable selected curse does not trigger a different curse.
 local CURSE_CHOICES = {
 	{ key = "curseElements", spell = "Curse of the Elements" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ key = "curseExhaustion", spell = "Curse of Exhaustion" },
 	{ key = "curseWeakness", spell = "Curse of Weakness" },
 	{ key = "curseRecklessness", spell = "Curse of Recklessness" },
 	{ key = "curseTongues", spell = "Curse of Tongues" },
@@ -1069,7 +1077,8 @@ AL.RegisterRotation("WARLOCK", M)
 -- BEGIN OPTIONAL TALENT BUILD IMPLEMENTATION
 local ADDON, AL = ...
 
--- ActionLITE Warlock v0.20.3: Destruction 11/11/29, Affliction, Demonology and leveling.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- ActionLITE Warlock v0.20.4: Destruction 11/11/29, Affliction, Demonology and leveling.
 -- MythicSim Forever engine 944a791060db; learned spells only, no consumables.
 local M = {
 	defaults = {
@@ -1079,7 +1088,8 @@ local M = {
 		destEureka = true, destRacials = true, destDeathCoil = false, destSoulFire = false,
 		destBurstMinTargetHP = 40, destBurstMinMana = 35,
 		affliction = false, affNightfall = true, affDoom = true, affFastImmolate = true,
-		affFinishers = true, affWrack = false,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		affFinishers = true, affWrack = true,
 		affAmplifyCurse = true, affEureka = true, affDeathCoil = false,
 		affBurstMinTargetHP = 40, affBurstMinMana = 35,
 		demonology = false, demoBrand = true, demoImpSacrifice = true, soulLink = true,
@@ -1088,7 +1098,8 @@ local M = {
 		demoEureka = true, demoDeathCoil = true, demoSoulFire = false, demoFelDomination = true,
 		demoBurstMinTargetHP = 40, demoBurstMinMana = 35,
 		armor = true, pet = true, immolate = true, agony = true,
-		curseElements = true, curseWeakness = false, curseRecklessness = false, curseTongues = false,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		curseElements = true, curseWeakness = false, curseRecklessness = false, curseTongues = false, curseExhaustion = false,
 		lifetap = true, lifeTapMana = 25, shootMana = 25, drainsoul = true, fear = true, drink = true,
 		healthfunnel = true, healthFunnelPetHP = 40, healthFunnelMinPlayerHP = 60,
 		drainSoulMinShards = 1,
@@ -1144,9 +1155,13 @@ M.spells = {
 	{ 1293817, "Conflagrate" }, -- Forever rank 1, learned at 25; not Classic rank 1.
 	{ 172, "Corruption" },
 	{ 6201, "Create Healthstone" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 0, "Create Spellstone" },
 	{ 693, "Create Soulstone" },
 	{ 0, "Curse of Agony" }, -- Legacy name fallback; Forever uses Bane of Agony.
 	{ 440892, "Curse of the Elements" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 18223, "Curse of Exhaustion" },
 	{ 704, "Curse of Recklessness" },
 	{ 1714, "Curse of Tongues" },
 	{ 702, "Curse of Weakness" },
@@ -1686,6 +1701,8 @@ end
 -- every frame. An unusable selected curse does not trigger a different curse.
 local CURSE_CHOICES = {
 	{ key = "curseElements", spell = "Curse of the Elements" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ key = "curseExhaustion", spell = "Curse of Exhaustion" },
 	{ key = "curseWeakness", spell = "Curse of Weakness" },
 	{ key = "curseRecklessness", spell = "Curse of Recklessness" },
 	{ key = "curseTongues", spell = "Curse of Tongues" },
@@ -1903,9 +1920,11 @@ local demoDots, demoSelf, demoPending, demoFinished = {}, {}, {}, {}
 local demoFailedCasts = {}
 local demoEpoch, demoLastSent, demoPetKind, demoPetAt, demoPetGUID = 0,nil,nil,nil,nil
 local demoAuraCache,demoAurasBlocked={},{}
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Bane damage updates dynamically in the client; this table tracks presence only.
 local demoDuration={ ["Immolate"]=15,["Corruption"]=18,["Bane of Agony"]=24,["Curse of Agony"]=24,
     ["Siphon Life"]=30,["Bane of Doom"]=60,["Demonic Brand"]=10,["Fear"]=10,
-    ["Curse of the Elements"]=300,["Curse of Weakness"]=120,["Curse of Recklessness"]=120,["Curse of Tongues"]=30 }
+    ["Curse of the Elements"]=300,["Curse of Exhaustion"]=12,["Curse of Weakness"]=120,["Curse of Recklessness"]=120,["Curse of Tongues"]=30 }
 local demoSelfDuration={ ["Demon Armor"]=1800,["Demon Skin"]=1800,["Burning Shadow"]=7200,
     ["Soul Link"]=math.huge,["Fel Domination"]=15,["Eureka!"]=15,["Amplify Curse"]=30 }
 local demoSelfIDs={ ["Burning Shadow"]={[18789]=true}, ["Soul Link"]={[19028]=true,[25228]=true,[18814]=true},
@@ -1923,6 +1942,8 @@ DemoRanks("Shadow Bolt",{686,695,705,1088,1106,7641,11659,11660,11661,25307})
 DemoRanks("Shadowburn",{17877,18867,18868,18869,18870,18871})
 DemoRanks("Conflagrate",{1293817,1293818,17962,18930,18931,18932})
 DemoRanks("Curse of the Elements",{440892,1311676,1311677,1311680})
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+DemoRanks("Curse of Exhaustion",{18223})
 DemoRanks("Curse of Weakness",{702,1108,6205,7646,11707,11708})
 DemoRanks("Curse of Recklessness",{704,7658,7659,11717})
 DemoRanks("Curse of Tongues",{1714,11719});DemoRanks("Fear",{5782,6213,6215})
@@ -2152,7 +2173,8 @@ demoTracker:SetScript("OnEvent",function(_,event,unit,a2,a3,a4)
     if sent then sent.done=true end;if guid then demoFinished[guid]=GetTime() end
     local now=GetTime();demoRetry[name]=nil
     if name=="Shadow Bolt" then demoSelf["Shadow Trance"]={at=now,expires=now};demoAuraCache.player=nil end
-    if name=="Bane of Agony" or name=="Curse of Agony" then
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    if name=="Bane of Agony" or name=="Curse of Agony" or name=="Curse of Exhaustion" then
         demoSelf["Amplify Curse"]={at=now,expires=now};demoAuraCache.player=nil
     end
     if demoCDBase[name] then demoCastAt[name]=now;demoCDEnds[name]=DemoCooldownEnd(name) or now+demoCDBase[name] end
@@ -2595,6 +2617,21 @@ local function NextAffliction(s,inCombat,hostile)
         end
         local curse=M.SelectedCurse(s);local activeCurse
         for _,choice in ipairs(CURSE_CHOICES)do if AffDotActive(choice.spell,casting) then activeCurse=true;break end end
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- A deliberately selected Exhaustion may consume Amplify during Burst;
+        -- the normal DPS path continues to reserve Amplify for a missing Agony.
+        if curse=="Curse of Exhaustion" and not activeCurse and inCombat and AL.burst
+            and s.affAmplifyCurse and not DemoSelfActive("Amplify Curse")
+            and DemoReady(curse) and DemoInRange(curse)~=false then
+            local usable,shortage=DemoUsable(curse)
+            if usable~=false and shortage~=true then
+                offer("Amplify Curse","Burst: empower selected Curse of Exhaustion",{
+                    aboveShoot,
+                    DemoGate("power","player",mana,DemoSetting(s,"affBurstMinMana",35,0,100),false,false),
+                    DemoGate("health","target",targetHP,DemoSetting(s,"affBurstMinTargetHP",40,0,100),false,false),
+                    DemoManaCostGate(SpellManaCost(curse),mana)})
+            end
+        end
         if curse and not activeCurse then offer(curse,"selected curse") end
         if inCombat and s.affNightfall and s.shadowBolt~=false and casting~="Shadow Bolt" and DemoSelfActive("Shadow Trance") then
             -- Only a positively observed proc permits a moving Shadow Bolt.

@@ -1,6 +1,7 @@
 local ADDON, AL = ...
 
-local CURSE_KEYS = { "curseElements", "curseWeakness", "curseRecklessness", "curseTongues" }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local CURSE_KEYS = { "curseElements", "curseExhaustion", "curseWeakness", "curseRecklessness", "curseTongues" }
 local BUILD_KEYS = { "destruction", "affliction", "demonology" }
 
 local function BuildCheck(key,label,spell)
@@ -90,16 +91,18 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 					tooltip = { "Fast Immolate", "The live reference uses Immolate only at a readable cast time of 1.5 seconds or less. Unknown or slower casts are skipped. Disable this limit to allow slower learned Immolate while leveling. The main Immolate checkbox is also required." } },
 				{ key = "affFinishers", label = "Use confirmed short-fight finishers", spell = "Searing Pain", half = false,
 					tooltip = { "Short-fight finishers", "With a readable lifetime estimate: use learned Shadowburn at 1.5 seconds or less, preserving the Soul Shard reserve; otherwise Searing Pain at 3.5 seconds or less if its cast fits and Immolate is fast. Unknown lifetimes keep the normal rotation." } },
-				{ key = "affWrack", label = "Use learned Wrack (optional)", spell = "Wrack", half = false,
-					tooltip = { "Wrack", "Default OFF; not learned by 33/0/18. If learned and enabled, channels after Corruption and Bane of Agony are active. Requires standing still and enough mana. Existing channels are allowed to finish." } },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "affWrack", label = "Use learned Wrack", spell = "Wrack", half = false,
+					tooltip = { "Wrack", "Enabled by default when learned. The 33/0/18 reference does not learn it. Its strengthened damage no longer depends on Improved Drains. It channels after Corruption and Bane of Agony are active, while stationary and above the mana reserve." } },
 			},
 		},
 		{
 			title = "AFFLICTION BURST", subtitle = "Requires Affliction selected and Burst On at the spell icon.",
 			id="affliction-burst", build="affliction", group="burst",
 			controls = {
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				{ key = "affAmplifyCurse", label = "Use Amplify Curse", spell = "Amplify Curse", half = false,
-					tooltip = { "Amplify Curse", "Empowers the next eligible missing Bane of Agony. Requires its mana, range and permission checks. Never clips an active Bane or uses Amplify with an active Bane of Doom." } },
+					tooltip = { "Amplify Curse", "During Burst, empowers a selected missing Curse of Exhaustion; otherwise empowers the next eligible missing Bane of Agony. Requires mana, range and permission checks. Never clips an active Bane or uses Amplify with an active Bane of Doom." } },
 				{ key = "affEureka", label = "Use Eureka!", spell = "Eureka!" },
 				{ key = "affDeathCoil", label = "Use Death Coil (optional)", spell = "Death Coil",
 					tooltip = { "Offensive Death Coil", "Default OFF for Affliction: it reduced damage in the one-minute reference. Enable for optional Burst damage and self-healing when learned. Horror can make the target move." } },
@@ -169,6 +172,8 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 			},
 			controls = {
 				CurseCheck("curseElements", "Curse of the Elements"),
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				CurseCheck("curseExhaustion", "Curse of Exhaustion"),
 				CurseCheck("curseWeakness", "Curse of Weakness"),
 				CurseCheck("curseRecklessness", "Curse of Recklessness"),
 				CurseCheck("curseTongues", "Curse of Tongues"),
@@ -209,7 +214,9 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 					{ en = "Shoot mana protection" },
 					{ en = "Shoot uses the higher of this slider or 10% mana. Setting the slider below 10% keeps the 10% reserve." },
 				} },
-				{ key = "drainsoul", label = { en = "Drain Soul to maintain Soul Shards", fr = "Drain Soul pour maintenir les Soul Shards", pt = "Drain Soul para manter Soul Shards", es = "Drain Soul para mantener Soul Shards", de = "Drain Soul zum Halten von Soul Shards", zh = "使用Drain Soul维持Soul Shard数量" }, spell = "Drain Soul" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "drainsoul", label = { en = "Drain Soul to maintain Soul Shards", fr = "Drain Soul pour maintenir les Soul Shards", pt = "Drain Soul para manter Soul Shards", es = "Drain Soul para mantener Soul Shards", de = "Drain Soul zum Halten von Soul Shards", zh = "使用Drain Soul维持Soul Shard数量" }, spell = "Drain Soul",
+					tooltip = { "Drain Soul", "Maintains the selected Soul Shard reserve. The pre-launch shard chance per damage tick is significantly lower, so this may require longer or repeated channels. Disable this control to keep normal filler damage instead." } },
 				{ type = "dynamic_info", getText = function()
 					local rotation = AL.rotations and AL.rotations.WARLOCK
 					local count, source
@@ -230,5 +237,6 @@ AL.RegisterSimpleClassUI("WARLOCK", {
 			},
 		},
 	},
-}, "0.20.3")
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+}, "0.20.4")
 

@@ -835,8 +835,9 @@ local DEBUFF_DURATIONS = {
 	["Vampiric Embrace"] = 60, ["Holy Fire"] = 10,
 	["Immolate"] = 15, ["Corruption"] = 12, ["Curse of Agony"] = 24, ["Bane of Agony"] = 24,
 	["Siphon Life"] = 30, ["Fear"] = 10,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	["Curse of the Elements"] = 300, ["Curse of Weakness"] = 120,
-	["Curse of Recklessness"] = 120, ["Curse of Tongues"] = 30,
+	["Curse of Recklessness"] = 120, ["Curse of Tongues"] = 30, ["Curse of Exhaustion"] = 12,
 	["Moonfire"] = 9, ["Rake"] = 9, ["Rip"] = 12, ["Demoralizing Roar"] = 30,
 	["Flame Shock"] = 12, ["Frost Shock"] = 8,
 	["Frost Nova"] = 8, ["Frostbolt"] = 5, ["Cone of Cold"] = 8,
@@ -1294,7 +1295,8 @@ end
 
 local UTILITY_CURSES = {
 	["Curse of Weakness"] = true, ["Curse of Recklessness"] = true,
-	["Curse of the Elements"] = true, ["Curse of Tongues"] = true,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Curse of the Elements"] = true, ["Curse of Tongues"] = true, ["Curse of Exhaustion"] = true,
 }
 
 local function ReadCastGUID(value)
