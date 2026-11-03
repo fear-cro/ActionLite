@@ -1,6 +1,7 @@
 local ADDON, AL = ...
 
--- ActionLITE Mage v0.20.3: original Leveling plus optional talent builds.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- ActionLITE Mage v0.20.6: original Leveling plus optional talent builds.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -183,6 +184,11 @@ local LiveWandActive
 local wandStopPendingUntil = 0
 local wandRecoveryUntil = 0
 local cooldownSnapshots = {}
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Ice Lance and Fire Blast now share one eight-second cooldown. Preserve the
+-- shared lock when combat cooldown fields are protected or report only GCD.
+local sharedInstantEnds = {}
+local SHARED_INSTANT_COOLDOWN = { ["Fire Blast"]="Ice Lance", ["Ice Lance"]="Fire Blast" }
 local wandEventActive, wandPendingUntil = false, 0
 local conjureLocks = {}
 local function SafeValue(value)
@@ -652,6 +658,7 @@ local function CooldownState(name)
 end
 
 local function SpellReady(name)
+    if SHARED_INSTANT_COOLDOWN[name] and (sharedInstantEnds[name] or 0)>GetTime() then return false end
     local active, onGCD, enabled, recovery = CooldownState(name)
     if enabled == false then return false, recovery end
     if active == true and onGCD ~= true then return false, recovery end
@@ -976,6 +983,8 @@ function M.NextSpell(s, inCombat, hostile)
     lastRotation = { at = GetTime(), actions = {} }
     local mana, moving = GateManaPercent(), PlayerMoving()
     local hp, targetHP = HealthPercent("player"), hostile and HealthPercent("target") or nil
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- Frost Blast was removed, so no deleted-spell opener is offered here.
     if PlayerIsCastingOrChanneling() then AddAction(nil, "Casting")
     else
         if inCombat then Defense(s, hostile, hp, mana) end
@@ -1040,6 +1049,12 @@ end
 
 function M.OnCastResult(name, result)
     if result == "UNIT_SPELLCAST_SUCCEEDED" then
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        local shared=SHARED_INSTANT_COOLDOWN[name]
+        if shared then
+            local expires=GetTime()+8
+            sharedInstantEnds[name],sharedInstantEnds[shared]=expires,expires
+        end
         if name == "Shoot" then
             wandPendingUntil = GetTime() + 0.5
             wandRecoveryUntil = GetTime() + 1.5
@@ -1072,6 +1087,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
         wandStopPendingUntil = 0
         wandRecoveryUntil = 0
         cooldownSnapshots = {}
+		sharedInstantEnds = {}
         lastSentCastName, lastSentCastAt, lastRotation, AL.rotationSecretVisual = nil, 0, nil, nil
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         M.RefreshManaCache()
@@ -1225,7 +1241,8 @@ AL.RegisterRotation("MAGE", M)
 -- BEGIN OPTIONAL TALENT BUILD IMPLEMENTATION
 local ADDON, AL = ...
 
--- WoW Forever Mage leveling 1-60 - v0.20.4 (Frost, Fire, Arcane, Frostfire)
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- WoW Forever Mage leveling 1-60 - v0.20.6 (Frost, Fire, Arcane, Frostfire)
 -- Live MythicSim tier preset, Forever engine 944a791060db (1.60.1.70338).
 -- Classic IDs and levels are only LIKELY references;
 -- the client's spellbook remains authoritative. The learned rank's exact range controls
@@ -1242,7 +1259,8 @@ local M = {
 		frostBurstMinMana = 40,
 		frostBlizzard = true, frostBlizzardMinEnemies = 4,
 		frostCone = true, frostExplosion = false,
-		frostBarrier = true, frostBarrierHP = 70, frostBarrierMinMana = 25,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		frostBarrier = true, frostBarrierMinMana = 25,
 		fire = false,
 		fireScorch = true, firePyroblast = true, fireMissiles = true, fireClearcasting = true,
 		fireCombustion = true, fireEureka = true, fireBerserking = true,
@@ -1257,7 +1275,8 @@ local M = {
 		frostfireFlamestrike = true,
 		frostfireBlizzard = true,
 		arcane = false,
-		arcaneBlast = true, arcaneWrath = true, frostBlast = false, frostWinterChill = true,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		arcaneBlast = true, arcaneWrath = true, frostWinterChill = true,
 		arcaneMissiles = true,
 		arcanePower = true,
 		presenceOfMind = true,
@@ -1338,11 +1357,13 @@ function M.SetBuild(key, enabled, s)
     return selected
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Frost Blast was removed from the game and therefore from the final Spells
+-- tab registration, learned-spell gates, cast tracking and manual queues.
 M.spells = {
 	{ 1008, "Amplify Magic" },
 	{ 400574, "Arcane Blast" },
 	{ 0, "Arcane Wrath" },
-	{ 0, "Frost Blast" },
 	{ 1449, "Arcane Explosion" },
 	{ 1459, "Arcane Intellect" },
 	{ 5143, "Arcane Missiles" },
@@ -1397,10 +1418,11 @@ end
 
 -- Classic learning levels. Talents and spells not confirmed on
 -- Forever are deliberately absent from this table and gated by the book.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- The deleted Frost Blast has no level gate.
 local MINLEVEL = {
 	["Frostfire Bolt"] = 40,
 	["Arcane Blast"] = 20,
-	["Frost Blast"] = 24,
 	["Presence of Mind"] = 30,
 	["Arcane Power"] = 40,
 	["Pyroblast"] = 20,
@@ -1469,10 +1491,12 @@ local frostState = { barrierEnd=0, barrierChanged=-math.huge, fofSerial=0 }
 local FROST_COOLDOWNS = { ["Cold Snap"]=600, ["Ice Barrier"]=30,
     ["Frost Nova"]=25, ["Cone of Cold"]=10, ["Ice Block"]=300,
     ["Fire Blast"]=8, ["Ice Lance"]=8 }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local FROST_SHARED_COOLDOWN = { ["Fire Blast"]="Ice Lance", ["Ice Lance"]="Fire Blast" }
 local FROST_RESETTABLE = { ["Ice Barrier"]=true, ["Frost Nova"]=true,
     ["Cone of Cold"]=true, ["Ice Block"]=true, ["Frost Ward"]=true }
 local ARCANE_COOLDOWNS = { ["Arcane Wrath"]=6, ["Arcane Power"]=180, ["Presence of Mind"]=180, ["Eureka!"]=120, ["Berserking"]=180 }
-local ARCANE_CASTS = { ["Arcane Wrath"]={}, ["Frost Blast"]={},
+local ARCANE_CASTS = { ["Arcane Wrath"]={},
     ["Cold Snap"]={12472}, ["Ice Barrier"]={11426,13031,13032,13033},
     ["Ice Block"]={11958}, ["Frost Ward"]={6143,8461,8462,10177,28609},
     ["Combustion"]={11129},
@@ -1490,11 +1514,11 @@ local ARCANE_CASTS = { ["Arcane Wrath"]={}, ["Frost Blast"]={},
     ["Cone of Cold"]={120,8492,10159,10160,10161}, ["Blizzard"]={10,6141,8427,10185,10186,10187},
     ["Flamestrike"]={2120,2121,8422,8423,10215,10216},
 }
-local ARCANE_DAMAGE = { ["Arcane Wrath"]=true, ["Frost Blast"]=true, ["Arcane Blast"]=true, ["Arcane Missiles"]=true, ["Pyroblast"]=true,
+local ARCANE_DAMAGE = { ["Arcane Wrath"]=true, ["Arcane Blast"]=true, ["Arcane Missiles"]=true, ["Pyroblast"]=true,
     ["Frostfire Bolt"]=true,
     ["Frostbolt"]=true, ["Fireball"]=true, ["Scorch"]=true, ["Fire Blast"]=true, ["Frost Nova"]=true,
     ["Arcane Explosion"]=true, ["Cone of Cold"]=true, ["Blizzard"]=true, ["Flamestrike"]=true, ["Ice Lance"]=true }
-local POM_CASTS = { ["Arcane Wrath"]=true, ["Frost Blast"]=true, ["Arcane Blast"]=true, ["Pyroblast"]=true, ["Frostbolt"]=true,
+local POM_CASTS = { ["Arcane Wrath"]=true, ["Arcane Blast"]=true, ["Pyroblast"]=true, ["Frostbolt"]=true,
     ["Frostfire Bolt"]=true,
     ["Fireball"]=true, ["Scorch"]=true, ["Flamestrike"]=true,
     ["Conjure Water"]=true, ["Conjure Food"]=true, ["Conjure Mana Agate"]=true }
@@ -2226,6 +2250,8 @@ end
 
 local function FrostCooldownReady(name,active,onGCD,enabled,recovery)
     local now=GetTime()
+    local shared=FROST_SHARED_COOLDOWN[name]
+    local controlledEnd=math.max(ff.ends[name] or 0,shared and ff.ends[shared] or 0)
     if enabled==false or (ff.retry[name] or 0)>now then return false end
     if FROST_RESETTABLE[name] and frostState.resetAt and now-frostState.resetAt<0.5
         and (ff.ends[name] or 0)<=now then return true end
@@ -2234,15 +2260,15 @@ local function FrostCooldownReady(name,active,onGCD,enabled,recovery)
         local start,duration,rate=Number(info.startTime),Number(info.duration),Number(info.modRate)
         if SafeValue(info.modRate) and info.modRate==nil then rate=1 end
         if start and start>=0 and duration and duration>=0 and rate and rate>0 then
-            if (onGCD==true or recovery) and duration<=1.5 and (ff.ends[name] or 0)>now then return false end
+            if (onGCD==true or recovery) and duration<=1.5 and controlledEnd>now then return false end
             local ready=start==0 or duration<=1.5 or start+duration/rate<=now
-            if ready and now-(ff.changed[name] or -math.huge)<0.5 and (ff.ends[name] or 0)>now then return false end
+            if ready and controlledEnd>now then return false end
             return ready
         end
     end
     if active==true and onGCD~=true then return false end
-    if active==false and now-(ff.changed[name] or -math.huge)>=0.5 then return true end
-    return (ff.ends[name] or 0)<=now
+    if active==false and now-(ff.changed[name] or -math.huge)>=0.5 then return controlledEnd<=now end
+    return controlledEnd<=now
 end
 local function FrostBarrierActive()
     local now=GetTime()
@@ -2274,9 +2300,11 @@ local function SpellReady(name)
     local frost=Enabled(AL.S(),"frost")
     local fire=Enabled(AL.S(),"fire")
     if (frostfire or fire or frost) and (ff.retry[name] or 0)>GetTime() then return false,recovery end
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    if FROST_SHARED_COOLDOWN[name] then return FrostCooldownReady(name,active,onGCD,enabled,recovery),recovery end
     if frost and FROST_COOLDOWNS[name] then return FrostCooldownReady(name,active,onGCD,enabled,recovery),recovery end
     if fire and name=="Combustion" then return FireCombustionReady(active,onGCD,enabled),recovery end
-    if (frostfire or fire) and (name=="Fire Blast" or name=="Cone of Cold") then
+    if (frostfire or fire) and name=="Cone of Cold" then
         if enabled==false then return false,recovery end
         local info=SafeCall(C_Spell and C_Spell.GetSpellCooldown,LearnedID(name) or name)
         if SafeValue(info) and type(info)=="table" then
@@ -2630,8 +2658,11 @@ local function Defense(s, hostile, hp, mana)
     end
     if hostile and Enabled(s, "cspell") and Bool((SafeCall(AL.TargetCasting))) == true then Offer("Counterspell", "Interrupt") end
     if Enabled(s,"frost") and Enabled(s,"frostBarrier") and not FrostBarrierActive() then
-        Offer("Ice Barrier","Frost defense",{
-            HealthGate("player",hp,SettingNumber(s,"frostBarrierHP",70,1,100),true),
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- Activation grants one minute of Frost damage and the intact shield
+        -- grants another bonus, so Frost maintains it instead of waiting for
+        -- a low-health threshold.
+        Offer("Ice Barrier","Frost damage buff / barrier",{
             ManaGate(mana,SettingNumber(s,"frostBarrierMinMana",25,0,100),false),
         })
     end
@@ -3076,9 +3107,6 @@ function M.NextSpell(s, inCombat, hostile)
     if Enabled(s,"frostfire") or Enabled(s,"fire") then FrostfireTalent("Improved Scorch") end
     local mana, moving = GateManaPercent(), PlayerMoving()
     local hp, targetHP = HealthPercent("player"), hostile and HealthPercent("target") or nil
-    if not inCombat and hostile and not moving and not PlayerIsCastingOrChanneling() and Enabled(s,"frostBlast") then
-        Offer("Frost Blast","optional quick slow opener",DamageGates(s,mana,targetHP))
-    end
     if PlayerIsCastingOrChanneling() then AddAction(nil, "Casting")
     else
         if inCombat then Defense(s, hostile, hp, mana) end
@@ -3159,9 +3187,10 @@ function M.OnCastResult(name, result)
     end
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 -- Observe real casts independently of Core's name inference. Arcane Blast
--- grants its charge on successful cast even when damage misses. The buff
--- lasts eighteen seconds from its first application and survives other spells.
+-- grants its charge on successful cast even when damage misses. Every Arcane
+-- Blast refreshes the eighteen-second duration; other spells preserve it.
 local arcanePending,arcaneFinished,arcaneProcSeen,arcaneLastSent={},{},{},nil
 local function ArcaneGUID(value)
     return SafeValue(value) and type(value)=="string" and value:find("^Cast%-") and value or nil
@@ -3169,13 +3198,19 @@ end
 local function AcceptArcaneCast(name,sent)
     local now=GetTime()
     arcaneRetry[name]=nil;arcaneAuraCache=nil
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- Missile Barrage is consumed at the start of Arcane Missiles. When both
+    -- procs were present at that instant, Clearcasting remains available.
+    local barrageMissiles=name=="Arcane Missiles" and
+        (sent and sent.barrageBefore==true or not sent and arcaneState.barrage>now)
     if (ARCANE_DAMAGE[name] or POM_CASTS[name])
+        and not barrageMissiles
         and (sent and sent.clearSerial==fireState.clearSerial or not sent and now-fireState.clearChanged>0) then
         fireState.clearEnd,fireState.clearChanged,fireState.auraAt=0,now,nil
     end
     if name=="Arcane Blast" then
         if arcaneState.expires<=now then arcaneState.charges=0 end
-        if arcaneState.charges==0 then arcaneState.expires=now+18 end
+        arcaneState.expires=now+18
         arcaneState.charges=math.min(4,arcaneState.charges+1)
         arcaneChanged.charges=now
     end
@@ -3226,8 +3261,10 @@ arcaneTracker:SetScript("OnEvent",function(_,event,unit,arg2,arg3,arg4)
     if event=="UNIT_SPELLCAST_SENT" then
         if not readable and M.CanTrackSuggestedSpell and M.CanTrackSuggestedSpell(AL.lastSuggestion)
             and (ARCANE_CASTS[AL.lastSuggestion] or POM_CASTS[AL.lastSuggestion]) then name=AL.lastSuggestion end
-        if Enabled(AL.S(),"fire") then ReadFireBuffs() end
-        arcaneLastSent={name=name,at=now,guid=guid,clearSerial=fireState.clearSerial}
+        ReadFireBuffs()
+        local barrageBefore=ReadArcaneState().barrage>now
+        arcaneLastSent={name=name,at=now,guid=guid,clearSerial=fireState.clearSerial,
+            barrageBefore=barrageBefore}
         if guid then arcanePending[guid]=arcaneLastSent end
         return
     end
@@ -3297,7 +3334,11 @@ local function AcceptFrostfireCast(name,sent)
     if fallback then
         local ms=Number((SafeCall(C_Spell and C_Spell.GetSpellBaseCooldown or GetSpellBaseCooldown,LearnedID(name) or name)))
         if ms and ms>1500 and ms<=3600000 then fallback=ms/1000 end
-        ff.ends[name],ff.changed[name]=NativeArcaneEnd(name) or now+fallback,now
+        local expires=NativeArcaneEnd(name) or now+fallback
+        ff.ends[name],ff.changed[name]=expires,now
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        local shared=FROST_SHARED_COOLDOWN[name]
+        if shared then ff.ends[shared],ff.changed[shared]=expires,now end
     end
 end
 local frostfireTracker=CreateFrame("Frame")
@@ -3516,7 +3557,8 @@ function M.GetUIState()
         arcaneBuffRemaining=math.max(0,arcaneState.expires-GetTime()),
         missileBarrageRemaining=math.max(0,arcaneState.barrage-GetTime()), presenceOfMind=arcaneState.pom,
         heatingUp=ff.heatEnd>GetTime() and ff.heat or 0,
-        arcaneWrathID=LearnedID("Arcane Wrath"), frostBlastID=LearnedID("Frost Blast") }
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        arcaneWrathID=LearnedID("Arcane Wrath") }
 end
 
 function M.ManaGateState()

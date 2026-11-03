@@ -31,9 +31,9 @@ AL.RegisterSimpleClassUI("MAGE", {
 				{ key = "frost", label = "Use Frost (16/3/32)", half = false, spell = "Frostbolt", onChange = ChooseBuild("frost","fire","arcane","frostfire","primaryFire") },
 				{ type = "info", text = "Selects the tier-list Frost build using learned spells through level 60. Unchecks the other builds and keeps their saved options and icon choices. Does not change talents or gear. Select Leveling Rotation to use the original rotation." },
 				{ key = "frostMissiles", label = "Use confirmed Missile Barrage", spell = "Arcane Missiles" },
-				{ key = "frostBlast", label = "Use Frost Blast as a quick slow opener", spell = "Frost Blast" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				{ key = "frostFireBlast", label = "Use Fire Blast while moving", spell = "Fire Blast" },
-				{ type = "info", text = "Normal priority: Ice Lance against a confirmed frozen target or with Fingers of Frost, confirmed Missile Barrage, then Frostbolt. The shared Ice Lance checkbox applies. Fire Blast is a moving fallback and needs its shared checkbox and mana setting. Wand mana and target-health settings keep priority; existing casts and channels finish." },
+				{ type = "info", text = "Normal priority is Ice Lance against a confirmed frozen target or with Fingers of Frost, confirmed Missile Barrage, then Frostbolt. Ice Lance shares an eight-second cooldown with Fire Blast. Fire Blast remains a moving fallback and needs its shared checkbox and mana setting. Wand mana and target-health settings keep priority; existing casts and channels finish." },
 			},
 		},
 		{
@@ -62,10 +62,10 @@ AL.RegisterSimpleClassUI("MAGE", {
 			title = "FROST DEFENSE",
 			id="frost-defense", build="frost", group="survival",
 			controls = {
-				{ key = "frostBarrier", label = "Use Ice Barrier", spell = "Ice Barrier" },
-				{ type = "slider", key = "frostBarrierHP", label = "Ice Barrier at/below player health", min = 1, max = 100, step = 1, default = 70, suffix = " %" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "frostBarrier", label = "Maintain Ice Barrier for Frost damage", spell = "Ice Barrier" },
 				{ type = "slider", key = "frostBarrierMinMana", label = "Ice Barrier minimum mana", min = 0, max = 100, step = 5, default = 25, suffix = " %" },
-				{ type = "info", text = "Uses learned Ice Barrier in combat at/below its health setting, when affordable and no active shield is known. Keeps its buff and cooldown instead of repeating the cast. Emergency Ice Block and interrupts retain priority. Cold Snap and Ice Barrier are available in the Spells tab for Universal icons 1-10." },
+				{ type = "info", text = "Uses learned Ice Barrier in combat when affordable and no active shield is known. Activation maintains the one-minute Frost damage bonus and the intact barrier provides its additional bonus. Keeps its buff and cooldown instead of repeating the cast. Emergency Ice Block and interrupts retain priority. Cold Snap and Ice Barrier remain available in the Spells tab for Universal icons." },
 			},
 		},
 		{
@@ -78,7 +78,7 @@ AL.RegisterSimpleClassUI("MAGE", {
 				{ key = "firePyroblast", label = "Use proc Pyroblast", spell = "Pyroblast" },
 				{ key = "fireMissiles", label = "Use confirmed Missile Barrage", spell = "Arcane Missiles" },
 				{ key = "fireClearcasting", label = "Save Clearcasting for a cast or channel", spell = "Fireball", half = false,
-					tooltip = { "Clearcasting", "Skips Fire Blast during a positively detected Clearcasting buff or an explicitly free Fireball. Proc Pyroblast, Scorch upkeep and Missile Barrage keep their priority. Hidden data never invents a proc. Disable to permit Fire Blast normally." } },
+					tooltip = { "Clearcasting", "Skips Fire Blast during a positively detected Clearcasting buff or an explicitly free Fireball. Arcane Missiles started with Missile Barrage preserves Clearcasting. Proc Pyroblast and Scorch upkeep retain priority. Hidden data never invents a proc. Disable to permit Fire Blast normally." } },
 				{ type = "info", text = "Normal priority: eligible proc Pyroblast, personal Scorch upkeep, Fire Blast, confirmed Missile Barrage, then Fireball and learned fallbacks. The shared Fire Blast checkbox and mana slider apply; the sim reference uses 30% and your saved slider value is retained. The wand mana/target-health sliders keep priority over normal damage, including free procs." },
 				{ type = "info", text = "Improved Scorch is a personal player buff in Forever. At confirmed 3/3, successful casts provide a bounded five-cast fallback when auras are protected; partial ranks have an attempt limit. Heating Up needs three confirmed stacks or a readable reduced Pyroblast cast time. Three stacks usually mean a 1.5-second cast, so moving Pyroblast needs a confirmed instant cast." },
 			},
@@ -139,7 +139,8 @@ AL.RegisterSimpleClassUI("MAGE", {
 			id="arcane-build-35-11-5", build="arcane", group="damage",
 			controls = {
 				{ key = "arcane", label = "Use Arcane (35/11/5)", half = false, spell = "Arcane Blast", onChange = ChooseBuild("arcane","primaryFire","frostfire","fire","frost") },
-				{ type = "info", text = "Uses the live tier preset with learned spells through level 60: build the eighteen-second Arcane Blast buff, use confirmed Missile Barrage, then Arcane Wrath on cooldown and Arcane Missiles filler. Other spells retain the buff. Unchecks Frostfire and the fire-primary option while preserving their other settings. Talents and gear are not changed." },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ type = "info", text = "Uses the live tier preset with learned spells through level 60: build the eighteen-second Arcane Blast buff, use confirmed Missile Barrage, then Arcane Wrath on cooldown and Arcane Missiles filler. Missile Barrage is consumed when the channel starts and preserves simultaneous Clearcasting. Arcane Blast uses the live reduced stack cost and current spell-power value. Other spells retain the buff. Unchecks Frostfire and the fire-primary option while preserving their other settings. Talents and gear are not changed." },
 				{ key = "arcaneBlast", label = "Use Arcane Blast", spell = "Arcane Blast" },
 				{ key = "arcaneWrath", label = "Use Arcane Wrath", spell = "Arcane Wrath" },
 				{ key = "arcaneMissiles", label = "Use Arcane Missiles", spell = "Arcane Missiles" },
@@ -237,6 +238,8 @@ AL.RegisterSimpleClassUI("MAGE", {
 				{ key = "fireblast", label = { en = "Fire Blast on the move and on cooldown", fr = "Fire Blast en mouvement et des que disponible", pt = "Fire Blast em movimento e quando disponível", es = "Fire Blast en movimiento y al estar disponible", de = "Fire Blast in Bewegung und sobald bereit", zh = "移动中及冷却结束时Fire Blast" }, spell = "Fire Blast" },
 				{ type = "slider", key = "fireBlastMinMana", label = { en = "Fire Blast minimum mana", fr = "Mana minimum Fire Blast", pt = "Mana mínima Fire Blast", es = "Maná mínimo Fire Blast", de = "Fire Blast Mindestmana", zh = "Fire Blast最低法力值" }, min = 0, max = 100, step = 5, default = 25, suffix = " %" },
 				{ key = "icelance", label = { en = "Ice Lance on frozen targets", fr = "Ice Lance sur les cibles gelees", pt = "Ice Lance em alvos congelados", es = "Ice Lance en objetivos congelados", de = "Ice Lance auf eingefrorene Ziele", zh = "对冰冻目标Ice Lance" }, spell = "Ice Lance" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ type = "info", text = "Ice Lance and Fire Blast share one tracked eight-second cooldown. A confirmed cast of either spell prevents the other from being suggested until that shared cooldown finishes, including when combat cooldown data is protected." },
 			},
 		},
 		{
@@ -271,4 +274,4 @@ AL.RegisterSimpleClassUI("MAGE", {
 				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Burst: Mindestgesundheit des Ziels", zh = "Burst目标最低生命值" }, min = 0, max = 100, step = 5, default = 40, suffix = " % HP" },
         } },
 	},
-}, "0.20.5")
+}, "0.20.6")
