@@ -54,9 +54,11 @@ local HEALING_CASTS = {
 	},
 	PRIEST = {
 		["Lesser Heal"] = true, ["Heal"] = true, ["Greater Heal"] = true,
-		["Flash Heal"] = true, ["Binding Heal"] = true, ["Penance"] = true,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		["Flash Heal"] = true, ["Penance"] = true,
 		["Prayer of Healing"] = true, ["Prayer of Mending"] = true,
 		["Renew"] = true, ["Power Word: Shield"] = true,
+		["Cure Disease"] = true, ["Abolish Disease"] = true,
 		["Inner Focus"] = true, ["Power Infusion"] = true,
 		["Divine Grace"] = true, ["Elune's Light"] = true, ["Eureka!"] = true,
 		["Dark Sacrifice"] = true, ["Berserking"] = true,

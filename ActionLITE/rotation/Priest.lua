@@ -1,6 +1,7 @@
 local ADDON, AL = ...
 
--- ActionLITE Priest v0.28.4: original Leveling plus optional talent builds.
+-- ActionLITE Priest v0.28.5: original Leveling plus optional talent builds.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -3082,7 +3083,7 @@ AL.RegisterRotation("PRIEST", M)
 -- BEGIN OPTIONAL TALENT BUILD IMPLEMENTATION
 local ADDON, AL = ...
 
--- WoW Forever Priest leveling 1-60 - v0.28.4
+-- WoW Forever Priest leveling 1-60 - v0.28.5
 -- Shadow reference: Forever 1.60.1.70338, MythicSim 944a791060db.
 -- SHADOW favors Mind Blast / Mind Flay; SMITE favors Holy Fire / Smite.
 -- Heals target the player: no group target is guessed.
@@ -3190,8 +3191,9 @@ function M.SetBuild(key, enabled, s)
 end
 
 M.spells = {
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 552, "Abolish Disease" },
 	{ 20554, "Berserking" },
-	{ 401937, "Binding Heal" },
 	{ 528, "Cure Disease" },
 	{ 1277324, "Dark Sacrifice" },
 	{ 13908, "Desperate Prayer" },
@@ -3274,6 +3276,8 @@ local MINLEVEL = {
 	["Dispel Magic"] = 18,
 	["Shackle Undead"] = 20,
 	["Cure Disease"] = 22,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Abolish Disease"] = 32,
 	["Mind Soothe"] = 20,
 	["Prayer of Healing"] = 30,
 	["Mind Vision"] = 22,
@@ -6951,19 +6955,19 @@ AL.RegisterRotation("PRIEST", M)
             or not HPKnown("Power Word: Shield") or not shieldAvailable
     end
     local function HPManualSpell(profile, spec)
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- Binding Heal was removed. Flash Heal now receives Holy Binding's
+        -- passive self-heal whenever it heals another friendly target.
         if spec == "DISCIPLINE" then
             return HPPreferred(profile, {
-                "Penance", "Greater Heal", "Binding Heal", "Flash Heal", "Heal", "Lesser Heal",
+                "Penance", "Greater Heal", "Flash Heal", "Heal", "Lesser Heal",
             })
         end
         return HPPreferred(profile, {
-            "Greater Heal", "Binding Heal", "Flash Heal", "Heal", "Lesser Heal", "Penance",
+            "Greater Heal", "Flash Heal", "Heal", "Lesser Heal", "Penance",
         })
     end
     local function HPFillerSpell(profile)
-        if HPKnown("Binding Heal") then
-            return HPAvailable("Binding Heal", profile) and "Binding Heal" or nil
-        end
         if HPKnown("Flash Heal") then
             return HPAvailable("Flash Heal", profile) and "Flash Heal" or nil
         end
@@ -7034,6 +7038,9 @@ AL.RegisterRotation("PRIEST", M)
         if profile.healingEngine ~= true then return end
         local now, unit = HPNow(), HPHealingUnit()
         if spell == "Power Word: Shield" then
+            -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+            -- Track only our confirmed cast. External shields do not populate
+            -- this timer, allowing the client to accept our equal/higher rank.
             -- Track the full shield duration. This also covers the shorter
             -- Weakened Soul reapplication lock when auras are protected.
             HPSetEffect(unit, spell, 30)
@@ -7077,14 +7084,14 @@ AL.RegisterRotation("PRIEST", M)
 			priestHealing.lastHeal = { spell = spell, unit = "player", at = now }
 			priestHealing.lastRacial = { spell = spell, unit = "player", at = now }
         elseif spell == "Prayer of Healing" or spell == "Greater Heal"
-            or spell == "Flash Heal" or spell == "Binding Heal"
+            or spell == "Flash Heal"
             or spell == "Heal" or spell == "Lesser Heal" then
             priestHealing.lastHeal = { spell = spell, unit = unit, at = now }
         end
         if spell ~= "Inner Focus" and priestHealing.innerFocusUntil > now then
             local consumers = {
                 ["Prayer of Healing"] = true, ["Greater Heal"] = true,
-                ["Flash Heal"] = true, ["Binding Heal"] = true,
+                ["Flash Heal"] = true,
                 ["Heal"] = true, ["Lesser Heal"] = true, ["Penance"] = true,
                 ["Smite"] = true, ["Holy Fire"] = true, ["Mind Blast"] = true,
             }
@@ -7195,7 +7202,7 @@ AL.RegisterRotation("PRIEST", M)
                 }
             else
                 local spell = HPPreferred(profile, {
-                    "Penance", "Greater Heal", "Binding Heal", "Flash Heal", "Heal", "Lesser Heal",
+                    "Penance", "Greater Heal", "Flash Heal", "Heal", "Lesser Heal",
                 })
                 if spell then
                     critical[1] = {
@@ -7256,7 +7263,7 @@ AL.RegisterRotation("PRIEST", M)
             }
         else
             local spell = HPPreferred(profile, {
-                "Greater Heal", "Binding Heal", "Flash Heal", "Heal", "Lesser Heal", "Penance",
+                "Greater Heal", "Flash Heal", "Heal", "Lesser Heal", "Penance",
             })
             if spell then
                 critical[1] = {

@@ -1,5 +1,7 @@
 local ADDON, AL = ...
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+
 local function HealingSpecCheck(key, label, spell, tooltip)
 	return {
 		key = key, label = label, spell = spell, half = false, tooltip = tooltip,
@@ -19,7 +21,7 @@ end
 
 AL.RegisterSimpleClassUI("PRIEST", {
 	title = { en = "PRIEST - LEVELING", fr = "PRETRE - PROGRESSION", pt = "SACERDOTE - PROGRESSÃO", es = "SACERDOTE - PROGRESIÓN", de = "PRIESTER - LEVELN", zh = "牧师 - 升级" },
-	subtitle = { en = "Shadow or Smite solo profile - interface 0.31.0", fr = "Profil solo Ombre ou Smite - interface 0.31.0", pt = "Perfil solo Sombra ou Smite - interface 0.31.0", es = "Perfil en solitario Sombra o Smite - interfaz 0.31.0", de = "Solo-Profil Schatten oder Smite - Interface 0.31.0", zh = "暗影或 Smite 单刷配置 - 界面 0.31.0" },
+	subtitle = { en = "Shadow or Smite solo profile - interface 0.31.2", fr = "Profil solo Ombre ou Smite - interface 0.31.2", pt = "Perfil solo Sombra ou Smite - interface 0.31.2", es = "Perfil en solitario Sombra o Smite - interfaz 0.31.2", de = "Solo-Profil Schatten oder Smite - Interface 0.31.2", zh = "暗影或 Smite 单刷配置 - 界面 0.31.2" },
 	aoeKey = "aoe",
 	cards = {
         {
@@ -39,10 +41,10 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
 				HealingSpecCheck("healingDiscipline", "Discipline Priest", "Penance", {
-					"Discipline Priest", "Selects the Discipline-only party priority: tracked shields, caster Power Infusion, Penance at 20 points below the heal slider, Binding/Flash filler, and Inner Focus with Prayer of Healing for emergencies."
+					"Discipline Priest", "Selects the Discipline-only party priority: tracked shields, caster Power Infusion, Penance at 20 points below the heal slider, Flash Heal filler with passive Holy Binding, and Inner Focus with Prayer of Healing for emergencies."
 				}),
 				HealingSpecCheck("healingHoly", "Holy Priest", "Prayer of Mending", {
-					"Holy Priest", "Selects the Holy-only party priority: tracked Renew, efficient Heal, Binding/Flash for larger heals, and Prayer of Mending or Inner Focus with Greater Heal for emergencies."
+					"Holy Priest", "Selects the Holy-only party priority: tracked Renew, efficient Heal, Flash Heal with passive Holy Binding for larger heals, and Prayer of Mending or Inner Focus with Greater Heal for emergencies."
 				}),
 				{ type = "info", text = "Discipline and Holy are mutually exclusive. Tank and healer thresholds use the selected value; known DPS members use 10 points less. Damage pauses for five seconds after a healing cast. Learned race-specific abilities are used for emergency healing; Dark Sacrifice requires the Priest to remain above 70% health. Prayer of Healing stays manual except for Discipline's Inner Focus emergency sequence. Inspiration is a passive critical-heal proc, so direct tank heals are prioritized rather than trying to cast it." },
 			},
@@ -182,7 +184,7 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Min. Zielgesundheit für Burst", zh = "Burst 最低目标生命值" }, min = 0, max = 100, step = 5, default = 40, suffix = " % HP" },
         } },
 	},
-}, "0.31.1")
+}, "0.31.2")
 
 -- Selecting Smite returns the profile to Leveling Rotation.
 local BuildPriestUI = AL.classUIs and AL.classUIs.PRIEST
