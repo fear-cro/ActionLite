@@ -12,6 +12,12 @@ local MAIN_SIZE = 44
 local idleIcon = "Interface\\Icons\\INV_Sword_27"
 local f = CreateFrame("Frame", "ActionLiteFrame", UIParent, "BackdropTemplate")
 AL.frame = f
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Keep the borderless recommendation above full-screen warning effects. This
+-- matches the protected strata used by A[1]-A[10] without covering protocol
+-- pixels, which remain one frame level higher.
+f:SetFrameStrata("TOOLTIP")
+f:SetFrameLevel(100)
 f:SetSize(MAIN_SIZE, MAIN_SIZE)
 f:SetPoint("CENTER", 0, 180)
 f:SetClampedToScreen(true)
@@ -264,7 +270,8 @@ local COMPACT_TOGGLE_PX, COMPACT_TOGGLE_GAP = 16, 4
 local function QuickToggle(index, caption, tipKey, isOn, onClick)
 	local b = CreateFrame("Button", nil, f)
 	b:SetSize(38, 24)
-	b:SetPoint("TOPLEFT", f, "TOPRIGHT", 3, -(index - 1) * 28)
+	b:SetFrameLevel(f:GetFrameLevel() + 10)
+	b:SetPoint("LEFT", f, "RIGHT", 3, (1.5 - index) * (24 + COMPACT_TOGGLE_GAP))
 	b:RegisterForClicks("LeftButtonUp")
 	local edge = b:CreateTexture(nil, "BACKGROUND")
 	edge:SetAllPoints()
@@ -288,13 +295,10 @@ local function QuickToggle(index, caption, tipKey, isOn, onClick)
 		local compact = ActionLiteDB and ActionLiteDB.togglesHidden == true or false
 		if b.compact ~= compact then
 			b:ClearAllPoints()
-			if compact then
-				-- Center the square pair on the main icon's vertical midpoint.
-				local centerY = (1.5 - index) * (COMPACT_TOGGLE_PX + COMPACT_TOGGLE_GAP)
-				b:SetPoint("LEFT", f, "RIGHT", 3, centerY)
-			else
-				b:SetPoint("TOPLEFT", f, "TOPRIGHT", 3, -(index - 1) * 28)
-			end
+			-- Burst and AoE form one vertically centered column on the right.
+			local height = compact and COMPACT_TOGGLE_PX or 24
+			local centerY = (1.5 - index) * (height + COMPACT_TOGGLE_GAP)
+			b:SetPoint("LEFT", f, "RIGHT", 3, centerY)
 			b.compact = compact
 		end
 		label:SetShown(not compact)
@@ -346,8 +350,9 @@ AL.burstToggle = QuickToggle(2, "Burst", "QT_BURST_TIP", function() return AL.bu
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 -- Rotation-role controls use the same visual language as Burst and AoE, but
--- live in one centered row above the recommendation. Unsupported roles are
--- omitted instead of presenting a button which can never become active.
+-- live in one vertically centered column to the left of the recommendation.
+-- Unsupported roles are omitted instead of presenting a button which can
+-- never become active.
 local ROLE_FALLBACKS = {
 	DRUID = { DPS = true, HEAL = true, TANK = true },
 	PALADIN = { DPS = true, HEAL = true, TANK = true },
@@ -422,6 +427,7 @@ local function RoleToggle(role)
 	local caption = ROLE_LABELS[role]
 	local b = CreateFrame("Button", nil, f)
 	b:SetSize(44, 24)
+	b:SetFrameLevel(f:GetFrameLevel() + 10)
 	b:RegisterForClicks("LeftButtonUp")
 	local edge = b:CreateTexture(nil, "BACKGROUND")
 	edge:SetAllPoints()
@@ -508,15 +514,14 @@ function LayoutRoleToggles()
 	end
 	local compact = ActionLiteDB and ActionLiteDB.togglesHidden == true or false
 	local gap = compact and COMPACT_TOGGLE_GAP or 4
-	local total = 0
-	for index, b in ipairs(visible) do total = total + b:GetWidth() + (index > 1 and gap or 0) end
-	local x = -total / 2
-	for _, b in ipairs(visible) do
+	local height = compact and COMPACT_TOGGLE_PX or 24
+	local count = #visible
+	for index, b in ipairs(visible) do
 		b:ClearAllPoints()
-		b:SetPoint("BOTTOMLEFT", f, "TOP", x, 4)
-		x = x + b:GetWidth() + gap
+		local centerY = (((count + 1) / 2) - index) * (height + gap)
+		b:SetPoint("RIGHT", f, "LEFT", -3, centerY)
 	end
-	-- Keep notices above the role row so they never obscure a clickable button.
+	-- Keep notices above the icon and any upper overhang from the role column.
 	local noticeY = compact and 26 or 34
 	drinkReminder:ClearAllPoints()
 	drinkReminder:SetPoint("BOTTOM", f, "TOP", 0, noticeY)

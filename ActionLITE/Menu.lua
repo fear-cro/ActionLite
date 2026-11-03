@@ -1291,8 +1291,14 @@ local function BuildMenu()
 	end)
 
 	menu:SetScript("OnShow", function()
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- A combat open is an urgent spell-control action. Route every entry point
+		-- to Spells while keeping navigation available after the window appears.
+		local inCombat = AL.SafeBoolean(UnitAffectingCombat, "player") == true
+			or AL.SafeBoolean(InCombatLockdown) == true
+		if inCombat then ShowPage(3) end
 		UI.Repaint()
-		if menu.RebuildSpells then menu.RebuildSpells() end
+		if not inCombat and menu.RebuildSpells then menu.RebuildSpells() end
 	end)
 
 	local function SaveMenuPos()

@@ -639,6 +639,11 @@ local function CreateUI()
     local width = SLOT_COUNT * BASE_ICON_SIZE + (SLOT_COUNT - 1) * SLOT_GAP
     frame = CreateFrame("Frame", "ActionLiteCastTrailFrame", UIParent, "BackdropTemplate")
     AL.castTrailFrame = frame
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- Keep successful casts visible through full-screen warning effects while
+    -- leaving the main recommendation and A/protocol signals above the trail.
+    frame:SetFrameStrata("TOOLTIP")
+    frame:SetFrameLevel(90)
     frame:SetSize(width, BASE_ICON_SIZE + ROW_GAP + CHANNEL_ICON_SIZE)
     frame:SetClampedToScreen(true)
     frame:SetMovable(false)
