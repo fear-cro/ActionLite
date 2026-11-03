@@ -62,6 +62,23 @@ Dedicated class pages use `ui.SettingCheck` and `ui.Slider`. Always bind the UI 
 
 Version 1.1.5 exposes one combat path: **Leveling Rotation**. It must select only spells confirmed learned in the live spellbook, while respecting each spell permission, cooldown, resource requirement and range result. Level-60 preset implementations may remain dormant in source for later validation, but they must not render in the UI or receive public dispatch. Future public build selectors must preserve the user's spell permissions, icon assignments and unrelated settings.
 
+## Rotation role modes
+
+Every profile has one active role mode. The settings are mutually exclusive and one must remain selected:
+
+| Key | Supported classes | Meaning |
+| --- | --- | --- |
+| `roleDPS` | All classes | Default learned-spell Leveling priorities |
+| `roleHeals` | Druid, Paladin, Priest, Shaman | Five-player dungeon Healing Rotation, subject to the healer-role checks below |
+| `roleTank` | Druid, Paladin, Warrior | Tank Leveling priorities and threat-specific actions |
+| `roleSelectionManual` | All classes | Records that the user explicitly selected a role mode in the class UI or HUD |
+
+Use `AL.GetRotationMode(profile, token)` to read the effective `DPS`, `HEAL` or `TANK` mode. Use `AL.SetRotationMode(mode, userInitiated, profile, token)` to change it, check `AL.RoleModeSupported(token, mode)` before offering a mode to a class, and call `AL.RefreshAutomaticRotationMode(profile, token)` when group-role state may have changed.
+
+DPS is the initial default. While no manual choice has been saved, a positively confirmed party role of `HEALER` or `TANK` selects the matching supported mode. Leaving the eligible group restores an automatically selected mode to DPS. A manual selection persists and takes priority over automatic role selection. Tank actions that exist mainly to generate or recover threat, including taunts, must remain inside the Tank-mode path.
+
+The main-icon DPS, Heals and Tank controls and the class-page checkboxes write these same profile keys. Their full-label and compact square forms share the Burst/AoE red and green selection styling.
+
 ## Protected values in WoW Forever
 
 Party health, incoming heals, absorbs, range and some aura data can become secret in combat. Lua cannot compare, calculate with or perform a boolean test on those values.
@@ -80,13 +97,13 @@ The Druid, Paladin, Priest and Shaman profiles include these shared settings:
 
 | Key | Default | Meaning |
 | --- | ---: | --- |
-| `healingEngine` | `false` | **Enable Healing Rotation** gate for five-player dungeon healing, healer damage rules and focus-pixel selection |
+| `healingEngine` | `false` | Compatibility mirror maintained by `HEAL` mode; new code must use `AL.GetRotationMode` instead of treating this as an independent role choice |
 | `healingInitiateHP` | `80` | Routine threshold for efficient direct heals and HoTs |
 | `healingEmergencyHP` | `30` | Emergency threshold for the largest heals and cooldowns |
 
 The effective emergency threshold is capped at the initiate threshold. Known `DAMAGER` members use a hard-coded threshold ten percentage points below each selected slider; for example, 80% becomes 70%. Tanks, the healer/player and unassigned roles use the selected values. This offset is part of the engine and has no additional UI setting.
 
-The shared healing path becomes active only after the client confirms a `party` instance with two to five members. Raids, battlegrounds, arenas, world groups, solo play and protected or unknown instance states fail closed to Leveling Rotation. With Healing Rotation disabled, its visual rows are cleared and the healing target pixel is Universal Color 0 (black).
+The shared healing path becomes active only when `AL.GetRotationMode` resolves `HEAL` and the client publicly confirms both a `HEALER` assignment and a `party` instance with two to five members. A role of `NONE`, `DAMAGER` or `TANK`, plus every secret or unknown role result, fails closed. Raids, battlegrounds, arenas, world groups, solo play and protected or unknown instance states also fall back to DPS Leveling Rotation. With Healing Rotation disabled, its visual rows are cleared and the healing target pixel is Universal Color 0 (black).
 
 ## Shared Healing Rotation rules
 
@@ -100,7 +117,19 @@ The framework applies these rules before a class provider adds its detailed heal
 6. Once predicted health no longer matches a healing band, the healing row and focus color disappear together and the damage recommendation becomes visible again.
 7. A confirmed healing/support cast starts the shared five-second mana rule. Shoot and periodic-damage recommendations pause until that timer expires. Required healing remains available during the timer, but no health-based heal becomes visible unless its protected health band is below the selected slider threshold.
 
-The focus pixel tells the external macro/pixel reader which group unit to focus. ActionLITE does not call a protected targeting or focus function during combat.
+The focus pixel tells the external macro/pixel reader which dungeon-party member to focus. Every unit-bearing healing decision reports `castUnit = "focus"`; damage decisions continue to use the enemy target. ActionLITE does not call a protected targeting or focus function during combat. Use the healing macro order `[@mouseover,help,nodead]`, `[@focus,help,nodead]`, then `[@player]`: mouseover is the user's manual override, while focus is the member selected by the engine. The engine itself continues to plan for the focused member.
+
+HealingEngine debug state includes the effective mode, assigned group role, confirmed-healer result and intended healing cast unit so a bug report can distinguish a role-gate failure from a focus or health-mask problem.
+
+## Spell readability blacklist
+
+The shared watchdog starts only after a readable player `UNIT_SPELLCAST_SENT` attempt identifies the spell. If the client reports no matching cast start, channel start or success within two seconds, ActionLITE changes to the next valid priority and shows **“Spell Name blacklisted”** above the main icon.
+
+The target GUID and combat scope are captured with the original `UNIT_SPELLCAST_SENT` event, so switching targets during the two-second wait cannot move the blacklist to another enemy. With a readable target GUID, the blacklist is stored for that enemy and survives switching away and back during the same fight; more than one enemy can hold independent entries. If target identity is protected, the spell remains blocked for the current combat. With neither combat nor a readable target, the fallback lasts 30 seconds. Encounter entries clear on `PLAYER_REGEN_ENABLED` or world entry and do not clear from an early manual success.
+
+The matching Spells-tab row, icon, name and status turn red and display **BLACKLISTED**. This visual state never changes the user's saved enabled checkbox. The watchdog cannot infer an attempt if WoW supplies no readable cast event or spell identity.
+
+Do not treat ordinary GCD, range, movement, resource, terminal failure or interrupted-cast results as unreadable icons. Auto-repeat and next-swing actions retain their dedicated timing logic.
 
 ## Adding a HealingEngine provider
 
@@ -108,7 +137,7 @@ Add `HealingEnginePlan` to the class rotation module. It is queried by the displ
 
 ```lua
 function M.HealingEnginePlan(profile, context)
-    if not profile.healingEngine then return nil end
+    if AL.GetRotationMode(profile, AL.playerClass) ~= "HEAL" then return nil end
 
     local routine = {}
     if AL.known["Renew"] and AL.Allowed("Renew", profile)
@@ -161,6 +190,8 @@ Accepted request fields are:
 | `manaBelow` | number | Optional player-mana ceiling for a maintenance request such as a mana-recovery cooldown |
 | `requireReady` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns readiness masking |
 | `requireUsable` | boolean | Defaults to `true`; set `false` only when the provider deliberately owns resource masking |
+
+The engine adds `castUnit = "focus"` to every unit-bearing healing decision after it selects the eligible member. Providers should supply roster units for eligibility, timers and health masks; they should not replace the focus cast contract.
 
 Every category accepts one request or an ordered request list. Later requests have higher spell priority for the same unit. `manual` and `strongest` are aliases for the selected-friendly distress heal; if neither is supplied, the last available `emergency` request is used. Set `manual = false` when the provider deliberately wants no selected-friendly fallback, such as while eating or below an out-of-combat mana rule. `routine`, `lowCost` and `hot` are aliases for the routine category. `maintenance` is drawn above damage and below health-based healing. `critical` is drawn after the normal emergency bands and should use `visibility = "health"`; it is useful for a cooldown that must win at the emergency slider without changing the threshold of an intermediate heal. `followup` is drawn last for a required cast sequence.
 
@@ -218,7 +249,7 @@ The Druid provider implements the first class-specific Healing Rotation:
 
 ## Priest Healing Rotation providers
 
-The Priest healing card offers mutually exclusive **Discipline Priest** and **Holy Priest** checkboxes. Both remain gated by **Enable Healing Rotation** and an eligible five-player dungeon. With either provider selected, a living enemy selected in combat uses the shared timed `Shoot` recommendation. The shared five-second rule pauses Shoot after a successful healing/support cast.
+The Priest healing card offers mutually exclusive **Discipline Priest** and **Holy Priest** checkboxes. Both remain gated by Heals mode, a confirmed `HEALER` assignment and an eligible five-player dungeon. With either provider selected, a living enemy selected in combat uses the shared timed `Shoot` recommendation. The shared five-second rule pauses Shoot after a successful healing/support cast.
 
 - Discipline maintains a per-target 30-second Power Word: Shield timer, shields an injured member before its filler, and uses Penance at the initiate-healing slider minus 20 percentage points. Flash Heal is the filler; the Holy Binding passive supplies its self-heal when another member is healed. Power Infusion is limited to a readable friendly caster assigned the Damager role. Emergency group care sequences Inner Focus into Prayer of Healing; Prayer of Healing is otherwise manual.
 - Holy tracks Renew for 15 seconds, uses Heal for routine damage, and uses Flash Heal with the Holy Binding passive for the larger-heal band halfway between the initiate and emergency thresholds. Emergency care prefers learned Prayer of Mending, then sequences Inner Focus into Greater Heal.
@@ -267,14 +298,18 @@ Do not create borders around A frames or protocol pixels. The protocol column im
 Before submitting a rotation:
 
 - Load each class and confirm Leveling Rotation is selected and no retired level-60 build selector is shown.
+- Confirm exactly one supported DPS, Heals or Tank mode is selected, the HUD and class-page controls agree, and a manual choice survives `/reload`.
+- With no manual role choice, confirm a party `HEALER` selects Heals, a supported party `TANK` selects Tank, and leaving the group restores DPS. Confirm an unknown or protected role never enables Healing Rotation.
 - Confirm new checkboxes and sliders persist after `/reload`.
 - Test every recommendation with the spell learned, unlearned, disabled, cooling down, unaffordable and out of range.
 - Test solo and world-party fallback, then a client-confirmed five-player dungeon. Confirm raids, battlegrounds and arenas do not activate Healing Rotation.
 - Start ActionLiteDebug outside combat, reproduce the case, wait five seconds after combat and copy Results.
 - Confirm no `attempt to compare`, `perform arithmetic`, or `boolean test` error references a secret value.
-- Confirm solo play bypasses Healing Rotation even when its checkbox is saved on.
+- Confirm solo play bypasses Healing Rotation even when the saved role is Heals.
 - Confirm a selected friendly group member immediately produces the direct heal and matching focus color, then clears when an enemy or no target is selected.
+- Confirm automatic healing casts through `focus`, while a friendly mouseover overrides only the macro cast and does not change the engine's planned focus member.
 - Confirm wand damage respects the shared shot timer and non-wand periodic damage appears only above 80% mana.
 - Confirm Shoot and periodic damage pause for five seconds after a confirmed healing/support cast, while a unit below a healing threshold can still receive required care.
 - Confirm a healing spell and its target pixel change together, and the pixel returns to black when Healing Rotation is disabled or no provider request is active.
+- Force a readable unresolved spellcast attempt and confirm the two-second fallback shows **“Spell Name blacklisted”**, advances the rotation, marks the Spells-tab entry red without changing its checkbox and restores the spell only after the scoped enemy fight ends.
 - Parse every Lua file and review the TOC load order before packaging.

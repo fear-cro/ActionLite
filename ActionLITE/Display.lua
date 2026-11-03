@@ -344,8 +344,189 @@ end
 AL.aoeToggle = QuickToggle(1, "AoE", "QT_AOE_TIP", function() return AL.S().aoe end, AL.ToggleAoE)
 AL.burstToggle = QuickToggle(2, "Burst", "QT_BURST_TIP", function() return AL.burst end, ActionLite_Burst)
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Rotation-role controls use the same visual language as Burst and AoE, but
+-- live in one centered row above the recommendation. Unsupported roles are
+-- omitted instead of presenting a button which can never become active.
+local ROLE_FALLBACKS = {
+	DRUID = { DPS = true, HEAL = true, TANK = true },
+	PALADIN = { DPS = true, HEAL = true, TANK = true },
+	PRIEST = { DPS = true, HEAL = true },
+	SHAMAN = { DPS = true, HEAL = true },
+	WARRIOR = { DPS = true, TANK = true },
+	HUNTER = { DPS = true }, MAGE = { DPS = true },
+	ROGUE = { DPS = true }, WARLOCK = { DPS = true },
+}
+local ROLE_LABELS = { DPS = "DPS", HEAL = "Heals", TANK = "Tank" }
+local roleToggles = {}
+local LayoutRoleToggles
+
+local function SupportsRotationRole(role)
+	if type(AL.RoleModeSupported) == "function" then
+		local ok, supported = pcall(AL.RoleModeSupported, AL.playerClass, role)
+		if ok and type(supported) == "boolean"
+			and not (issecretvalue and issecretvalue(supported)) then return supported end
+	end
+	if type(AL.SupportsRotationRole) == "function" then
+		local ok, supported = pcall(AL.SupportsRotationRole, role, AL.playerClass)
+		if ok and type(supported) == "boolean"
+			and not (issecretvalue and issecretvalue(supported)) then return supported end
+	end
+	local supported = ROLE_FALLBACKS[AL.playerClass]
+	return supported and supported[role] == true or false
+end
+
+local function CurrentRotationRole()
+	local profile = AL.S and AL.S() or nil
+	if type(AL.GetRotationMode) == "function" then
+		local ok, role = pcall(AL.GetRotationMode, profile, AL.playerClass)
+		if ok and type(role) == "string" and SupportsRotationRole(role) then return role end
+	end
+	if type(AL.GetRotationRole) == "function" then
+		local ok, role = pcall(AL.GetRotationRole, profile, AL.playerClass)
+		if ok and type(role) == "string" and SupportsRotationRole(role) then return role end
+	end
+	if type(profile) == "table" then
+		if profile.roleTank and SupportsRotationRole("TANK") then return "TANK" end
+		if profile.roleHeals and SupportsRotationRole("HEAL") then return "HEAL" end
+	end
+	return "DPS"
+end
+
+local function SelectRotationRole(role)
+	if not SupportsRotationRole(role) then return end
+	local changed
+	local profile = AL.S and AL.S() or nil
+	if type(AL.SetRotationMode) == "function" then
+		local ok, result = pcall(AL.SetRotationMode, role, true, profile, AL.playerClass)
+		changed = ok and result ~= nil and result ~= false
+	elseif type(AL.SetRotationRole) == "function" then
+		local ok, result = pcall(AL.SetRotationRole, role, true)
+		changed = ok and result ~= nil and result ~= false
+	else
+		if type(profile) == "table" then
+			profile.roleDPS = role == "DPS"
+			profile.roleHeals = role == "HEAL"
+			profile.roleTank = role == "TANK"
+			profile.rotationRoleManual = true
+			changed = true
+		end
+	end
+	if changed then
+		if PaintToggles then PaintToggles() end
+		if AL.UI then AL.UI.Repaint() end
+	end
+end
+
+local function RoleToggle(role)
+	local caption = ROLE_LABELS[role]
+	local b = CreateFrame("Button", nil, f)
+	b:SetSize(44, 24)
+	b:RegisterForClicks("LeftButtonUp")
+	local edge = b:CreateTexture(nil, "BACKGROUND")
+	edge:SetAllPoints()
+	local bg = b:CreateTexture(nil, "BORDER")
+	bg:SetPoint("TOPLEFT", 1, -1)
+	bg:SetPoint("BOTTOMRIGHT", -1, 1)
+	bg:SetColorTexture(0.035, 0.045, 0.065, 0.92)
+	local hover = b:CreateTexture(nil, "HIGHLIGHT")
+	hover:SetPoint("TOPLEFT", 1, -1)
+	hover:SetPoint("BOTTOMRIGHT", -1, 1)
+	hover:SetColorTexture(1, 1, 1, 0.07)
+	local check = b:CreateTexture(nil, "OVERLAY")
+	check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+	check:SetSize(14, 14)
+	check:SetPoint("LEFT", 3, 0)
+	local label = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	label:SetPoint("CENTER")
+
+	function b:Paint()
+		if not SupportsRotationRole(role) then
+			b.supported, b.on = false, false
+			b:Hide()
+			return
+		end
+		b.supported = true
+		b:Show()
+		local on = CurrentRotationRole() == role
+		local compact = ActionLiteDB and ActionLiteDB.togglesHidden == true or false
+		label:SetShown(not compact)
+		check:SetShown(not compact and on)
+		if compact then
+			b:SetSize(COMPACT_TOGGLE_PX, COMPACT_TOGGLE_PX)
+			local r, g, bl = on and 0.1 or 1, on and 0.9 or 0.125, on and 0.1 or 0.125
+			edge:SetColorTexture(r, g, bl, 1)
+			bg:SetColorTexture(r, g, bl, 1)
+		else
+			label:SetText(caption)
+			local pad = on and 14 or 0
+			label:SetPoint("CENTER", pad / 2, 0)
+			b:SetSize(math.max(44, math.ceil((label:GetStringWidth() or 0) + 12 + pad)), 24)
+			bg:SetColorTexture(0.035, 0.045, 0.065, 0.92)
+			if on then
+				local r, g, bl = AL.GlowColor()
+				edge:SetColorTexture(r, g, bl, 1)
+				label:SetTextColor(1, 1, 1, 1)
+			else
+				edge:SetColorTexture(0.35, 0.36, 0.40, 1)
+				label:SetTextColor(0.66, 0.68, 0.72, 1)
+			end
+		end
+		b.compact, b.on = compact, on
+	end
+
+	local function ShowTip(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine(caption .. " Rotation", 1, 0.82, 0)
+		GameTooltip:AddLine(self.on and "Selected" or "Click to select this rotation role.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end
+	b:SetScript("OnClick", function(self)
+		SelectRotationRole(role)
+		self:Paint()
+		if LayoutRoleToggles then LayoutRoleToggles() end
+		if GameTooltip:IsOwned(self) then ShowTip(self) end
+	end)
+	b:SetScript("OnMouseDown", function() label:SetPoint("CENTER", b.on and 7 or 0, -1) end)
+	b:SetScript("OnMouseUp", function() label:SetPoint("CENTER", b.on and 7 or 0, 0) end)
+	b:SetScript("OnEnter", ShowTip)
+	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	b.isOn = function() return CurrentRotationRole() == role end
+	roleToggles[#roleToggles + 1] = b
+	toggles[#toggles + 1] = b
+	return b
+end
+
+AL.dpsRoleToggle = RoleToggle("DPS")
+AL.healsRoleToggle = RoleToggle("HEAL")
+AL.tankRoleToggle = RoleToggle("TANK")
+
+function LayoutRoleToggles()
+	local visible = {}
+	for _, b in ipairs(roleToggles) do
+		if b.supported then visible[#visible + 1] = b end
+	end
+	local compact = ActionLiteDB and ActionLiteDB.togglesHidden == true or false
+	local gap = compact and COMPACT_TOGGLE_GAP or 4
+	local total = 0
+	for index, b in ipairs(visible) do total = total + b:GetWidth() + (index > 1 and gap or 0) end
+	local x = -total / 2
+	for _, b in ipairs(visible) do
+		b:ClearAllPoints()
+		b:SetPoint("BOTTOMLEFT", f, "TOP", x, 4)
+		x = x + b:GetWidth() + gap
+	end
+	-- Keep notices above the role row so they never obscure a clickable button.
+	local noticeY = compact and 26 or 34
+	drinkReminder:ClearAllPoints()
+	drinkReminder:SetPoint("BOTTOM", f, "TOP", 0, noticeY)
+	spellReadabilityWarning:ClearAllPoints()
+	spellReadabilityWarning:SetPoint("BOTTOM", f, "TOP", 0, noticeY + 18)
+end
+
 function PaintToggles()
 	for _, b in ipairs(toggles) do b:Paint() end
+	LayoutRoleToggles()
 end
 
 function AL.ApplyToggles()
@@ -354,6 +535,7 @@ function AL.ApplyToggles()
 		b:EnableMouse(true)
 		b:Paint()
 	end
+	LayoutRoleToggles()
 end
 
 -- A[1]-A[10] icons: borderless suggestions anchored at the screen's top left,
@@ -685,10 +867,15 @@ driver:SetScript("OnUpdate", function(_, dt)
 			end
 		end
 	end
+	local toggleLayoutChanged
 	for _, b in ipairs(toggles) do
 		local compact = ActionLiteDB and ActionLiteDB.togglesHidden == true or false
-		if b:IsShown() and (b.on ~= (b.isOn() and true or false) or b.compact ~= compact) then b:Paint() end
+		if b:IsShown() and (b.on ~= (b.isOn() and true or false) or b.compact ~= compact) then
+			b:Paint()
+			toggleLayoutChanged = true
+		end
 	end
+	if toggleLayoutChanged then LayoutRoleToggles() end
 end)
 
 f:SetScript("OnMouseUp", function(_, button)

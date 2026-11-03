@@ -1057,6 +1057,12 @@ local function BuildMenu()
 			row:SetPoint("TOPRIGHT", 0, -(n - 1) * ROW_H)
 
 			if n % 2 == 0 then UI.Fill(row, { 1, 1, 1, 0.022 }) end
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			-- A watchdog blacklist is a runtime icon/binding problem, separate from
+			-- the user's enabled checkbox. Tint the complete row so it is easy to
+			-- find while the Spells tab is open.
+			row.blacklistTint = UI.Fill(row, { 0.58, 0.02, 0.02, 0.24 })
+			row.blacklistTint:Hide()
 			local sep = row:CreateTexture(nil, "ARTWORK")
 			sep:SetHeight(1)
 			sep:SetPoint("BOTTOMLEFT", 2, 0)
@@ -1110,9 +1116,22 @@ local function BuildMenu()
 			UI.TintVertex(mark, THEME.gold)
 
 			function row:Paint()
-				local on = AL.Allowed(self.spellName, ES())
+				local prof = ES()
+				local on = not prof.spells or prof.spells[self.spellName] ~= false
+				local blacklisted = not self.viewingOther and type(AL.IsSpellBlacklisted) == "function"
+					and AL.IsSpellBlacklisted(self.spellName) == true
 				mark:SetShown(on)
-				if on then
+				self.blacklistTint:SetShown(blacklisted)
+				if blacklisted then self.icon:SetVertexColor(1, 0.22, 0.22, 1)
+				else self.icon:SetVertexColor(1, 1, 1, 1) end
+				self.nameText:SetTextColor(UI.Color(blacklisted and THEME.danger
+					or (self.isKnown and THEME.text or THEME.textFaint)))
+				self.stateText:SetText(blacklisted and "|cffff4d4dBLACKLISTED|r"
+					or (self.normalStateText or ""))
+				if blacklisted then
+					boxBg:SetColorTexture(UI.Color(THEME.crimson))
+					boxEdge:SetColor(UI.Color(THEME.danger))
+				elseif on then
 					boxBg:SetColorTexture(UI.Color(UI.Derived.checkOn))
 					boxEdge:SetColor(UI.Color(THEME.goldDim))
 				else
@@ -1123,7 +1142,8 @@ local function BuildMenu()
 			hit:SetScript("OnClick", function()
 				local prof = ES()
 				prof.spells = prof.spells or {}
-				prof.spells[row.spellName] = not AL.Allowed(row.spellName, prof)
+				local enabled = prof.spells[row.spellName] ~= false
+				prof.spells[row.spellName] = not enabled
 				row:Paint()
 				RecordUI("Spell checkbox changed", { class = ActiveToken(), spell = row.spellName, enabled = prof.spells[row.spellName] })
 			end)
@@ -1172,6 +1192,8 @@ local function BuildMenu()
 					shown = shown + 1
 					local row = GetRow(shown)
 					row.spellName = name
+					row.viewingOther = viewingOther
+					row.isKnown = isKnown
 					UI.Tooltip(row, name, { "Spell ID: " .. tostring(id or "?"), L("QUEUE_LEFT"), L("QUEUE_RIGHT") })
 					row.nameText:SetText(name)
 					row.nameText:SetTextColor(UI.Color(isKnown and THEME.text or THEME.textFaint))
@@ -1179,11 +1201,11 @@ local function BuildMenu()
 					row.icon:SetTexture(UI.SpellIcon(name, id))
 					pcall(row.icon.SetDesaturated, row.icon, not isKnown)
 					if viewingOther then
-                        row.stateText:SetText("Other class")
-                    elseif isKnown then
-						row.stateText:SetText("|cff5cc46e" .. L("LEARNED") .. "|r")
+						row.normalStateText = "Other class"
+					elseif isKnown then
+						row.normalStateText = "|cff5cc46e" .. L("LEARNED") .. "|r"
 					else
-						row.stateText:SetText("|cff6b7280" .. L("NOT_LEARNED") .. "|r")
+						row.normalStateText = "|cff6b7280" .. L("NOT_LEARNED") .. "|r"
 					end
 					local choice = AL.IconChoice(name, prof)
 					local label = choice and (choice.slot == 6
@@ -1219,6 +1241,13 @@ local function BuildMenu()
 		end
 
 		PaintFilter()
+		-- Runtime blacklist state can change while the menu remains open. Refresh
+		-- only the pooled visible rows; no list rebuild or frame allocation occurs.
+		function menu.UpdateSpellIssues()
+			for _, row in ipairs(rowPool) do
+				if row:IsShown() and row.spellName then row:Paint() end
+			end
+		end
 	end
 
 	-- --------------------------------------------------------------- live loop
@@ -1228,6 +1257,7 @@ local function BuildMenu()
 		if elapsed < 0.20 then return end
 		elapsed = 0
 		UpdateStatus()
+		if menu.UpdateSpellIssues then menu.UpdateSpellIssues() end
 	end)
 
 	menu:SetScript("OnShow", function()

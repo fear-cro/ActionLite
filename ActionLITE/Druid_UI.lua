@@ -37,8 +37,8 @@ AL.RegisterSimpleClassUI("DRUID", {
 			title = "HEALING ROTATION",
 			id = "healing-engine", group = "survival",
 			controls = {
-				{ key = "healingEngine", label = "Enable Healing Rotation", spell = "Healing Touch", half = false,
-				  tooltip = { "Enable Healing Rotation", "Enables five-player dungeon healing, selected-ally distress healing, and the protected Action focus pixel. Solo and raid characters continue using the Leveling Rotation." } },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ type = "info", text = "Select Heals in Rotation Role. The client must positively assign the Druid the Healer role in a confirmed five-player dungeon. Automatic heals are expected to cast on focus; mouseover is reserved for manual healing overrides." },
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -48,11 +48,13 @@ AL.RegisterSimpleClassUI("DRUID", {
 			},
 		},
         {
-            title = "TANK BUILD - FERAL BEAR 0/41/10",
-            id="tank-build-feral-bear-0-41-10", build="feralBear", group="damage",
+            -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+            -- Tank is now selected by the shared rotation role. Keep the Bear
+            -- controls available without restoring the retired level-60 build.
+            title = "TANK ROTATION - FERAL BEAR",
+            id="tank-rotation-feral-bear", build="leveling", group="damage",
             controls = {
-                BuildCheck("feralBear", "Tank - Feral Bear (0/41/10)", "Dire Bear Form"),
-                { type="info", text="Selects learned Bear tank priorities through level 60 and unchecks Cat/Balance. Turning Tank off automatically selects Leveling Rotation. Talents, gear and saved icons are not changed. Select Leveling Rotation for the previous form-based profile." },
+                { type="info", text="Select Tank in Rotation Role to use the learned Bear threat and survival priority. Selecting DPS or Heals returns to the original form-aware Leveling Rotation. Talents, gear and saved icons are not changed." },
                 { key="bearAutoForm",label="Maintain learned Bear Form",spell="Dire Bear Form",half=false,
                     tooltip={"Tank form","Uses Dire Bear Form when actually learned, otherwise Bear Form. Preserves travel forms and finishes casts/channels. The Tank build does not shift out to cast a heal during combat."} },
                 { key="bearPrimalBite",label="Use Primal Bite",spell="Primal Bite" },
@@ -70,7 +72,7 @@ AL.RegisterSimpleClassUI("DRUID", {
         },
         {
             title = "BEAR DEFENSES & THREAT",
-            id="bear-defenses-threat", build="feralBear", group="survival",
+            id="bear-defenses-threat", build="leveling", group="survival",
             controls = {
                 { key="bearBarkskin",label="Use Barkskin",spell="Barkskin" },
                 { type="slider",key="bearBarkskinHP",label="Barkskin at or below health",min=0,max=100,step=5,default=45,suffix=" %" },
@@ -89,7 +91,7 @@ AL.RegisterSimpleClassUI("DRUID", {
         },
         {
             title = "BEAR AREA DAMAGE",
-            id="bear-area-damage-burst", build="feralBear", group="aoe",
+            id="bear-area-damage-burst", build="leveling", group="aoe",
             controls = {
                 { key="bearSwipe",label="Tank AoE: use Swipe",spell="Swipe" },
                 { type="slider",key="bearAoeMinEnemies",label="Tank AoE minimum enemies",min=2,max=5,step=1,default=3 },
@@ -97,7 +99,7 @@ AL.RegisterSimpleClassUI("DRUID", {
             },
         },
         {
-            title="BEAR BURST", id="bear-burst", build="feralBear", group="burst",
+            title="BEAR BURST", id="bear-burst", build="leveling", group="burst",
             controls={
                 { key="bearElunesLight",label="Tank Burst: learned Elune's Light",spell="Elune's Light" },
                 { key="bearBerserking",label="Tank Burst: learned Berserking",spell="Berserking" },

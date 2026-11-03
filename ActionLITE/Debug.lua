@@ -1111,6 +1111,36 @@ SECTIONS[5] = { "DEBUG_SEC_ROTATION", function(rows)
 		return Safe(AL.lastSuggestion)
 	end)
 	Row(rows, "lastReason", function() return lastReasonText or "none" end)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Role mode, assignment, and dungeon eligibility belong in every report so
+	-- a healer/tank routing problem can be diagnosed without guessing the UI.
+	Row(rows, "rotationMode", function()
+		if type(AL.GetRotationMode) ~= "function" or type(AL.S) ~= "function" then
+			return "unknown", "unknown"
+		end
+		local ok, mode = pcall(AL.GetRotationMode, AL.S(), AL.playerClass)
+		if not ok or IsSecret(mode) or type(mode) ~= "string" then return "unknown", "unknown" end
+		return mode
+	end)
+	Row(rows, "roleSelectionManual", function()
+		if type(AL.S) ~= "function" then return "unknown", "unknown" end
+		local ok, settings = pcall(AL.S)
+		if not ok or type(settings) ~= "table" then return "unknown", "unknown" end
+		return Safe(settings.roleSelectionManual == true)
+	end)
+	Row(rows, "assignedGroupRole", function()
+		return Val(Read1(UnitGroupRolesAssigned, "player"))
+	end)
+	Row(rows, "healingEligibility", function()
+		local engine = AL.HealingEngine
+		if type(engine) ~= "table" or type(engine.GetSettings) ~= "function" then
+			return "unavailable", "unknown"
+		end
+		local ok, settings = pcall(engine.GetSettings, engine)
+		if not ok or type(settings) ~= "table" then return "unknown", "unknown" end
+		if settings.enabled == true then return "enabled: focus", "ok" end
+		return Safe(settings.restriction or "disabled"), "warn"
+	end)
 	Row(rows, "paused", function()
 		if type(AL.Paused) ~= "function" or type(AL.S) ~= "function" then return "unknown", "unknown" end
 		local p = AL.Paused(AL.S())

@@ -9,8 +9,23 @@ local ADDON, AL = ...
 do
     local root = AL
     local leveling, advanced
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- The shared role selector owns the public tank gate.  A Druid reaches the
+    -- dedicated Bear engine only through Tank mode; merely entering Bear Form
+    -- while DPS is selected must never enable Growl or other threat recovery.
+    local function SelectedRole(profile)
+        if type(root.GetRotationMode) == "function" then
+            local ok, role = pcall(root.GetRotationMode, profile, "DRUID")
+            if ok and not (issecretvalue and issecretvalue(role))
+                and (role == "DPS" or role == "HEAL" or role == "TANK") then
+                return role
+            end
+        end
+        return "DPS"
+    end
     local function UsesLeveling(profile)
         profile = profile or (root.Profile and root.Profile("DRUID")) or (root.S and root.S())
+        if SelectedRole(profile) == "TANK" then return false end
         if advanced and type(profile) == "table" then
             return advanced.NormalizeBuild(profile) == "leveling"
         end
@@ -2508,6 +2523,13 @@ end
 
 function M.NextSpell(s,inCombat,hostile)
     M.NormalizeBuild(s)
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- Growl, Challenging Roar, forced Bear form and the threat-oriented Bear
+    -- priority are reachable only when the shared Tank role is selected.
+    if type(AL.GetRotationMode) == "function"
+        and AL.GetRotationMode(s, "DRUID") == "TANK" then
+        return B.rotation(s,inCombat,hostile)
+    end
     if s.feralBear==true then return B.rotation(s,inCombat,hostile) end
     if s.balance==true then return BalanceBuildRotation(s,inCombat,hostile) end
     if s.feralCat==true then return CatBuildRotation(s,inCombat,hostile) end
@@ -2716,14 +2738,17 @@ AL.RegisterRotation("DRUID", M)
         local engine = root.HealingEngine
         if engine and type(engine.IsGrouped) == "function" then
             local ok, grouped = pcall(engine.IsGrouped, engine)
-            if ok and grouped == true then return true end
+            -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+            -- When the shared engine is present its HEAL-mode, dungeon and
+            -- assigned-HEALER checks are authoritative. Do not fall back to
+            -- party presence after the engine deliberately rejects the role.
+            return ok and grouped == true
         end
         for index = 1, 4 do if HEExists("party" .. index) then return true end end
         return false
     end
     local function HEHealingUnit()
-        local profile = root.S and root.S() or {}
-        if profile.healingEngine == true and HEGrouped() then
+        if HEGrouped() then
             -- Match the supported healing macros exactly: mouseover, focus,
             -- then self.  This keeps inferred HoT/cooldown state attached to
             -- the unit that actually received the successful heal.

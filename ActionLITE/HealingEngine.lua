@@ -138,9 +138,24 @@ local function UnitExistsPublic(unit)
 	return SafeBoolean(UnitExists, unit) == true
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function PlayerAssignedGroupRole()
+	if type(UnitGroupRolesAssigned) ~= "function" then return nil end
+	local ok, role = pcall(UnitGroupRolesAssigned, "player")
+	if not ok or IsSecret(role) or type(role) ~= "string" then return nil end
+	if role == "HEALER" or role == "TANK" or role == "DAMAGER" or role == "NONE" then
+		return role
+	end
+	return nil
+end
+
 function Engine:IsGrouped()
-	local eligible = self:DungeonState()
-	return eligible == true
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- "Grouped" means the Healing Rotation is actually eligible. A dungeon
+	-- alone is not enough: the player must have selected Heals and the client
+	-- must positively assign the player the HEALER group role.
+	local settings = self:GetSettings()
+	return settings and settings.enabled == true
 end
 
 -- Healing Rotation is intentionally limited to five-player dungeon instances
@@ -148,8 +163,22 @@ end
 -- no raid/battleground/follower-raid unit can be selected accidentally.
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 function Engine:DungeonState()
-	if type(IsInRaid) == "function" and SafeBoolean(IsInRaid) == true then
-		return false, "raid group"
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Dungeon-only eligibility requires positive public proof that this is not a
+	-- raid. A missing or protected raid-state result must fail closed just like
+	-- protected instance type, group role, and roster data.
+	if type(IsInRaid) ~= "function" then return false, "raid state unavailable" end
+	local inRaid = SafeBoolean(IsInRaid)
+	if inRaid == nil then return false, "raid state protected" end
+	if inRaid == true then return false, "raid group" end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- The Healing Rotation never infers a healer from class, talents or selected
+	-- spells. The client's assigned group role must be publicly and positively
+	-- HEALER; NONE, DAMAGER, TANK and protected/unknown values all fail closed.
+	local playerRole = PlayerAssignedGroupRole()
+	if playerRole ~= "HEALER" then
+		return false, playerRole and ("player group role is " .. playerRole)
+			or "player healer role unavailable"
 	end
 	if type(IsInInstance) ~= "function" then return false, "instance API unavailable" end
 	local ok, inside, instanceType = pcall(IsInInstance)
@@ -178,6 +207,32 @@ local function ClampPercent(value, fallback)
 	return math.max(0, math.min(100, math.floor(value + 0.5)))
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function SelectedRotationRole(profile)
+	if type(AL.GetRotationMode) == "function" then
+		local ok, role = pcall(AL.GetRotationMode, profile, AL.playerClass)
+		if ok and not IsSecret(role) then
+			if role == "HEAL" or role == "HEALS" then return "HEAL" end
+			if role == "DPS" or role == "TANK" then return role end
+		end
+	end
+	-- Compatibility with an intermediate role API during saved-profile upgrade.
+	if type(AL.GetRotationRole) == "function" then
+		local ok, role = pcall(AL.GetRotationRole, profile, AL.playerClass)
+		if ok and not IsSecret(role) then
+			if role == "HEAL" or role == "HEALS" then return "HEAL" end
+			if role == "DPS" or role == "TANK" then return role end
+		end
+	end
+	-- Compatibility while an older saved profile is normalized by Core. These
+	-- booleans are ordinary SavedVariables and never contain protected values.
+	if type(profile) == "table" then
+		if profile.roleHeals == true then return "HEAL" end
+		if profile.roleTank == true then return "TANK" end
+	end
+	return "DPS"
+end
+
 function Engine:NormalizeProfile(profile)
 	if type(profile) ~= "table" then return profile end
 	if profile.healingEngine == nil then profile.healingEngine = false end
@@ -190,16 +245,33 @@ function Engine:GetSettings(profile)
 	profile = self:NormalizeProfile(profile or (AL.S and AL.S()) or {})
 	local initiate = ClampPercent(profile.healingInitiateHP, 80)
 	local emergency = math.min(initiate, ClampPercent(profile.healingEmergencyHP, 30))
-	local configured = profile.healingEngine == true
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local roleMode = SelectedRotationRole(profile)
+	local configured = roleMode == "HEAL"
+	local playerGroupRole = PlayerAssignedGroupRole()
+	local healerRole = playerGroupRole == "HEALER"
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	local dungeon, restriction = false, "Healing Rotation disabled"
-	if configured then dungeon, restriction = self:DungeonState() end
+	if not configured then
+		restriction = "Heals role not selected"
+	else
+		dungeon, restriction = self:DungeonState()
+		if dungeon and not healerRole then
+			dungeon = false
+			restriction = playerGroupRole and ("player group role is " .. playerGroupRole)
+				or "player healer role unavailable"
+		end
+	end
 	return {
 		configured = configured,
 		grouped = dungeon,
 		dungeon = dungeon,
 		enabled = configured and dungeon,
 		restriction = restriction,
+		roleMode = roleMode,
+		playerGroupRole = playerGroupRole or "UNKNOWN",
+		healerRole = healerRole,
+		castUnit = "focus",
 		initiate = initiate,
 		emergency = emergency,
 	}
@@ -669,6 +741,10 @@ function Engine:BuildPlan(baseSpell, baseReason)
 		engine = self,
 		settings = settings,
 		manualTarget = manualUnit,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- The protected unit pixel selects the member as focus. Healing macros are
+		-- expected to cast on focus; a mouseover clause remains a manual override.
+		healingCastUnit = "focus",
 		grouped = true,
 		inCombat = inCombat,
 		hostileTarget = hostileTarget,
@@ -703,7 +779,7 @@ function Engine:BuildPlan(baseSpell, baseReason)
 	end
 	if type(supplied) ~= "table" then supplied = {} end
 	local plan = { source = source or "base-rules", rows = {}, settings = settings,
-		manualTarget = manualUnit }
+		manualTarget = manualUnit, healingCastUnit = "focus" }
 
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	-- A deliberately selected dungeon-party member is an explicit distress signal.
@@ -1100,6 +1176,10 @@ function Engine:ApplyDecision(row, decision, alpha, index, secondaryAlpha, gateA
 	self.visualsCleared = false
 	row.decision = {
 		unit = decision.unit, role = decision.role, spell = decision.spell,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- A unit-bearing HealingEngine decision is always executed on focus. Damage
+		-- rows retain the hostile target and therefore report "target" instead.
+		castUnit = decision.unit and "focus" or "target",
 		category = decision.category, threshold = decision.threshold,
 		baseThreshold = decision.baseThreshold,
 		band = decision.band, low = decision.low, high = decision.high,
@@ -1125,6 +1205,11 @@ function Engine:Update(baseSpell, baseReason)
 		dungeon = settings and settings.dungeon or false,
 		restriction = settings and settings.restriction or nil,
 		enabled = settings and settings.enabled or false,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		roleMode = settings and settings.roleMode or "DPS",
+		playerGroupRole = settings and settings.playerGroupRole or "UNKNOWN",
+		healerRole = settings and settings.healerRole or false,
+		healingCastUnit = "focus",
 		initiate = settings and settings.initiate or 80,
 		emergency = settings and settings.emergency or 30,
 		dpsThresholdOffset = DPS_THRESHOLD_OFFSET,
@@ -1188,14 +1273,18 @@ end
 
 local events = CreateFrame("Frame")
 for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "UNIT_CONNECTION",
-	"PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED" }) do
+	"PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_ROLES_ASSIGNED",
+	"ROLE_CHANGED_INFORM" }) do
 	pcall(events.RegisterEvent, events, event)
 end
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 events:SetScript("OnEvent", function(_, event)
-	if event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
+	if event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE"
+		or event == "PLAYER_ROLES_ASSIGNED" or event == "ROLE_CHANGED_INFORM" then
 		-- Party tokens can be reassigned when a member joins, leaves, or changes
-		-- subgroup. Never carry a departed member's role onto the replacement.
+		-- subgroup or role. Never carry a departed or changed member's cached role
+		-- onto the next protected evaluation.
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 		for unit in pairs(roleCache) do roleCache[unit] = nil end
 	end
 	for _, unit in ipairs(RosterUnits()) do

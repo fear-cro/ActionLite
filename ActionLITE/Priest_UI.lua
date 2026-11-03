@@ -36,8 +36,8 @@ AL.RegisterSimpleClassUI("PRIEST", {
 			title = "HEALING ROTATION",
 			id = "healing-engine", group = "survival",
 			controls = {
-				{ key = "healingEngine", label = "Enable Healing Rotation", spell = "Lesser Heal", half = false,
-				  tooltip = { "Enable Healing Rotation", "Enables five-player dungeon healing, selected-ally distress healing, and the protected Action focus pixel. Raids and solo play continue using the Leveling Rotation." } },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ type = "info", text = "Select Heals in Rotation Role. The client must positively assign the Priest the Healer role in a confirmed five-player dungeon. Automatic heals are expected to cast on focus; mouseover is reserved for manual healing overrides." },
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
 				HealingSpecCheck("healingDiscipline", "Discipline Priest", "Penance", {

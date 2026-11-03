@@ -32,6 +32,53 @@ local function KnownSpells(rotation)
 	return known, total
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Shared mutually-exclusive role controls.  Dedicated and declarative class
+-- pages both call this helper so the menu, HUD buttons and combat gates always
+-- edit the same profile state.
+function AL.BuildRotationRoleCard(stack, ui, token)
+	if not stack or type(ui) ~= "table" or type(AL.GetRotationMode) ~= "function" then return end
+	token = type(token) == "string" and token:upper() or AL.playerClass
+	local supported = {}
+	for _, mode in ipairs({ "DPS", "HEAL", "TANK" }) do
+		if AL.RoleModeSupported(token, mode) then supported[#supported + 1] = mode end
+	end
+	if #supported == 0 then return end
+
+	local card = ui.Card(stack, "ROTATION ROLE", "Select the behavior used by ActionLITE", {
+		id = "rotation-role", group = "status",
+	})
+	local definitions = {
+		DPS = { key = "roleDPS", label = "DPS", icon = "Interface\\Icons\\Ability_DualWield",
+			help = "Uses the learned-spell Leveling damage rotation. This is the default selection." },
+		HEAL = { key = "roleHeals", label = "Heals", icon = "Interface\\Icons\\Spell_Holy_Heal",
+			help = "Enables the five-player dungeon Healing Rotation only when the client positively assigns you the Healer role. Automatic heals are expected to cast on focus; mouseover remains a manual override." },
+		TANK = { key = "roleTank", label = "Tank", icon = "Interface\\Icons\\Ability_Defend",
+			help = "Uses the learned Tank priority and permits threat-specific actions such as taunts. It can be selected manually and is selected automatically only from a readable party Tank role." },
+	}
+	for _, mode in ipairs(supported) do
+		local roleMode = mode -- distinct closure value on Lua 5.1
+		local def = definitions[roleMode]
+		ui.Check(card, {
+			profileKey = def.key,
+			label = def.label,
+			icon = def.icon,
+			half = #supported > 1,
+			get = function() return AL.GetRotationMode(ui.Profile(), token) == roleMode end,
+			set = function(enabled)
+				-- One role must remain selected.  Turning off Heal/Tank returns to
+				-- DPS; clicking DPS again simply keeps the default selected.
+				local selected = enabled and roleMode or "DPS"
+				AL.SetRotationMode(selected, true, ui.Profile(), token)
+			end,
+			onChange = ui.Repaint,
+			tooltip = { def.label .. " Rotation", def.help },
+		})
+	end
+	ui.Help(card, "DPS is the default. Before any manual role choice, a readable non-raid party role may automatically select Heals or Tank; leaving that group returns an automatic selection to DPS. A manual choice is saved and remains authoritative.")
+	return card
+end
+
 local function BuildControl(card, control, ui, spellIDs, rotation)
 	if control.type == "slider" then
 		return ui.Slider(card, {
@@ -163,6 +210,7 @@ function AL.RegisterSimpleClassUI(token, config, version)
 			aoe = rowB.badges[1],
 			burst = rowB.badges[2],
 		}
+		AL.BuildRotationRoleCard(stack, ui, token)
 		for _, cardDef in ipairs(config.cards or {}) do
 			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 			-- A class can retain dormant implementation data while withdrawing a

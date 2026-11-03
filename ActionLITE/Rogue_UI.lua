@@ -16,6 +16,8 @@ local function BuildRogueUI(page, ui)
 	if rotation and rotation.NormalizeBuild then rotation.NormalizeBuild(ui.Profile()) end
 	local theme = ui.Theme
 	local stack = ui.Body(page)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	AL.BuildRotationRoleCard(stack, ui, "ROGUE")
 	local spellIDs = {}
 	for _, entry in ipairs((rotation and rotation.spells) or {}) do
 		spellIDs[entry[2]] = entry[1]

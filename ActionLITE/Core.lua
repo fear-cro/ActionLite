@@ -20,6 +20,177 @@ AL.defaults = {
 }
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- The public role selector is shared by the class menu, the HUD buttons and
+-- the HealingEngine.  Keep one saved boolean true so old code and debug
+-- reports can inspect the choice without parsing a display label.
+local ROLE_MODE_SUPPORT = {
+	DRUID   = { DPS = true, HEAL = true, TANK = true },
+	PALADIN = { DPS = true, HEAL = true, TANK = true },
+	PRIEST  = { DPS = true, HEAL = true },
+	SHAMAN  = { DPS = true, HEAL = true },
+	WARRIOR = { DPS = true, TANK = true },
+	HUNTER  = { DPS = true }, ROGUE = { DPS = true },
+	MAGE    = { DPS = true }, WARLOCK = { DPS = true },
+}
+
+local function PublicRoleMode(value)
+	if issecretvalue and issecretvalue(value) then return nil end
+	if type(value) ~= "string" then return nil end
+	value = value:upper()
+	if value == "HEALS" or value == "HEALER" then value = "HEAL" end
+	if value == "DAMAGER" then value = "DPS" end
+	if value == "DPS" or value == "HEAL" or value == "TANK" then return value end
+end
+
+function AL.RoleModeSupported(token, mode)
+	token = type(token) == "string" and token:upper() or AL.playerClass
+	mode = PublicRoleMode(mode)
+	return mode ~= nil and ROLE_MODE_SUPPORT[token] and ROLE_MODE_SUPPORT[token][mode] == true or false
+end
+
+local function LegacyRoleMode(profile, token)
+	if type(profile) ~= "table" then return nil end
+	if profile.healingEngine == true and AL.RoleModeSupported(token, "HEAL") then return "HEAL" end
+	if token == "PALADIN" then
+		local value = profile.levelingPaladinRole or profile.paladinRole
+		if not (issecretvalue and issecretvalue(value)) and value == "TANK" then return "TANK" end
+	elseif token == "WARRIOR" then
+		local value = profile.levelingWarriorRole or profile.warriorRole
+		if not (issecretvalue and issecretvalue(value)) and value == "TANK" then return "TANK" end
+	end
+end
+
+local function SyncLegacyRole(profile, token, mode)
+	-- HEAL is the sole owner of the old HealingEngine gate.  This avoids a
+	-- selected Heal mode whose provider is silently disabled, or DPS/Tank mode
+	-- unexpectedly emitting friendly focus pixels from an old saved setting.
+	profile.healingEngine = mode == "HEAL"
+	if token == "PALADIN" then
+		local legacy = mode == "TANK" and "TANK" or "DPS"
+		profile.paladinRole = legacy
+		profile.levelingPaladinRole = legacy
+		profile.paladinRoleBuild = "leveling"
+	elseif token == "WARRIOR" then
+		local legacy = mode == "TANK" and "TANK" or "DPS"
+		profile.warriorRole = legacy
+		profile.levelingWarriorRole = legacy
+		profile.warriorRoleBuild = "leveling"
+	end
+end
+
+local function ApplyRoleMode(profile, token, mode, userInitiated)
+	if type(profile) ~= "table" or not AL.RoleModeSupported(token, mode) then return nil end
+	mode = PublicRoleMode(mode)
+	profile.roleDPS = mode == "DPS"
+	profile.roleHeals = mode == "HEAL"
+	profile.roleTank = mode == "TANK"
+	profile.rotationMode = mode
+	if userInitiated ~= nil then profile.roleSelectionManual = userInitiated == true end
+	SyncLegacyRole(profile, token, mode)
+	return mode
+end
+
+function AL.GetRotationMode(profile, token)
+	token = type(token) == "string" and token:upper() or AL.playerClass
+	if type(profile) ~= "table" then
+		profile = type(AL.Profile) == "function" and AL.Profile(token) or AL.defaults
+	end
+	if type(profile) ~= "table" then return "DPS" end
+
+	local selected
+	if not (issecretvalue and issecretvalue(profile.roleTank)) and profile.roleTank == true
+		and AL.RoleModeSupported(token, "TANK") then selected = "TANK" end
+	if not selected and not (issecretvalue and issecretvalue(profile.roleHeals)) and profile.roleHeals == true
+		and AL.RoleModeSupported(token, "HEAL") then selected = "HEAL" end
+	if not selected and not (issecretvalue and issecretvalue(profile.roleDPS)) and profile.roleDPS == true then
+		selected = "DPS"
+	end
+	if not selected then
+		-- One-time migration preserves an explicitly enabled legacy HealingEngine
+		-- or Leveling Tank role.  Fresh and ambiguous profiles default to DPS.
+		selected = LegacyRoleMode(profile, token) or "DPS"
+		if profile.roleSelectionManual == nil then
+			profile.roleSelectionManual = selected ~= "DPS"
+		end
+	end
+	return ApplyRoleMode(profile, token, selected, nil) or "DPS"
+end
+
+function AL.SetRotationMode(mode, userInitiated, profile, token)
+	token = type(token) == "string" and token:upper() or AL.playerClass
+	mode = PublicRoleMode(mode)
+	if not mode or not AL.RoleModeSupported(token, mode) then return nil end
+	if type(profile) ~= "table" then
+		profile = type(AL.Profile) == "function" and AL.Profile(token) or AL.defaults
+	end
+	local selected = ApplyRoleMode(profile, token, mode, userInitiated == true)
+	if selected and AL.UI and type(AL.UI.Repaint) == "function" then AL.UI.Repaint() end
+	if selected and type(AL.ApplyToggles) == "function" then AL.ApplyToggles() end
+	return selected
+end
+
+local function PublicAssignedRole()
+	if type(UnitGroupRolesAssigned) ~= "function" then return nil end
+	local ok, role = pcall(UnitGroupRolesAssigned, "player")
+	if not ok or (issecretvalue and issecretvalue(role)) or type(role) ~= "string" then return nil end
+	if role == "HEALER" then return "HEAL" end
+	if role == "TANK" or role == "DAMAGER" or role == "NONE" then return role == "DAMAGER" and "DPS" or role end
+end
+
+local function PublicNonRaidGroup()
+	if type(IsInRaid) == "function" then
+		local raid = AL.SafeBoolean and AL.SafeBoolean(IsInRaid)
+		if raid == true then return false end
+		if raid == nil then return nil end
+	end
+	local grouped = type(IsInGroup) == "function" and AL.SafeBoolean and AL.SafeBoolean(IsInGroup) or nil
+	local count
+	if type(GetNumGroupMembers) == "function" then
+		local ok, value = pcall(GetNumGroupMembers)
+		if ok and not (issecretvalue and issecretvalue(value)) and type(value) == "number" then count = value end
+	end
+	if grouped == false or count == 0 then return false end
+	if grouped == true or count and count >= 2 and count <= 5 then return true end
+	return nil
+end
+
+function AL.RefreshAutomaticRotationMode(profile, token)
+	token = type(token) == "string" and token:upper() or AL.playerClass
+	if type(profile) ~= "table" then
+		profile = type(AL.Profile) == "function" and AL.Profile(token) or nil
+	end
+	if type(profile) ~= "table" then return nil end
+	if profile.roleSelectionManual == true then return AL.GetRotationMode(profile, token) end
+	local previous = PublicRoleMode(profile.rotationMode)
+	local function ApplyAutomatic(mode)
+		local selected = ApplyRoleMode(profile, token, mode, false)
+		if selected and selected ~= previous then
+			if AL.UI and type(AL.UI.Repaint) == "function" then AL.UI.Repaint() end
+			if type(AL.ApplyToggles) == "function" then AL.ApplyToggles() end
+		end
+		return selected
+	end
+	local grouped = PublicNonRaidGroup()
+	if grouped == nil then return AL.GetRotationMode(profile, token) end
+	if grouped == false then return ApplyAutomatic("DPS") end
+	local assigned = PublicAssignedRole()
+	if assigned == nil then return AL.GetRotationMode(profile, token) end
+	if assigned == "HEAL" and AL.RoleModeSupported(token, "HEAL") then
+		return ApplyAutomatic("HEAL")
+	end
+	if assigned == "TANK" and AL.RoleModeSupported(token, "TANK") then
+		return ApplyAutomatic("TANK")
+	end
+	return ApplyAutomatic("DPS")
+end
+
+-- Compatibility aliases retained for modules developed against the first
+-- role-mode draft.  New code should use the RotationMode names above.
+AL.GetRotationRole = AL.GetRotationMode
+AL.SetRotationRole = AL.SetRotationMode
+AL.SupportsRotationRole = function(mode, token) return AL.RoleModeSupported(token, mode) end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 -- Forever can return secret booleans from otherwise ordinary unit APIs while
 -- combat execution is tainted.  All shared state checks normalize those values
 -- to nil so callers can fail closed without attempting a Lua boolean test.
@@ -123,6 +294,9 @@ function AL.RegisterRotation(token, module)
 	-- the module defaults when the database is initialized later.
 	local saved = type(ActionLiteDB) == "table" and type(ActionLiteDB.profiles) == "table"
 		and ActionLiteDB.profiles[token] or nil
+	if type(saved) == "table" and type(AL.GetRotationMode) == "function" then
+		AL.GetRotationMode(saved, token)
+	end
 	if type(saved) == "table" and type(module.NormalizeBuild) == "function" then
 		pcall(module.NormalizeBuild, saved)
 	end
@@ -169,6 +343,10 @@ function AL.FillDefaults(p, token)
 	if AL.HealingEngine and AL.HealingEngine.NormalizeProfile then
 		AL.HealingEngine:NormalizeProfile(p)
 	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Migrate legacy Healing/Tank settings once, then keep the three public role
+	-- checkboxes mutually exclusive for every profile, including inactive ones.
+	if type(AL.GetRotationMode) == "function" then AL.GetRotationMode(p, token) end
 	p.spells = p.spells or {}
 	p.version = p.version or "1.0"
 	if AL.NormalizeIconAssignments then AL.NormalizeIconAssignments(p) end
@@ -194,6 +372,20 @@ function AL.ES()
 	local db = ActionLiteDB
 	return AL.Profile(db and db.activeProfile)
 end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Automatic role selection runs only for the live class.  A readable non-raid
+-- group role can choose Heal/Tank until the user clicks a role explicitly;
+-- leaving that auto-selected group returns to DPS.
+local roleModeEvents = CreateFrame("Frame")
+for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "PLAYER_ROLES_ASSIGNED", "ROLE_CHANGED_INFORM" }) do
+	pcall(roleModeEvents.RegisterEvent, roleModeEvents, event)
+end
+roleModeEvents:SetScript("OnEvent", function()
+	if type(AL.RefreshAutomaticRotationMode) ~= "function" then return end
+	local profile = AL.Profile(AL.playerClass)
+	AL.RefreshAutomaticRotationMode(profile, AL.playerClass)
+end)
 
 function AL.Say(text)
 	if not AL.S().noprint then print("|cff89cff0ActionLITE|r: " .. text) end
@@ -246,8 +438,9 @@ end
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 -- A cast request which the client accepts but never starts or completes can
 -- otherwise pin the rotation on one unreadable/broken action icon forever.
--- A rejected spell stays skipped for the rest of combat, unless a later
--- successful manual cast proves that its icon is readable again.
+-- A rejected spell stays skipped for the remainder of the fight with that
+-- enemy. Readable target GUIDs keep the scope on that enemy; protected target
+-- identity safely falls back to the current combat.
 local SPELL_ATTEMPT_TIMEOUT = 2
 local SPELL_WARNING_SECONDS = 5
 local spellAttemptBlacklist = {}
@@ -255,38 +448,112 @@ local spellAttemptPending
 local spellReadabilityWarning
 
 local function PublicSpellName(value)
-	if type(value) ~= "string" or value == ""
-		or (issecretvalue and issecretvalue(value)) then return nil end
+	if (issecretvalue and issecretvalue(value))
+		or type(value) ~= "string" or value == "" then return nil end
 	return (AL.englishNames and AL.englishNames[value]) or value
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function BlacklistTargetGUID()
+	if type(UnitGUID) ~= "function" then return nil end
+	local ok, guid = pcall(UnitGUID, "target")
+	if not ok or (issecretvalue and issecretvalue(guid))
+		or type(guid) ~= "string" or guid == "" then return nil end
+	return guid
+end
+
+local function BlacklistCombatState()
+	return AL.SafeBoolean(UnitAffectingCombat, "player")
+end
+
+local function BlacklistEntryActive(entry)
+	if type(entry) == "number" then
+		return entry > (GetTime and GetTime() or 0)
+	end
+	if type(entry) ~= "table" then return false end
+	local now = GetTime and GetTime() or 0
+	if type(entry.expires) == "number" and entry.expires <= now then
+		entry.expires = nil
+	end
+	local targetGUID = BlacklistTargetGUID()
+	if targetGUID and type(entry.targets) == "table" and entry.targets[targetGUID] then
+		return true
+	end
+	local combat = BlacklistCombatState()
+	if entry.combatFallback and combat ~= false then return true end
+	-- If this fight began with a readable enemy but its GUID becomes protected,
+	-- keep the safe skip until combat ends rather than retrying the broken icon.
+	if not targetGUID and combat ~= false and type(entry.targets) == "table"
+		and next(entry.targets) ~= nil then return true end
+	return type(entry.expires) == "number" and entry.expires > now
 end
 
 function AL.IsSpellBlacklisted(spell)
 	spell = PublicSpellName(spell)
 	if not spell then return false end
-	local expiration = spellAttemptBlacklist[spell]
-	if type(expiration) ~= "number" then return false end
-	local now = GetTime and GetTime() or 0
-	if expiration <= now then
+	local entry = spellAttemptBlacklist[spell]
+	if entry == nil then return false end
+	if not BlacklistEntryActive(entry) then
+		local hasStoredTarget = type(entry) == "table" and type(entry.targets) == "table"
+			and next(entry.targets) ~= nil
+		-- Keep per-enemy records while combat is active so switching away and back
+		-- to the same enemy does not make the failed spell eligible again.
+		if not hasStoredTarget or BlacklistCombatState() == false then
+			spellAttemptBlacklist[spell] = nil
+		end
+		return false
+	end
+	if type(entry) == "number" and entry <= (GetTime and GetTime() or 0) then
 		spellAttemptBlacklist[spell] = nil
 		return false
 	end
 	return true
 end
 
-function AL.BlacklistSpell(spell, seconds, reason)
+function AL.BlacklistSpell(spell, seconds, reason, capturedScope)
 	spell = PublicSpellName(spell)
 	if not spell then return false end
 	local now = GetTime and GetTime() or 0
 	local duration = type(seconds) == "number" and math.max(1, seconds) or nil
-	spellAttemptBlacklist[spell] = duration and (now + duration) or math.huge
+	local entry = spellAttemptBlacklist[spell]
+	if type(entry) ~= "table" then entry = { targets = {} } end
+	entry.targets = type(entry.targets) == "table" and entry.targets or {}
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Freeze encounter ownership when UNIT_SPELLCAST_SENT arrives. A target swap
+	-- during the two-second watchdog window must not move the blacklist to the
+	-- newly selected enemy or broaden it to the whole combat.
+	local hasCapturedScope = type(capturedScope) == "table"
+		and capturedScope.captured == true
+	local targetGUID, combat, combatFallback
+	if hasCapturedScope then
+		targetGUID = capturedScope.targetGUID
+		combat = capturedScope.combat
+		combatFallback = capturedScope.combatFallback == true
+	else
+		targetGUID = BlacklistTargetGUID()
+		combat = BlacklistCombatState()
+		combatFallback = combat ~= false
+	end
+	if targetGUID then
+		entry.targets[targetGUID] = true
+		entry.expires = nil
+	elseif combatFallback then
+		-- Protected target identity cannot be compared in Lua. Scope the skip to
+		-- this combat and clear it on PLAYER_REGEN_ENABLED.
+		entry.combatFallback = true
+	else
+		entry.expires = now + (duration or 30)
+	end
+	spellAttemptBlacklist[spell] = entry
 	spellReadabilityWarning = {
 		spell = spell,
-		text = spell .. " icon was not readable",
+		text = spell .. " blacklisted",
 		expires = now + SPELL_WARNING_SECONDS,
 	}
 	if AL.Log then
 		AL.Log("cast", "warn", spellReadabilityWarning.text, {
-			blacklistSeconds = duration or "until combat ends",
+			blacklistScope = targetGUID and "selected enemy"
+				or (combatFallback and "current combat" or tostring(duration or 30) .. " seconds"),
 			reason = reason or "cast did not start within two seconds",
 		})
 	end
@@ -316,9 +583,18 @@ end
 
 function AL.SpellBlacklistState()
 	local active, now = {}, GetTime and GetTime() or 0
-	for spell, expiration in pairs(spellAttemptBlacklist) do
-		if type(expiration) == "number" and expiration > now then
-			active[spell] = expiration == math.huge and "combat" or (expiration - now)
+	for spell, entry in pairs(spellAttemptBlacklist) do
+		if AL.IsSpellBlacklisted(spell) then
+			if type(entry) == "table" and entry.combatFallback then
+				active[spell] = "combat"
+			elseif type(entry) == "table" and type(entry.targets) == "table"
+				and next(entry.targets) ~= nil then
+				active[spell] = "selected enemy"
+			elseif type(entry) == "table" and type(entry.expires) == "number" then
+				active[spell] = math.max(0, entry.expires - now)
+			elseif type(entry) == "number" then
+				active[spell] = math.max(0, entry - now)
+			end
 		end
 	end
 	return {
@@ -326,6 +602,9 @@ function AL.SpellBlacklistState()
 			spell = spellAttemptPending.spell,
 			age = now - spellAttemptPending.at,
 			castGUID = spellAttemptPending.castGUID,
+			targetGUID = spellAttemptPending.scope and spellAttemptPending.scope.targetGUID,
+			combatFallback = spellAttemptPending.scope
+				and spellAttemptPending.scope.combatFallback or false,
 		} or nil,
 		blacklisted = active,
 		warning = spellReadabilityWarning and spellReadabilityWarning.text or nil,
@@ -349,7 +628,23 @@ local function BeginSpellAttempt(spell, castGUID)
 	-- Repeated failed key presses must not keep moving the two-second deadline.
 	if spellAttemptPending and spellAttemptPending.spell == spell
 		and now - spellAttemptPending.at < SPELL_ATTEMPT_TIMEOUT then return end
-	spellAttemptPending = { spell = spell, at = now, castGUID = castGUID }
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Capture the selected enemy and combat visibility with the attempt. Reading
+	-- either one later would incorrectly attribute a failed opener after a target
+	-- switch during the watchdog delay.
+	local targetGUID = BlacklistTargetGUID()
+	local combat = BlacklistCombatState()
+	spellAttemptPending = {
+		spell = spell,
+		at = now,
+		castGUID = castGUID,
+		scope = {
+			captured = true,
+			targetGUID = targetGUID,
+			combat = combat,
+			combatFallback = not targetGUID and combat ~= false,
+		},
+	}
 end
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -368,9 +663,8 @@ end
 
 local function AcceptSpellAttempt(spell, castGUID)
 	spell = PublicSpellName(spell)
-	-- A successful manual retry is proof that a previously rejected spell can
-	-- be read again, even when no new pending watchdog record exists.
-	if spell then spellAttemptBlacklist[spell] = nil end
+	-- Once blacklisted, the spell remains skipped for this enemy until combat
+	-- ends. A later manual cast does not silently hide the visible problem state.
 	local pending = spellAttemptPending
 	if not pending then return end
 	if castGUID and pending.castGUID and castGUID ~= pending.castGUID then return end
@@ -385,18 +679,13 @@ function AL.PruneSpellAttempts()
 	if now - pending.at < SPELL_ATTEMPT_TIMEOUT then return end
 	spellAttemptPending = nil
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	-- Outside combat there may be no PLAYER_REGEN_ENABLED event to clear an
-	-- indefinite blacklist. Use a short recovery window there; combat failures
-	-- remain skipped until combat ends as requested.
-	local duration
-	if type(UnitAffectingCombat) == "function" then
-		local ok, combat = pcall(UnitAffectingCombat, "player")
-		if ok and not (issecretvalue and issecretvalue(combat)) and combat == false then
-			duration = 30
-		end
-	end
+	-- A readable selected enemy owns the blacklist until that fight ends. When
+	-- neither combat nor a readable target can provide an encounter boundary,
+	-- retain the short outside-combat recovery window as a safe fallback.
+	local duration = pending.scope and pending.scope.combat == false and 30 or nil
 	AL.BlacklistSpell(pending.spell, duration,
-		"UNIT_SPELLCAST_SENT had no START, CHANNEL_START, or SUCCEEDED result")
+		"UNIT_SPELLCAST_SENT had no START, CHANNEL_START, or SUCCEEDED result",
+		pending.scope)
 end
 
 function AL.Allowed(name, prof)
@@ -2395,6 +2684,10 @@ function AL.NextSpell()
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	AL.PruneSpellAttempts()
 	local s = AL.S()
+	-- Role mode is the authoritative gate for DPS, dungeon healing and tank
+	-- threat behavior.  Normalizing here also keeps legacy Paladin/Warrior role
+	-- fields synchronized if an external button changed the shared selector.
+	if type(AL.GetRotationMode) == "function" then AL.GetRotationMode(s, AL.playerClass) end
 	if AL.Paused(s) then return nil, "Ready" end
 
 	-- Pool/no-action while a player channel is active. Drain Soul gets a

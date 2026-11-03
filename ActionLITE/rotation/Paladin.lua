@@ -551,7 +551,14 @@ local function ActiveAura() return ActiveFrom(AURAS) end
 local function ActiveBlessing() return ActiveFrom(BLESSINGS) end
 
 local function Role(s)
-	return SettingChoice(s, "paladinRole", { DPS = true, TANK = true }, "DPS")
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Righteous Fury, Seal of Fury, Holy Shield and other threat-oriented
+	-- priorities follow the shared role button instead of a stale legacy field.
+	if type(AL.GetRotationMode) == "function" then
+		local role = AL.GetRotationMode(s, "PALADIN")
+		if role == "TANK" then return "TANK" end
+	end
+	return "DPS"
 end
 
 local function PreferredBlessing(s, role)
@@ -588,7 +595,10 @@ local function PreferredSeal(s, role)
 	local mode = SettingChoice(s, "seal", {
 		AUTO = true, COMMAND = true, RIGHTEOUSNESS = true, FURY = true, LIGHT = true, WISDOM = true,
 	}, "AUTO")
-	if mode == "FURY" and Ok("Seal of Fury") then return "Seal of Fury" end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Seal of Fury is a threat seal and cannot leak into DPS/Heals through a
+	-- stale manual selection.
+	if role == "TANK" and mode == "FURY" and Ok("Seal of Fury") then return "Seal of Fury" end
 	if mode == "COMMAND" and Ok("Seal of Command") then return "Seal of Command" end
 	if mode == "RIGHTEOUSNESS" and Ok("Seal of Righteousness") then return "Seal of Righteousness" end
 	if mode == "LIGHT" and Ok("Seal of Light") then return "Seal of Light" end
@@ -1871,8 +1881,12 @@ local function ActiveAura() return ActiveFrom(AURAS) end
 local function ActiveBlessing() return ActiveFrom(BLESSINGS) end
 
 local function Role(s)
-	if Bool(s.protection) == true then return "TANK" end
-	return SettingChoice(s, "paladinRole", { DPS = true, TANK = true }, "DPS")
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if type(AL.GetRotationMode) == "function" then
+		local role = AL.GetRotationMode(s, "PALADIN")
+		if role == "TANK" then return "TANK" end
+	end
+	return "DPS"
 end
 
 -- Role and build controls share the same exclusive checkbox transition.
@@ -1921,7 +1935,8 @@ local function PreferredSeal(s, role)
 		AUTO = true, COMMAND = true, RIGHTEOUSNESS = true, FURY = true, LIGHT = true, WISDOM = true,
 	}, "AUTO")
 	if mode == "AUTO" and Shockadin(s, role) and Ok("Seal of Righteousness") then return "Seal of Righteousness" end
-	if mode == "FURY" and Ok("Seal of Fury") then return "Seal of Fury" end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if role == "TANK" and mode == "FURY" and Ok("Seal of Fury") then return "Seal of Fury" end
 	if mode == "COMMAND" and Ok("Seal of Command") then return "Seal of Command" end
 	if mode == "RIGHTEOUSNESS" and Ok("Seal of Righteousness") then return "Seal of Righteousness" end
 	if mode == "LIGHT" and Ok("Seal of Light") then return "Seal of Light" end
@@ -2708,8 +2723,11 @@ AL.RegisterRotation("PALADIN", M)
         end
     end
     local function PLCurrentHealingUnit()
-        return PLGroupUnitFor("mouseover") or PLGroupUnitFor("target")
-            or PLGroupUnitFor("focus") or "player"
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- Published healing macros are mouseover (manual override), focus
+        -- (HealingEngine selection), then self. A friendly target is only the
+        -- request that moves the focus pixel; heals are not cast on target.
+        return PLGroupUnitFor("mouseover") or PLGroupUnitFor("focus") or "player"
     end
     local function PLUnitKey(unit)
         if type(unit) ~= "string" then return nil end
@@ -2917,8 +2935,7 @@ AL.RegisterRotation("PALADIN", M)
     function advanced.HealingEngineCastSucceeded(spell)
         if type(spell) ~= "string" or PLSecret(spell) then return end
         local profile = root.S and root.S() or {}
-        if type(profile) ~= "table" or PLSecret(profile.healingEngine)
-            or profile.healingEngine ~= true then return end
+        if type(profile) ~= "table" then return end
         local now, unit = PLNow(), PLHealingUnit()
         paladinHealing.pendingUnit = nil
         if spell == "Oath of Light" then
@@ -3046,8 +3063,7 @@ AL.RegisterRotation("PALADIN", M)
     end
 
     function advanced.HealingEnginePlan(profile, context)
-        if type(profile) ~= "table" or type(context) ~= "table"
-            or PLSecret(profile.healingEngine) or profile.healingEngine ~= true then return nil end
+        if type(profile) ~= "table" or type(context) ~= "table" then return nil end
         local now = PLNow()
         if paladinHealing.infusionUntil <= now then paladinHealing.infusionUntil = 0 end
         if paladinHealing.vigil and paladinHealing.vigil.expires <= now then paladinHealing.vigil = nil end

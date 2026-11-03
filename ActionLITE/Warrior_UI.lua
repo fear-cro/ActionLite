@@ -30,6 +30,8 @@ local function BuildWarriorUI(page, ui)
 	end
 	local THEME = ui.Theme
 	local stack = ui.Body(page)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	AL.BuildRotationRoleCard(stack, ui, "WARRIOR")
 	local spellIDs = {}
 	for _, entry in ipairs((rotation and rotation.spells) or {}) do
 		spellIDs[entry[2]] = entry[1]
@@ -41,7 +43,7 @@ local function BuildWarriorUI(page, ui)
 	local STEEL = THEME.textDim
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	local function DPSLevelingVisible(profile)
-		return profile.leveling == true and profile.warriorRole ~= "TANK"
+		return profile.leveling == true and AL.GetRotationMode(profile, "WARRIOR") ~= "TANK"
 	end
 
 	-- --------------------------------------------------------- role selection
@@ -53,26 +55,6 @@ local function BuildWarriorUI(page, ui)
 		onChange = ui.Repaint,
 		tooltip = { "Leveling Rotation", "Uses the finalized leveling rotation and every learned spell that its controls enable. This is the only selectable Warrior rotation in this release." },
 	})
-
-	local role = ui.Card(stack, L("WARRIOR_ROLE"), L("WARRIOR_ROLE_HELP"), { id="role", build="leveling", group="preparation" })
-	ui.StackDropdown(role, {
-		caption = "Leveling role",
-		options = {
-			{ label = L("ROLE_DPS"), value = "DPS" },
-			{ label = L("ROLE_TANK"), value = "TANK" },
-		},
-		get = function()
-			return ui.Profile().warriorRole == "TANK" and "TANK" or "DPS"
-		end,
-		set = function(value)
-			local profile = ui.Profile()
-			profile.warriorRole = value == "TANK" and "TANK" or "DPS"
-			profile.levelingWarriorRole = profile.warriorRole
-			rotation.NormalizeBuild(profile)
-		end,
-		onSelect = ui.Repaint,
-	})
-	ui.Help(role, "Select the finalized DPS or Tank leveling priority. Both choices use only spells the character has actually learned.")
 
 	-- ---------------------------------------------------------------- header
 	local head = ui.Card(stack, L("LIVE_STATUS"), L("WARRIOR_PROFILE", UI_VERSION), { id="head", group="status", status=true })

@@ -17,6 +17,8 @@ local function BuildPaladinUI(page, ui)
 	if rotation and rotation.NormalizeBuild then rotation.NormalizeBuild(ui.Profile()) end
 	local theme = ui.Theme
 	local stack = ui.Body(page)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	AL.BuildRotationRoleCard(stack, ui, "PALADIN")
 	local spellIDs = {}
 	for _, entry in ipairs((rotation and rotation.spells) or {}) do
 		spellIDs[entry[2]] = entry[1]
@@ -82,27 +84,6 @@ local function BuildPaladinUI(page, ui)
 	Check(levelingCard, "leveling", "Leveling Rotation", "Judgement", "Uses the finalized leveling rotation and every learned spell permitted by the settings. Leveling Rotation is the only damage or tank rotation in this release.", true,
 		function() rotation.SetBuild("leveling", ui.Profile().leveling == true, ui.Profile()); ui.Repaint() end)
 
-	local roleCard = ui.Card(stack,
-		Text({ en = "PALADIN ROLE", fr = "ROLE DU PALADIN", pt = "FUNÇÃO DO PALADINO", es = "ROL DEL PALADÍN", de = "PALADIN-ROLLE", zh = "圣骑士职责" }),
-		Text({
-			en = "The selected role changes the actual combat priority, buffs, seal and mana policy.",
-			fr = "Le role selectionne change reellement la priorite de combat, les buffs, le sceau et la gestion du mana.",
-			pt = "A função escolhida altera de fato a prioridade de combate, os buffs, o selo e a gestão de mana.",
-			es = "El rol elegido cambia realmente la prioridad de combate, los beneficios, el sello y la gestión de maná.",
-			de = "Die gewählte Rolle ändert die echte Kampfpriorität, Buffs, Siegel und Mana-Strategie.",
-			zh = "所选职责会实际改变战斗优先级、增益、圣印和法力策略。",
-		}), { id="roleCard", build="leveling", group="preparation" })
-	Dropdown(roleCard, "paladinRole",
-		{ en = "Leveling role", fr = "Rotation active", pt = "Rotação ativa", es = "Rotación activa", de = "Aktive Rotation", zh = "当前循环" }, {
-			{ label = { en = "Leveling DPS", fr = "DPS de progression", pt = "DPS de progressão", es = "DPS de progresión", de = "Level-DPS", zh = "升级 DPS" }, value = "DPS" },
-			{ label = { en = "Leveling Tank", fr = "Tank de progression", pt = "Tanque de progressão", es = "Tanque de progresión", de = "Level-Tank", zh = "升级坦克" }, value = "TANK" },
-		}, "DPS", function(value)
-            local profile=ui.Profile()
-            rotation.SetBuild("leveling",true,profile)
-            profile.paladinRole=value=="TANK" and "TANK" or "DPS"
-            profile.levelingPaladinRole=profile.paladinRole
-            rotation.NormalizeBuild(profile)
-		end)
 	local burstCard=ui.Card(stack,"BURST",nil,{id="burst",group="burst"})
 	local tankTools = ui.Card(stack, "LEVELING TANK TOOLS", "Learned defensive talents", { id="tank-tools", group="survival" })
 	Check(tankTools, "holyShield", "Maintain Holy Shield", "Holy Shield",
@@ -232,8 +213,8 @@ local function BuildPaladinUI(page, ui)
 	}))
 
 	local healingEngine = ui.Card(stack, "HEALING ROTATION", nil, { id="healing-engine", group="survival" })
-	Check(healingEngine, "healingEngine", "Enable Healing Rotation", "Holy Light",
-		"Enables five-player dungeon healing, selected-ally distress healing, and the protected Action focus pixel. Raids and solo play continue using the Leveling Rotation.", true)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	ui.Help(healingEngine, "Select Heals in Rotation Role. The client must positively assign the Paladin the Healer role in a confirmed five-player dungeon. Automatic heals are expected to cast on focus; mouseover is reserved for manual healing overrides.")
 	Slider(healingEngine, "healingInitiateHP", "Initiate healing at HP", 5, 100, 80, " %")
 	Slider(healingEngine, "healingEmergencyHP", "Emergency healing", 5, 100, 30, " %")
 	Dropdown(healingEngine, "healingAura", "Healing aura", {

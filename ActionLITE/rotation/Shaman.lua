@@ -3712,8 +3712,7 @@ AL.RegisterRotation("SHAMAN", M)
     function advanced.HealingEngineCastSucceeded(spell)
         if type(spell) ~= "string" or SHSecret(spell) then return end
         local profile = root.S and root.S() or {}
-        if type(profile) ~= "table" or SHSecret(profile.healingEngine)
-            or profile.healingEngine ~= true then return end
+        if type(profile) ~= "table" then return end
         local now, unit = SHNow(), SHHealingUnit()
         if spell == "Water Shield" then
             SHSetEffect("player", spell, 600)
@@ -3772,8 +3771,7 @@ AL.RegisterRotation("SHAMAN", M)
     end
 
     function advanced.HealingEnginePlan(profile, context)
-        if type(profile) ~= "table" or type(context) ~= "table"
-            or SHSecret(profile.healingEngine) or profile.healingEngine ~= true then return nil end
+        if type(profile) ~= "table" or type(context) ~= "table" then return nil end
         local now = SHNow()
         if shamanHealing.natureUntil <= now then shamanHealing.natureUntil = 0 end
         if shamanHealing.manaTideUntil <= now then shamanHealing.manaTideUntil = 0 end

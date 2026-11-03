@@ -1,6 +1,6 @@
 # ActionLITE developer documentation
 
-ActionLITE v1.1.5 supports the learned-spell Leveling Rotation and protected five-player dungeon-healing recommendations for WoW Forever.
+ActionLITE v1.1.5 supports learned-spell Leveling Rotation priorities, shared DPS/Heals/Tank role modes and protected focus-based healing for confirmed five-player dungeon healers in WoW Forever.
 
 - [Rotation development](Rotation-Development.md) explains class modules, settings, spell registration, HealingEngine providers and validation.
 - The current addon source is in [`../ActionLITE/`](../ActionLITE/).

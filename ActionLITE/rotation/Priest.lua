@@ -7013,8 +7013,10 @@ AL.RegisterRotation("PRIEST", M)
         end
     end
     local function HPCurrentHealingUnit()
-        return HPGroupUnitFor("mouseover") or HPGroupUnitFor("target")
-            or HPGroupUnitFor("focus") or "player"
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- Mouseover is the user's manual override. Automatic HealingEngine
+        -- casts resolve through focus, then self when no group focus exists.
+        return HPGroupUnitFor("mouseover") or HPGroupUnitFor("focus") or "player"
     end
     local function HPUnitKey(unit)
         if type(unit) ~= "string" then return nil end
@@ -7200,7 +7202,7 @@ AL.RegisterRotation("PRIEST", M)
     function advanced.HealingEngineCastSucceeded(spell)
         if type(spell) ~= "string" or HPSecret(spell) then return end
         local profile = root.S and root.S() or {}
-        if profile.healingEngine ~= true then return end
+        if type(profile) ~= "table" then return end
         local now, unit = HPNow(), HPHealingUnit()
         priestHealing.pendingUnit = nil
         if spell == "Power Word: Shield" then

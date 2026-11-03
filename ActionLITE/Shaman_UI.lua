@@ -22,6 +22,8 @@ local function BuildShamanUI(page, ui)
 	if rotation and rotation.NormalizeBuild then rotation.NormalizeBuild(ui.Profile()) end
 	local theme = ui.Theme
 	local stack = ui.Body(page)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	AL.BuildRotationRoleCard(stack, ui, "SHAMAN")
 	local spellIDs = {}
 	for _, entry in ipairs((rotation and rotation.spells) or {}) do
 		spellIDs[entry[2]] = entry[1]
@@ -202,8 +204,7 @@ local function BuildShamanUI(page, ui)
 
 	local healingEngine = ui.Card(stack, "HEALING ROTATION", nil, { id="healing-engine", group="survival" })
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	Check(healingEngine, "healingEngine", "Enable Healing Rotation", "Healing Wave",
-		"Enables five-player dungeon healing, selected-ally distress healing, and the protected Action focus pixel. Raids, world groups, battlegrounds, arenas and solo play continue using Leveling Rotation.", true)
+	ui.Help(healingEngine, "Select Heals in Rotation Role. The client must positively assign the Shaman the Healer role in a confirmed five-player dungeon. Automatic heals are expected to cast on focus; mouseover is reserved for manual healing overrides.")
 	Slider(healingEngine, "healingInitiateHP", "Initiate healing at HP", 5, 100, 80, " %")
 	Slider(healingEngine, "healingEmergencyHP", "Emergency healing", 5, 100, 30, " %")
 	Dropdown(healingEngine, "healingTotemEarth", "Call: Earth totem", {

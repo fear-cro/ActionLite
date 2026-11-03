@@ -1080,8 +1080,12 @@ local function PlayerStance()
 end
 
 local function WarriorRole(s)
-	if PlayerStance() == 2 then return "TANK" end
-	return s and s.warriorRole == "TANK" and "TANK" or "DPS"
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Defensive Stance alone no longer enables Taunt, Challenging Shout or the
+	-- protection threat loop.  Those actions require the shared Tank role.
+	if type(AL.GetRotationMode) == "function"
+		and AL.GetRotationMode(s, "WARRIOR") == "TANK" then return "TANK" end
+	return "DPS"
 end
 
 
@@ -3545,12 +3549,12 @@ local function PlayerStance()
 end
 
 local function WarriorRole(s)
-	-- Explicit DPS selection takes priority; all unchecked keeps the earlier
-	-- stance-based leveling fallback, including Defensive Stance tanking.
-	if s and s.protection == true then return "TANK" end
-	if s and (s.arms == true or s.fury == true) then return "DPS" end
-	if PlayerStance() == 2 then return "TANK" end
-	return s and (s.protection==true or s.warriorRole=="TANK") and "TANK" or "DPS"
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- The shared selector is authoritative.  Stance is a combat prerequisite,
+	-- not permission to emit tank threat actions.
+	if type(AL.GetRotationMode) == "function"
+		and AL.GetRotationMode(s, "WARRIOR") == "TANK" then return "TANK" end
+	return "DPS"
 end
 
 function M.ProtectionActive(s)
