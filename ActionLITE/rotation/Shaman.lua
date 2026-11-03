@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 
--- ActionLITE Shaman v0.18.0: original Leveling, optional talent builds and Restoration healing.
+-- ActionLITE Shaman v0.18.1: original Leveling, optional talent builds and Restoration healing.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -1397,7 +1397,7 @@ AL.RegisterRotation("SHAMAN", M)
 -- BEGIN OPTIONAL TALENT BUILD IMPLEMENTATION
 local ADDON, AL = ...
 
--- WoW Forever Shaman Elemental 31/7/13 / Enhancement 18/33/0 - v0.18.0
+-- WoW Forever Shaman Elemental 31/7/13 / Enhancement 18/33/0 - v0.18.1
 -- Elemental reference: MythicSim 0025d73986ee, client 1.60.1.70338.
 -- Reference Enhancement : Forever 1.60.1.70338, MythicSim 944a791060db.
 -- Status: client validation required for costs, ranks and talents.
@@ -1409,8 +1409,8 @@ local M = {
 	defaults = {
         leveling = true,
 		shamanRole = "ENHANCEMENT",
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 		elemental = false, elementalMastery = true,
-		elementalLavaBurst = true, elementalLavaBurstMana = 15,
 		elementalChainLightning = true, elementalChainMana = 30, elementalChainClearcasting = true,
 		elementalWaterShield = true, elementalRacials = true,
 		enhancement = false,
@@ -1526,8 +1526,9 @@ M.spells = {
 	{ 5394, "Healing Stream Totem" },
 	{ 331, "Healing Wave" },
 	{ 8004, "Lesser Healing Wave" },
-	{ 408490, "Lava Burst" },
-	{ 0, "Elemental Mastery" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Lightning Mastery is active; Call of Thunder is passive and is not queued.
+	{ 0, "Lightning Mastery" },
 	{ 403, "Lightning Bolt" },
 	{ 324, "Lightning Shield" },
 	{ 8190, "Magma Totem" },
@@ -1545,6 +1546,8 @@ M.spells = {
 	{ 17364, "Stormstrike" },
 	{ 8075, "Strength of Earth Totem" },
 	{ 8143, "Tremor Totem" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 0, "Totemic Call" },
 	{ 131, "Water Breathing" },
 	{ 546, "Water Walking" },
 	{ 408510, "Water Shield" },
@@ -1673,8 +1676,9 @@ local WEAPON_ENCHANT_FALLBACK_DURATION = 60 * 60
 
 AL.selfCastSpells = AL.selfCastSpells or {}
 	for _, name in ipairs({ "Lightning Shield", "Water Shield", "Healing Wave", "Lesser Healing Wave", "Rockbiter Weapon",
-	    "Flametongue Weapon", "Windfury Weapon", "Blood Fury", "Berserking", "Rage of the Farseer", "Fire Nova", "Elemental Mastery",
-	    "Call of the Elements", "Mana Tide Totem", "Nature's Swiftness" }) do AL.selfCastSpells[name] = true end
+	    "Flametongue Weapon", "Windfury Weapon", "Blood Fury", "Berserking", "Rage of the Farseer", "Fire Nova",
+	    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	    "Lightning Mastery", "Call of the Elements", "Totemic Call", "Mana Tide Totem", "Nature's Swiftness" }) do AL.selfCastSpells[name] = true end
 for name in pairs(TOTEM_ELEMENT) do AL.selfCastSpells[name] = true end
 -- Shared native gates keep opaque percentages in native display alpha only.
 local lastRotation
@@ -2226,8 +2230,9 @@ local function Standalone(s) return Enabled(s,"elemental") or Enabled(s,"enhance
 -- Standalone 18/33/0 state. Only confirmed player casts create timers;
 -- proc stacks and resets require readable client evidence.
 local enh = { cooldowns={}, flames={}, talents={}, talentWarm=false, boltAt=-math.huge, completed={} }
-local ENH_COOLDOWNS = { ["Elemental Mastery"]=180, ["Stormstrike"]=8, ["Fire Nova"]=10, ["Chain Lightning"]=6,
-    ["Lava Burst"]=10, ["Water Shield"]=15,
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local ENH_COOLDOWNS = { ["Lightning Mastery"]=180, ["Stormstrike"]=6, ["Fire Nova"]=10, ["Chain Lightning"]=6,
+    ["Water Shield"]=15,
     ["Rage of the Farseer"]=180, ["Blood Fury"]=120, ["Berserking"]=180 }
 
 local function EnhancementTalent(name)
@@ -2258,19 +2263,20 @@ function M.FlameShockDuration()
     return 12+3*math.max(0,math.min(3,rank))
 end
 
-local function ElementalMasteryActive()
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function LightningMasteryActive()
     local now=GetTime()
     if enh.masteryAt and now-enh.masteryAt<0.5 then return (enh.masteryUntil or 0)>now end
     local reader=C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if type(reader)=="function" then
-        local native=SafeCall(C_Spell and C_Spell.GetSpellName,LearnedID("Elemental Mastery") or "Elemental Mastery")
+        local native=SafeCall(C_Spell and C_Spell.GetSpellName,LearnedID("Lightning Mastery") or "Lightning Mastery")
         for i=1,40 do
             local ok,aura=pcall(reader,"player",i,"HELPFUL")
             if not ok or not SafeValue(aura) then break end
             if aura==nil then enh.masteryUntil=0;return false end
             if type(aura)~="table" then break end
             local name=SafeValue(aura.name) and type(aura.name)=="string" and aura.name or nil
-            if name=="Elemental Mastery" or name and SafeValue(native) and name==native then
+            if name=="Lightning Mastery" or name and SafeValue(native) and name==native then
                 local ending=Number(aura.expirationTime)
                 return not ending or ending==0 or ending>now
             end
@@ -2283,7 +2289,7 @@ local function EnhancementReady(name)
     local record=enh.cooldowns[name]
     if SHOCKS[name] then record=enh.cooldowns.shock end
     if record and GetTime()-record.at<0.5 then return false end
-    if name=="Chain Lightning" and Enabled(AL.S(),"elemental") and ElementalMasteryActive() then return true end
+    if name=="Chain Lightning" and Enabled(AL.S(),"elemental") and LightningMasteryActive() then return true end
     local info=SafeCall(C_Spell and C_Spell.GetSpellCooldown,LearnedID(name) or name)
     if SafeValue(info) and type(info)=="table" then
         if Bool(info.isEnabled)==false then return false end
@@ -2694,7 +2700,8 @@ local function Damage(s, role, mana, targetHP, moving)
         if Enabled(s,"lightningbolt") and AL.DPS60.Proc("Maelstrom Weapon", 5) then
             Offer("Lightning Bolt", "Maelstrom Weapon", { ManaGate(mana,SettingNumber(s,"lightningBoltMinMana",15,0,100),false) })
         end
-        if role == "ELEMENTAL" and not moving then Offer("Lava Burst", "learned damage", { ManaGate(mana,SettingNumber(s,"lightningBoltMinMana",15,0,100),false) }) end
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- Elemental continues with Lightning Bolt as its single-target cast.
     end
     if Enabled(s,"frostshock") then Offer("Frost Shock","Low-health slow",{shock,
         HealthGate("target",targetHP,SettingNumber(s,"frostShockTargetHP",25,0,100),true) }) end
@@ -2913,15 +2920,15 @@ local function ElementalDamage(s,inCombat,mana,targetHP,moving)
             Offer("Searing Totem","Elemental fire totem",{totemHP})
         end
     end
-    if Bool(AL.burst)==true and Enabled(s,"elementalMastery") and not moving and not ElementalMasteryActive()
-        and (Ok("Lightning Bolt") or Ok("Lava Burst"))
-        and (Bool((SafeCall(AL.InRange,"Lightning Bolt")))==true or Bool((SafeCall(AL.InRange,"Lava Burst")))==true) then
-        Offer("Elemental Mastery","Elemental Burst",{
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    if Bool(AL.burst)==true and Enabled(s,"elementalMastery") and not moving and not LightningMasteryActive()
+        and Ok("Lightning Bolt") and Bool((SafeCall(AL.InRange,"Lightning Bolt")))==true then
+        Offer("Lightning Mastery","Elemental Burst",{
             HealthGate("target",targetHP,SettingNumber(s,"burstMinTargetHP",40,0,100),false),
             ManaGate(mana,SettingNumber(s,"lightningBoltMinMana",15,0,100),false)})
     end
     if Bool(AL.burst)==true and Enabled(s,"elementalRacials")
-        and (Bool((SafeCall(AL.InRange,"Lightning Bolt")))==true or Bool((SafeCall(AL.InRange,"Lava Burst")))==true) then
+        and Bool((SafeCall(AL.InRange,"Lightning Bolt")))==true then
         local gates={HealthGate("target",targetHP,SettingNumber(s,"burstMinTargetHP",40,0,100),false)}
         Offer("Blood Fury","Elemental Burst racial",gates)
         Offer("Berserking","Elemental Burst racial",gates)
@@ -2930,12 +2937,9 @@ local function ElementalDamage(s,inCombat,mana,targetHP,moving)
         Offer("Flame Shock","Elemental damage over time",{ManaGate(mana,SettingNumber(s,"shockMinMana",25,0,100),false),
             HealthGate("target",targetHP,SettingNumber(s,"flameShockMinTargetHP",35,0,100),false)})
     end
-    if Enabled(s,"elementalLavaBurst") and not moving then
-        Offer("Lava Burst","Elemental Lava Burst",{ManaGate(mana,SettingNumber(s,"elementalLavaBurstMana",15,0,100),false)})
-    end
     if closeAoE and Enabled(s,"firenova") then Offer("Fire Nova","Elemental AoE nova",{aoeMana}) end
     if rangedCount and rangedCount>=minimum and not moving
-        and (not Enabled(s,"elementalChainClearcasting") or ElementalMasteryActive() or ElementalChainProc()) then
+        and (not Enabled(s,"elementalChainClearcasting") or LightningMasteryActive() or ElementalChainProc()) then
         Offer("Chain Lightning","Elemental ranged AoE",{aoeMana,ManaGate(mana,SettingNumber(s,"elementalChainMana",30,0,100),false)})
     end
     LightningBolt(s,mana,moving,"Elemental filler")
@@ -2953,7 +2957,7 @@ function M.NextSpell(s, inCombat, hostile)
     M.NormalizeBuild(s)
     lastRotation = { at=GetTime(), actions={} }
     if not inCombat and Enabled(s,"elemental") then
-        for _,name in ipairs({"Lava Burst","Water Shield","Blood Fury","Berserking"}) do
+        for _,name in ipairs({"Lightning Mastery","Water Shield","Blood Fury","Berserking"}) do
             if Ok(name) then EnhancementReady(name) end
         end
     end
@@ -3017,15 +3021,16 @@ function M.OnCastResult(name, result, sent)
     local now = GetTime()
     if enh.duplicateAt==now and enh.duplicateName==name then return end
     local duration=ENH_COOLDOWNS[name]
-    if name=="Elemental Mastery" then
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    if name=="Lightning Mastery" then
         enh.masteryAt,enh.masteryUntil=now,now+15
         enh.cooldowns["Chain Lightning"]=nil
-    elseif name=="Chain Lightning" and Enabled(AL.S(),"elemental") and ElementalMasteryActive() then duration=0 end
+    elseif name=="Chain Lightning" and Enabled(AL.S(),"elemental") and LightningMasteryActive() then duration=0 end
     if name=="Fire Nova" then duration=10-2*math.min(2,EnhancementTalent("Improved Fire Nova") or 0) end
     if SHOCKS[name] then duration=6-0.2*math.min(5,EnhancementTalent("Reverberation") or 0) end
     if duration then enh.cooldowns[SHOCKS[name] and "shock" or name]={at=now,ends=now+duration} end
     if name=="Lightning Bolt" then enh.boltAt=now end
-    if name=="Lightning Bolt" or name=="Lava Burst" or name=="Chain Lightning" or name=="Fire Nova" or SHOCKS[name] then enh.clearConsumeAt=now end
+    if name=="Lightning Bolt" or name=="Chain Lightning" or name=="Fire Nova" or SHOCKS[name] then enh.clearConsumeAt=now end
     if name=="Water Shield" or name=="Lightning Shield" then enh.shield={name=name,at=now,expires=now+600} end
     if name=="Flame Shock" and sent and SafeValue(sent.targetGUID) and type(sent.targetGUID)=="string" then
         for guid,record in pairs(enh.flames) do if record.expires<=now then enh.flames[guid]=nil end end
@@ -3076,9 +3081,9 @@ function M.GetUIState()
         weaponEnchant=weapon, earthTotem=ActiveTotemFrom("EARTH",snapshot), waterTotem=ActiveTotemFrom("WATER",snapshot),
         fireTotem=ActiveTotemFrom("FIRE",snapshot), enemyCount=EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5),Enabled(s,"elemental") and 36 or 8),
         shockLocked=GetTime()<shockLockUntil,
-        elementalMasteryConfirmedUntil=enh.masteryUntil,
+        lightningMasteryConfirmedUntil=enh.masteryUntil,
         callOfFlameRank=enh.talents["Call of Flame"],
-        elementalMasteryID=LearnedID("Elemental Mastery") }
+        lightningMasteryID=LearnedID("Lightning Mastery") }
 end
 
 function M.RefreshManaCache()
@@ -3378,7 +3383,9 @@ AL.RegisterRotation("SHAMAN", M)
         natureUntil = 0, manaTideUntil = 0,
         lastHeal = nil, lastRacial = nil, lastCall = nil,
     }
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
     local SH_RIPTIDE_DURATION = 15
+    local SH_RIPTIDE_COOLDOWN = 12
     local SH_CHAIN_MANA = 50
     local SH_MANA_TIDE_MANA = 70
     local SH_ELEMENTS = { "EARTH", "FIRE", "WATER", "AIR" }
@@ -3695,7 +3702,8 @@ AL.RegisterRotation("SHAMAN", M)
             SHSetEffect("player", spell, 600)
         elseif spell == "Riptide" then
             SHSetEffect(unit, spell, SH_RIPTIDE_DURATION)
-            shamanHealing.cooldowns[spell] = now + 6
+            -- Riptide is now HoT-only; the cast still starts the shared five-second mana rule.
+            shamanHealing.cooldowns[spell] = now + SH_RIPTIDE_COOLDOWN
             shamanHealing.lastHeal = { spell = spell, unit = unit, at = now }
         elseif spell == "Mana Tide Totem" then
             shamanHealing.cooldowns[spell] = now + 300
@@ -3816,7 +3824,7 @@ AL.RegisterRotation("SHAMAN", M)
         end
         if SHAvailable("Riptide", profile) then
             routine[#routine + 1] = {
-                spell = "Riptide", reason = "Restoration: tracked Riptide",
+                spell = "Riptide", reason = "Restoration: tracked HoT-only Riptide",
                 unitFilter = function(unit) return not SHEffectActive(unit, "Riptide") end,
             }
         end
@@ -3917,6 +3925,7 @@ AL.RegisterRotation("SHAMAN", M)
         return {
             provider = "Restoration Shaman",
             riptideSeconds = SH_RIPTIDE_DURATION,
+            riptideCooldown = SH_RIPTIDE_COOLDOWN,
             chainHealMana = SH_CHAIN_MANA,
             manaTideMana = SH_MANA_TIDE_MANA,
             natureSeconds = math.max(0, shamanHealing.natureUntil - now),

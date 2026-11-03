@@ -1,5 +1,6 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.19.0"
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local UI_VERSION = "0.20.0"
 
 -- Dedicated Shaman interface. Only UI text is localized here;
 -- spell names and profile keys remain identical in both languages.
@@ -106,7 +107,7 @@ local function BuildShamanUI(page, ui)
 		}, "ENHANCEMENT")
 	Check(roleCard, "enhancement", "Use Enhancement (18/33/0)", "Stormstrike",
 		"Uses the level 60 Enhancement priority with your learned spells and turns Use Elemental off. Overrides Active rotation while checked; unchecking selects Leveling Rotation, using the Active rotation choice. It does not change your talents or equipment.", true)
-	ui.Help(roleCard, "18/33/0: Stormstrike, confirmed instant Maelstrom Lightning Bolt, Searing Totem, Flame Shock and Earth Shock. In melee, ordinary Lightning Bolt is withheld to preserve weapon swings. Existing spell permissions and sliders apply.")
+	ui.Help(roleCard, "18/33/0: Stormstrike on its six-second cooldown, confirmed instant Maelstrom Lightning Bolt, Searing Totem, Flame Shock and Earth Shock. In melee, ordinary Lightning Bolt is withheld to preserve weapon swings. Existing spell permissions and sliders apply.")
 	Check(roleCard, "enhancementMaelstrom", "Use instant Maelstrom Lightning Bolt", "Lightning Bolt",
 		"Requires readable instant cast time, or five readable Maelstrom stacks with five learned talent points. Uses the Lightning Bolt checkbox and mana slider.")
 	local enhancementBurst=ui.Card(stack,"ENHANCEMENT BURST",nil,{id="enhancement-burst",build="enhancement",group="burst"})
@@ -123,20 +124,17 @@ local function BuildShamanUI(page, ui)
 	ui.Help(roleCard, "Enhancement AUTO uses Rockbiter Weapon, Strength of Earth, Windfury and Mana Spring. With Windfury Weapon, the automatic air totem changes to Grace of Air. Manual weapon and totem choices take precedence. Totems require Maintain combat totems.")
 
 	local elemental=ui.Card(stack,"ELEMENTAL - 31/7/13","Ranged spell rotation with learned spells through level 60.", { id="elemental", build="elemental", group="damage" })
-	Check(elemental,"elemental","Use Elemental (31/7/13)","Lava Burst",
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	Check(elemental,"elemental","Use Elemental (31/7/13)","Lightning Bolt",
 		"Select Elemental and turn off Use Enhancement. Selecting Enhancement turns Elemental off. Other settings and icon choices are preserved; Leveling Rotation uses the earlier Active rotation choice. This does not change your talents or equipment.",true)
-	Check(elemental,"elementalLavaBurst","Use Lava Burst","Lava Burst",
-		"Uses the learned rank on cooldown while stationary. Missing Flame Shock has priority when enabled and its mana/target-health thresholds are met. Lava Burst remains usable when Flame Shock is unavailable, disabled or outside shock range.")
-	Slider(elemental,"elementalLavaBurstMana","Lava Burst minimum mana",0,100,15," %",
-		"At or above this player mana percentage. Actual spell affordability is also required. Lightning Bolt retains its separate minimum-mana slider.")
 	Check(elemental,"elementalWaterShield","Prefer learned Water Shield","Water Shield",
 		"Requires Maintain shield and an actually learned Water Shield. Otherwise uses learned Lightning Shield. The reference 31/7/13 build does not learn Water Shield; its checkbox never invents a talent.")
 	local elementalBurst=ui.Card(stack,"ELEMENTAL BURST",nil,{id="elemental-burst",build="elemental",group="burst"})
-	Check(elementalBurst,"elementalMastery","Elemental Mastery during Burst","Elemental Mastery",
+	Check(elementalBurst,"elementalMastery","Lightning Mastery during Burst","Lightning Mastery",
 		"Requires the learned spell, Burst On and the mana/target-health thresholds. Tracks its fifteen-second effect and releases Chain Lightning's cooldown during the effect; Chain Lightning still requires AoE On.")
 	Check(elementalBurst,"elementalRacials","Elemental racials during Burst","Berserking",
 		"Learned Blood Fury or Berserking only with Burst On, spell range and the Burst target-health threshold. No item or consumable use. The default Tauren preset has no offensive racial cooldown to add.")
-	ui.Help(elemental,"Normal damage: maintain your own missing Flame Shock, use ready Lava Burst, then repeat Lightning Bolt while stationary. At melee distance Elemental remains a caster. Earth/Frost Shocks provide instant fallbacks during movement or when the main casts are disabled or unavailable; Earth Shock still interrupts with its separate control.")
+	ui.Help(elemental,"Normal damage: maintain your own missing Flame Shock, then repeat Lightning Bolt while stationary. Call of Thunder is passive and needs no control. At melee distance Elemental remains a caster. Earth/Frost Shocks provide instant fallbacks during movement or when the main casts are disabled or unavailable; Earth Shock still interrupts with its separate control.")
 	ui.Help(elemental,"AoE spells require AoE On and enough confirmed engaged enemies. Chain Lightning can be used at spell range; Fire Nova and Magma require confirmed enemies within eight yards. Searing Totem is used only when its target is confirmed within twenty yards. Existing mana, target-health, totem and spell controls apply.")
 
 	local steel = { 0.72, 0.62, 0.50, 1 }
@@ -272,7 +270,8 @@ local function BuildShamanUI(page, ui)
 		{ label = "Disabled", value = "OFF" },
 	}, "GRACE")
 	ui.Help(healingEngine, "Set WoW's Call of the Elements preset to the same four choices shown here. ActionLITE uses these selections to verify and maintain the preset; addons cannot rewrite the protected Totem Bar preset during combat. A confirmed empty, incomplete, or mismatched preset is repaired with individual totems instead of repeatedly casting Call. Mana Tide temporarily replaces the selected Water totem, then the selected Water totem is restored after Mana Tide expires.")
-	ui.Help(healingEngine, "Riptide is tracked per member. Chain Heal requires a recent Riptide, a second injured member, and more than 50% mana. Lesser Healing Wave handles smaller injuries; Healing Wave handles large and tank injuries. Nature's Swiftness with Chain Heal, Blood Fury, and Berserking are reserved for the emergency slider. Ancestral Healing is a passive critical-heal proc, so direct tank heals provide its refresh opportunities.")
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	ui.Help(healingEngine, "Riptide is a HoT-only heal tracked per member with a twelve-second cooldown. Chain Heal requires a recent Riptide, a second injured member, and more than 50% mana. Lesser Healing Wave handles smaller injuries; Healing Wave handles large and tank injuries. Nature's Swiftness with Chain Heal, Blood Fury, and Berserking are reserved for the emergency slider. Ancestral Healing is a passive critical-heal proc, so direct tank heals provide its refresh opportunities.")
 
 	local aoe = ui.Card(stack,
 		Text({ en = "AREA DAMAGE", fr = "AOE ET BURST", pt = "AOE E BURST", es = "AOE Y BURST", de = "AOE & BURST", zh = "AOE 和爆发" }), nil, { id="aoe", group="aoe" })
@@ -284,7 +283,7 @@ local function BuildShamanUI(page, ui)
 	Check(aoe, "enhancementChainLightning", "Enhancement: allow Chain Lightning", "Chain Lightning",
 		"Optional stationary AoE hard cast after melee and Maelstrom priorities. Off by default because it interrupts melee swings. Requires AoE On and the AoE mana/enemy thresholds. Maelstrom does not make it instant.")
 	Check(aoe,"elementalChainLightning","Elemental: use Chain Lightning","Chain Lightning",
-		"Requires Use Elemental, AoE On, the minimum confirmed engaged enemy count, range and stationary casting. Checks enemies within thirty-six yards for this ranged branch; nearby counts are checked separately for Fire Nova/Magma.")
+		"Requires Use Elemental, AoE On, the minimum confirmed engaged enemy count, range and stationary casting. Its 2.5-second cast and higher mana cost remain subject to the mana controls. Checks enemies within thirty-six yards for this ranged branch; nearby counts are checked separately for Fire Nova/Magma.")
 	Check(aoe,"elementalChainClearcasting","Chain Lightning only with Clearcasting","Chain Lightning",
 		"ON by default for the no-consumables setup. Requires readable Clearcasting or an explicit current zero mana cost. Hidden/unknown procs keep Lightning Bolt going. Turn this off to allow Chain Lightning from the AoE and mana settings alone.")
 	Slider(aoe,"elementalChainMana","Elemental Chain Lightning minimum mana",0,100,30," %",

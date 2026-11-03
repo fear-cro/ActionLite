@@ -90,7 +90,9 @@ AL.SpellTextureOverrides = {
 		["Vampiric Touch"] = 135978,
 	},
 	ROGUE = { ["Mutilate"] = 132304 },
-	SHAMAN = { ["Totemic Projection"] = 310733 },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Keep the corrected native artwork on the renamed live utility spell.
+	SHAMAN = { ["Totemic Call"] = 310733 },
 	WARLOCK = { ["Curse of the Elements"] = 136130 },
 	WARRIOR = { ["Raging Blow"] = 132215, ["Victory Rush"] = 132342 },
 }
@@ -1048,7 +1050,9 @@ local SPELL_COOLDOWNS = {
 	["Elune's Light"] = 180,
 	["Overpower"] = 5, ["Revenge"] = 5, ["Thunder Clap"] = 4,
 	["Mongoose Bite"] = 5, ["Concussive Shot"] = 12, ["Summon Hawk"] = 6,
-	["Stormstrike"] = 20, ["Riptide"] = 6, ["Mana Tide Totem"] = 300,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Stormstrike"] = 6, ["Riptide"] = 12, ["Mana Tide Totem"] = 300,
+	["Lightning Mastery"] = 180, ["Totemic Call"] = 30,
 	["Blood Fury"] = 120, ["Berserking"] = 180, ["War Stomp"] = 120,
 }
 local cdExpires = {}
