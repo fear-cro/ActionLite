@@ -13,7 +13,7 @@ end
 
 AL.RegisterSimpleClassUI("MAGE", {
 	title = { en = "MAGE - LEVELING", fr = "MAGE - PROGRESSION", pt = "MAGO - EVOLUÇÃO", es = "MAGO - SUBIDA", de = "MAGIER - LEVELN", zh = "法师 - 升级" },
-	subtitle = { en = "Level 1-60 - Frost, Fire, Arcane and Frostfire builds, learned spells and wand control", fr = "Niveaux 1-60 - Feu, Arcane et Givrefeu", pt = "Níveis 1-60 - Fogo, Arcano e Fogo Gélido", es = "Niveles 1-60 - Fuego, Arcano y Pirofrío", de = "Stufe 1-60 - Feuer, Arkan und Frostfeuer", zh = "1-60级 - 火焰、奥术与霜火" },
+	subtitle = { en = "Level 1-60 - learned spells, talent abilities and wand control", fr = "Niveaux 1-60 - Feu, Arcane et Givrefeu", pt = "Níveis 1-60 - Fogo, Arcano e Fogo Gélido", es = "Niveles 1-60 - Fuego, Arcano y Pirofrío", de = "Stufe 1-60 - Feuer, Arkan und Frostfeuer", zh = "1-60级 - 火焰、奥术与霜火" },
 	aoeKey = "aoe",
 	cards = {
         {
@@ -21,7 +21,7 @@ AL.RegisterSimpleClassUI("MAGE", {
             id="leveling-rotation", build="leveling", group="damage",
             controls = {
                 { key="leveling", label="Leveling Rotation", spell="Frostbolt", half=false,
-                  tooltip={"Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected."} },
+                  tooltip={"Leveling Rotation", "Uses the finalized leveling rotation and automatically adds learned talent spells. The preferred-nuke and fire-priority settings remain available below."} },
             },
         },
 		{
@@ -188,6 +188,11 @@ AL.RegisterSimpleClassUI("MAGE", {
 					{ label = "Arcane Missiles", value = "ARCANE_MISSILES" },
 					{ label = "Scorch", value = "SCORCH" },
 				} },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "frostfireBolt", label = "Use learned Frostfire Bolt", spell = "Frostfire Bolt",
+				  tooltip = { "Leveling filler", "Uses Frostfire Bolt as a stationary filler only when the live spellbook confirms it is learned, usable, affordable, ready and in range." } },
+				{ key = "pyroblast", label = "Open with learned Pyroblast", spell = "Pyroblast", half = false,
+				  tooltip = { "Leveling opener", "Attempts one Pyroblast while stationary before combat on each selected target. In-combat proc use stays manual when protected data cannot prove a safe cast." } },
 				{ key = "primaryFire", onChange = ChooseBuild("primaryFire","arcane","frostfire","fire","frost"), label = { en = "Primarily use fire spells", fr = "Utiliser principalement les sorts de feu", pt = "Usar principalmente feitiços de fogo", es = "Usar principalmente hechizos de fuego", de = "Hauptsächlich Feuerzauber verwenden", zh = "主要使用火焰法术" }, spell = "Fireball", tooltip = {
 					{ en = "Fire-primary rotation", fr = "Rotation principalement Feu", pt = "Rotação principal de Fogo", es = "Rotación principalmente de Fuego", de = "Feuerpriorisierte Rotation", zh = "火焰优先循环" },
 					{ en = "Switches to Leveling Rotation with fire priority. Uses Fireball and Fire Blast, and recommends Flamestrike when AoE is enabled and its enemy-count and mana settings are met.", fr = "Désactive la priorité de Frostbolt. Utilise Fireball et Fire Blast, et recommande Flamestrike si l’AoE est activée et que les seuils d’ennemis et de mana sont atteints.", pt = "Desativa a prioridade de Frostbolt. Usa Fireball e Fire Blast e recomenda Flamestrike quando o AoE está ativado e os limites de inimigos e mana são atendidos.", es = "Desactiva la prioridad de Frostbolt. Usa Fireball y Fire Blast y recomienda Flamestrike cuando el AoE está activado y se cumplen los límites de enemigos y maná.", de = "Deaktiviert die Frostbolt-Priorität. Verwendet Fireball und Fire Blast und empfiehlt Flamestrike, wenn AoE aktiviert ist und die Gegner- und Mana-Schwellen erreicht sind.", zh = "禁用 Frostbolt 优先级。使用 Fireball 和 Fire Blast。启用 AoE 且达到敌人数和法力阈值时推荐 Flamestrike。" }
@@ -234,6 +239,10 @@ AL.RegisterSimpleClassUI("MAGE", {
 			},
 			controls = {
 				{ key = "cspell", label = { en = "Counterspell enemy casts", fr = "Counterspell sur les incantations", pt = "Counterspell em lançamentos inimigos", es = "Counterspell a lanzamientos enemigos", de = "Counterspell auf feindliche Zauber", zh = "Counterspell打断敌方施法" }, spell = "Counterspell" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "arcaneBlast", label = "Use learned Arcane Blast", spell = "Arcane Blast" },
+				{ key = "arcaneWrath", label = "Use learned Arcane Wrath", spell = "Arcane Wrath", half = false,
+				  tooltip = { "Learned talent spell", "Uses Arcane Wrath while stationary and ready, after a confirmed Missile Barrage and before ordinary filler spells." } },
 				{ key = "nova", label = { en = "Frost Nova in melee", fr = "Frost Nova au corps a corps", pt = "Frost Nova em corpo a corpo", es = "Frost Nova en cuerpo a cuerpo", de = "Frost Nova im Nahkampf", zh = "近战时Frost Nova" }, spell = "Frost Nova" },
 				{ key = "fireblast", label = { en = "Fire Blast on the move and on cooldown", fr = "Fire Blast en mouvement et des que disponible", pt = "Fire Blast em movimento e quando disponível", es = "Fire Blast en movimiento y al estar disponible", de = "Fire Blast in Bewegung und sobald bereit", zh = "移动中及冷却结束时Fire Blast" }, spell = "Fire Blast" },
 				{ type = "slider", key = "fireBlastMinMana", label = { en = "Fire Blast minimum mana", fr = "Mana minimum Fire Blast", pt = "Mana mínima Fire Blast", es = "Maná mínimo Fire Blast", de = "Fire Blast Mindestmana", zh = "Fire Blast最低法力值" }, min = 0, max = 100, step = 5, default = 25, suffix = " %" },
@@ -251,6 +260,9 @@ AL.RegisterSimpleClassUI("MAGE", {
 				{ key = "manaShield", label = { en = "Mana Shield at low health", fr = "Mana Shield a faible vie", pt = "Mana Shield com pouca vida", es = "Mana Shield con poca salud", de = "Mana Shield bei wenig Gesundheit", zh = "低生命值时Mana Shield" }, spell = "Mana Shield" },
 				{ type = "slider", key = "manaShieldHP", label = { en = "Mana Shield health threshold", fr = "Seuil de vie Mana Shield", pt = "Limite de vida Mana Shield", es = "Umbral de salud Mana Shield", de = "Mana Shield Gesundheitsschwelle", zh = "Mana Shield生命值阈值" }, min = 5, max = 90, step = 5, default = 45, suffix = " % HP" },
 				{ type = "slider", key = "manaShieldMinMana", label = { en = "Mana Shield minimum mana", fr = "Mana minimum Mana Shield", pt = "Mana mínima Mana Shield", es = "Maná mínimo Mana Shield", de = "Mana Shield Mindestmana", zh = "Mana Shield最低法力值" }, min = 0, max = 100, step = 5, default = 25, suffix = " %" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "frostBarrier", label = "Maintain learned Ice Barrier", spell = "Ice Barrier" },
+				{ type = "slider", key = "frostBarrierMinMana", label = "Ice Barrier minimum mana", min = 0, max = 100, step = 5, default = 25, suffix = " %" },
 			},
 		},
 		{

@@ -21,7 +21,7 @@ end
 
 AL.RegisterSimpleClassUI("PRIEST", {
 	title = { en = "PRIEST - LEVELING", fr = "PRETRE - PROGRESSION", pt = "SACERDOTE - PROGRESSÃO", es = "SACERDOTE - PROGRESIÓN", de = "PRIESTER - LEVELN", zh = "牧师 - 升级" },
-	subtitle = { en = "Shadow or Smite solo profile - interface 0.31.2", fr = "Profil solo Ombre ou Smite - interface 0.31.2", pt = "Perfil solo Sombra ou Smite - interface 0.31.2", es = "Perfil en solitario Sombra o Smite - interfaz 0.31.2", de = "Solo-Profil Schatten oder Smite - Interface 0.31.2", zh = "暗影或 Smite 单刷配置 - 界面 0.31.2" },
+	subtitle = { en = "Leveling damage and dungeon healing - interface 0.33.0", fr = "Dégâts de progression et soins de donjon - interface 0.33.0", pt = "Dano de progressão e cura de masmorra - interface 0.33.0", es = "Daño de progresión y sanación de mazmorra - interfaz 0.33.0", de = "Level-Schaden und Dungeon-Heilung - Interface 0.33.0", zh = "升级伤害与地下城治疗 - 界面 0.33.0" },
 	aoeKey = "aoe",
 	cards = {
         {
@@ -29,7 +29,7 @@ AL.RegisterSimpleClassUI("PRIEST", {
             id="leveling-rotation", build="leveling", group="damage",
             controls = {
                 { key="leveling", label="Leveling Rotation", spell="Smite", half=false,
-                  tooltip={"Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected."} },
+                  tooltip={"Leveling Rotation", "Uses the finalized leveling rotation and every learned spell permitted by the settings. Leveling Rotation is the only damage rotation in this release."} },
             },
         },
 		{
@@ -37,7 +37,7 @@ AL.RegisterSimpleClassUI("PRIEST", {
 			id = "healing-engine", group = "survival",
 			controls = {
 				{ key = "healingEngine", label = "Enable Healing Rotation", spell = "Lesser Heal", half = false,
-				  tooltip = { "Enable Healing Rotation", "Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation." } },
+				  tooltip = { "Enable Healing Rotation", "Enables five-player dungeon healing, selected-ally distress healing, and the protected Action focus pixel. Raids and solo play continue using the Leveling Rotation." } },
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
 				HealingSpecCheck("healingDiscipline", "Discipline Priest", "Penance", {
@@ -46,48 +46,9 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				HealingSpecCheck("healingHoly", "Holy Priest", "Prayer of Mending", {
 					"Holy Priest", "Selects the Holy-only party priority: tracked Renew, efficient Heal, Flash Heal with passive Holy Binding for larger heals, and Prayer of Mending or Inner Focus with Greater Heal for emergencies."
 				}),
-				{ type = "info", text = "Discipline and Holy are mutually exclusive. Tank and healer thresholds use the selected value; known DPS members use 10 points less. Damage pauses for five seconds after a healing cast. Learned race-specific abilities are used for emergency healing; Dark Sacrifice requires the Priest to remain above 70% health. Prayer of Healing stays manual except for Discipline's Inner Focus emergency sequence. Inspiration is a passive critical-heal proc, so direct tank heals are prioritized rather than trying to cast it." },
+				{ type = "info", text = "Discipline and Holy are mutually exclusive; Discipline is selected automatically if neither is selected. Tank and healer thresholds use the selected value; known DPS members use 10 points less. Damage pauses for five seconds after a healing cast. Learned race-specific abilities are used for emergency healing; Dark Sacrifice requires the Priest to remain above 70% health. Prayer of Healing stays manual except for Discipline's Inner Focus emergency sequence. Inspiration is a passive critical-heal proc, so direct tank heals are prioritized rather than trying to cast it." },
 			},
 		},
-        {
-            title = "SHADOW BUILD — 18/0/33",
-            id="shadow-build-18-0-33", build="shadow", group="damage",
-            controls = {
-                { key="shadow",label="Use Shadow (18/0/33)",spell="Shadowform",half=false,
-                  tooltip={"Shadow 18/0/33","Uses your learned Shadow spells through level 60. Overrides the older role while checked; unchecking selects Leveling Rotation. Does not change talents or equipment."} },
-                { key="shadowForm",label="Maintain Shadowform",spell="Shadowform" },
-                { key="shadowMindFlay",label="Use Mind Flay filler",spell="Mind Flay" },
-                { key="shadowWordDeath",label="Use Shadow Word: Death",spell="Shadow Word: Death" },
-                { type="slider",key="shadowDeathMinHP",label="Shadow Word: Death at or above player health",min=70,max=95,step=5,default=70,suffix=" % HP" },
-                { type="info",text="Shadowform, Shadow Word: Pain, Devouring Plague, Mind Blast, Shadow Word: Death, then Mind Flay. Shadow Word: Death has a 70% safety floor because its backlash is now 30%. Uses existing spell checkboxes and health/mana settings. Preserves active casts and channels; no automatic clipping." },
-                { type="info",text="Self-healing retains Renew below 80% and Lesser Heal below 60% in combat / below 80% out of combat after Renew. The build leaves a confirmed Shadowform to heal, then restores it. The shield health slider applies in combat." },
-            },
-        },
-        {
-            title = "SHADOW BURST",
-            id="shadow-burst", build="shadow", group="burst",
-            controls = {
-                { key="shadowInnerFocus",label="Inner Focus for Mind Blast (Burst)",spell="Inner Focus" },
-                { key="shadowRacials",label="Learned racial cooldowns (Burst)",spell="Berserking" },
-                { key="shadowFiend",label="Shadowfiend (Burst)",spell="Shadowfiend" },
-                { type="slider",key="shadowFiendMana",label="Shadowfiend at/below mana",min=0,max=100,step=5,default=70,suffix=" %" },
-                { key="shadowSacrifice",label="Dark Sacrifice (Burst, optional)",spell="Dark Sacrifice" },
-                { type="slider",key="shadowSacrificeMana",label="Dark Sacrifice at/below mana",min=0,max=100,step=5,default=30,suffix=" %" },
-                { type="slider",key="shadowSacrificeHP",label="Dark Sacrifice minimum player health",min=20,max=100,step=5,default=80,suffix=" % HP" },
-                { type="info",text="Requires Burst On, a hostile combat target and the existing Burst target-health slider. Inner Focus and racials wait for eligible Mind Blast after five readable Shadow Weaving stacks, or eight seconds of combat when stacks are hidden. Dark Sacrifice is OFF by default because it drains health over time." },
-            },
-        },
-        {
-            title = "SHADOW AOE",
-            id="shadow-aoe", build="shadow", group="aoe",
-            controls = {
-                { key="aoe",label="Enable AoE mode" },
-                { key="shadowHolyNova",label="Allow learned Holy Nova outside Shadowform",spell="Holy Nova" },
-                { type="slider",key="aoeMinEnemies",label="AoE minimum engaged enemies within 10 yards",min=2,max=5,step=1,default=2,suffix="" },
-                { type="slider",key="aoeMinMana",label="AoE minimum mana",min=0,max=100,step=5,default=40,suffix=" %" },
-                { type="info",text="The default 18/0/33 build has no Holy Nova talent. This optional spell is OFF by default and requires learned Holy Nova, AoE On, confirmed nearby engaged enemies and the mana setting. It never cancels Shadowform for area damage. Without an eligible area spell, normal Shadow damage continues." },
-            },
-        },
 		{
 			title = { en = "DAMAGE PROFILE", fr = "PROFIL DE DEGATS", pt = "PERFIL DE DANO", es = "PERFIL DE DAÑO", de = "SCHADENSPROFIL", zh = "伤害配置" },
 			id="damage-profile", group="damage",
@@ -100,6 +61,23 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				{ key = "holyFire", label = { en = "Holy Fire in Smite profile", fr = "Holy Fire avec le profil Smite", pt = "Holy Fire no perfil Smite", es = "Holy Fire en el perfil Smite", de = "Holy Fire im Smite-Profil", zh = "Smite 配置中使用 Holy Fire" }, spell = "Holy Fire" },
 				{ key = "usePenance", label = "Use Penance", spell = "Penance" },
 				{ type = "slider", key = "offensivePenanceMana", label = "Offensive Penance minimum mana", min = 0, max = 100, step = 5, default = 80, suffix = " % Mana" },
+			},
+		},
+		{
+			title = "LEARNED LEVELING SPELLS",
+			id = "learned-leveling-spells", group = "damage",
+			controls = {
+				{ key = "shadowWordDeath", label = "Use Shadow Word: Death", spell = "Shadow Word: Death",
+				  tooltip = { "Shadow Word: Death", "Uses the learned execute only at or below 20% target health and only when readable player health meets the safety floor for its 30% backlash." } },
+				{ type = "slider", key = "shadowDeathMinHP", label = "Shadow Word: Death player-health floor", min = 70, max = 100, step = 5, default = 70, suffix = " % HP" },
+				{ key = "shadowInnerFocus", label = "Use Inner Focus with Burst", spell = "Inner Focus",
+				  tooltip = { "Inner Focus", "Burst On only. Prepares a learned direct Leveling spell after an eligible offensive Penance has resolved." } },
+				{ key = "shadowFiend", label = "Use Shadowfiend with Burst", spell = "Shadowfiend" },
+				{ type = "slider", key = "shadowFiendMana", label = "Shadowfiend at or below mana", min = 0, max = 100, step = 5, default = 70, suffix = " %" },
+				{ key = "shadowHolyNova", label = "Use Holy Nova with AoE", spell = "Holy Nova",
+				  tooltip = { "Holy Nova", "AoE On only. Requires at least two confirmed engaged enemies in melee and the configured mana." } },
+				{ type = "slider", key = "aoeMinMana", label = "Holy Nova minimum mana", min = 0, max = 100, step = 5, default = 40, suffix = " %" },
+				{ type = "info", text = "Every option is learned-spell gated. These controls extend the Leveling Rotation and do not select or infer a level-60 talent build." },
 			},
 		},
 		{
@@ -184,25 +162,4 @@ AL.RegisterSimpleClassUI("PRIEST", {
 				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Min. Zielgesundheit für Burst", zh = "Burst 最低目标生命值" }, min = 0, max = 100, step = 5, default = 40, suffix = " % HP" },
         } },
 	},
-}, "0.31.2")
-
--- Selecting Smite returns the profile to Leveling Rotation.
-local BuildPriestUI = AL.classUIs and AL.classUIs.PRIEST
-if BuildPriestUI then
-	AL.classUIs.PRIEST = function(page, ui)
-		local priestUI = {}
-		for key, value in pairs(ui) do priestUI[key] = value end
-        priestUI.StackDropdown = function(host, options)
-            local entries=options.options
-            if entries and entries[1] and entries[1].value=="SHADOW" and entries[2] and entries[2].value=="SMITE" then
-                local priorSet=options.set
-                options.set=function(value)
-                    priorSet(value)
-                    if value=="SMITE" then ui.Profile().shadow=false end
-                end
-            end
-            return ui.StackDropdown(host, options)
-        end
-		return BuildPriestUI(page, priestUI)
-	end
-end
+}, "0.33.0")

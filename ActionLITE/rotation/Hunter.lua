@@ -48,7 +48,7 @@ local ADDON, AL = ...
 -- WoW Forever Hunter leveling 1-30 - v0.9.4
 -- Target: beta 1.60.1.69913.
 -- Data: client extraction 1.60.1.69876 and the reference Hunter rotation.
--- Statut : LIKELY jusqu'a validation directe de chaque mecanique dans Forever.
+-- Status: LIKELY until each mechanic is validated directly in Forever.
 
 local A = _G.Action
 
@@ -78,6 +78,16 @@ local M = {
 		arcaneMinMana = 20,
 		aoeMinEnemies = 2,
 		burstMinTargetHP = 40,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		trueshot = true,
+		summonHawk = true,
+		sniper = true,
+		sniperMinMana = 20,
+		bestialWrath = true,
+		explosiveTrap = true,
+		volley = false,
+		volleyMinMana = 35,
+		bloodFury = true,
 	},
 }
 
@@ -91,6 +101,8 @@ M.spells = {
 	{ 5118, "Aspect of the Cheetah" },
 	{ 13165, "Aspect of the Hawk" },
 	{ 13163, "Aspect of the Monkey" },
+	{ 20572, "Blood Fury" },
+	{ 19574, "Bestial Wrath" },
 	{ 75, "Auto Shot" },
 	{ 1462, "Beast Lore" },
 	{ 883, "Call Pet" },
@@ -104,6 +116,7 @@ M.spells = {
 	{ 13809, "Frost Trap" },
 	{ 1130, "Hunter's Mark" },
 	{ 13795, "Immolation Trap" },
+	{ 13813, "Explosive Trap" },
 	{ 136, "Mend Pet" },
 	{ 1495, "Mongoose Bite" },
 	{ 2643, "Multi-Shot" },
@@ -113,8 +126,12 @@ M.spells = {
 	{ 1513, "Scare Beast" },
 	{ 3043, "Scorpid Sting" },
 	{ 1978, "Serpent Sting" },
-	{ 0, "Summon Hawk" }, -- ID Forever encore TODO ; detection par nom uniquement.
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 1310687, "Sniper Shot" },
+	{ 1293241, "Summon Hawk" },
 	{ 1515, "Tame Beast" },
+	{ 1299346, "Trueshot Aura" },
+	{ 1510, "Volley" },
 	{ 2974, "Wing Clip" },
 }
 
@@ -131,7 +148,11 @@ local MINLEVEL = {
 	["Call Pet"] = 10,
 	["Tame Beast"] = 10,
 	["Feed Pet"] = 10,
-	["Summon Hawk"] = 10,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Summon Hawk"] = 25,
+	["Trueshot Aura"] = 25,
+	["Explosive Trap"] = 34,
+	["Volley"] = 40,
 	["Revive Pet"] = 12,
 	["Mend Pet"] = 12,
 	["Wing Clip"] = 12,
@@ -150,6 +171,11 @@ local MINLEVEL = {
 	["Scorpid Sting"] = 22,
 	["Beast Lore"] = 24,
 	["Rapid Fire"] = 26,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Talent acquisition remains authoritative; this is only a false-positive
+	-- floor for clients that expose the spellbook entry before it is learned.
+	["Sniper Shot"] = 40,
+	["Bestial Wrath"] = 40,
 }
 
 local Ok, _, Known = AL.LevelGates(MINLEVEL)
@@ -162,6 +188,8 @@ local lastRotation
 local visibilityCurves, curveFailures = {}, {}
 local manaMaximumCache
 local mendPetLockUntil, petCallLockUntil, sharedShotUntil = 0, 0, 0
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local sniperShotUntil, bestialWrathUntil = 0, 0
 local aimedMultiUntil, movementEventActive = 0, nil
 local mongooseUntil, autoShotPendingUntil = 0, 0
 local petEpoch = 0
@@ -282,6 +310,8 @@ end
 
 local function Ready(name)
     if (name == "Arcane Shot" or name == "Summon Hawk") and GetTime() < sharedShotUntil then return false end
+	if name == "Sniper Shot" and GetTime() < sniperShotUntil then return false end
+	if name == "Bestial Wrath" and GetTime() < bestialWrathUntil then return false end
     if (name == "Aimed Shot" or name == "Multi-Shot") and aimedMultiUntil > 0 then
         if GetTime() < aimedMultiUntil then return false end
         local start, duration = SafeCall(AL.SpellCooldown, name)
@@ -354,6 +384,18 @@ local function PetState()
     return not dead, dead, dead and "DEAD" or "ACTIVE"
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Do not spend the pet cooldown merely because the player is fighting. A
+-- readable combat/target match is required; protected answers fail closed.
+local function PetEngagedWithTarget()
+	if Bool((SafeCall(UnitAffectingCombat, "pet"))) ~= true then return false end
+	local same = Bool((SafeCall(UnitIsUnit, "pettarget", "target")))
+	if same ~= nil then return same end
+	local petTarget, target = SafeCall(UnitGUID, "pettarget"), SafeCall(UnitGUID, "target")
+	return SafeValue(petTarget) and SafeValue(target)
+		and type(petTarget) == "string" and type(target) == "string" and petTarget == target
+end
+
 local function TargetTargetsPlayer()
     return Bool((SafeCall(UnitIsUnit, "targettarget", "player"))) == true
 end
@@ -372,7 +414,16 @@ local function CombatAspectNeeded()
     return AL.HasBuff("player", "Aspect of the Cheetah") or not AnyAspectActive()
 end
 
-local RANGED_ATTACKS = { "Aimed Shot", "Arcane Shot", "Serpent Sting", "Scorpid Sting", "Concussive Shot", "Multi-Shot" }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Trueshot is a learned talent aura. Leveling maintains it whenever the
+-- selected character actually knows it; talent layout names never gate it.
+local function MaintainTrueshot(s)
+    if s.trueshot and not AL.HasBuff("player", "Trueshot Aura") then
+        Offer("Trueshot Aura", "learned ranged aura")
+    end
+end
+
+local RANGED_ATTACKS = { "Aimed Shot", "Sniper Shot", "Arcane Shot", "Serpent Sting", "Scorpid Sting", "Concussive Shot", "Multi-Shot" }
 
 local function AutoShotInRange()
     if Known("Auto Shot") then return Bool((SafeCall(AL.InRange, "Auto Shot"))) end
@@ -680,6 +731,14 @@ function M.OnCastResult(name, event, sent)
         local duration = ms and ms > 1500 and ms < 60000 and ms / 1000 or 6
         sharedShotUntil = GetTime() + duration
     end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if name == "Sniper Shot" then
+		local ms = Number((SafeCall(C_Spell and C_Spell.GetSpellBaseCooldown or GetSpellBaseCooldown,
+			LearnedID(name) or name)))
+		local duration = ms and ms > 1500 and ms < 60000 and ms / 1000 or 15
+		sniperShotUntil = GetTime() + duration
+	end
+	if name == "Bestial Wrath" then bestialWrathUntil = GetTime() + 120 end
 end
 
 function M.CanTrackSuggestedSpell(name)
@@ -740,6 +799,7 @@ function M.NextSpell(s, inCombat, hostile)
     if PlayerIsCastingOrChanneling() then
         AddAction(nil, "Casting")
     elseif not inCombat then
+        MaintainTrueshot(s)
         if s.aspect and not AnyAspectActive() then BestAspect("aspect") end
         if s.callpet and GetTime() >= petCallLockUntil then
             if petDead then Offer("Revive Pet", "pet dead")
@@ -754,20 +814,43 @@ function M.NextSpell(s, inCombat, hostile)
     else
         Mend(s, petUp, "pet low")
         if hostile then
+            MaintainTrueshot(s)
             if s.aspect and CombatAspectNeeded() then BestAspect("combat aspect") end
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			-- Bestial Wrath is a pet/self cooldown and remains valid when the
+			-- selected enemy has entered the Hunter's melee fallback range.
+			local burstGate = HealthGate("target", targetHP,
+				SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false)
+			if AL.burst and s.bestialWrath and petUp and PetEngagedWithTarget() then
+				Offer("Bestial Wrath", "learned pet burst", { burstGate })
+			end
             -- Ranged attacks win overlapping range checks by default. Close
             -- client feedback can release a stalled ranged state to melee.
-            if UseMelee(s) then MeleeRotation(s, petUp)
+            if UseMelee(s) then
+                -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+                local minimum = SettingNumber(s, "aoeMinEnemies", 2, 2, 5)
+                local count = s.aoe and ActiveEnemyCount(minimum)
+                if s.explosiveTrap and count and count >= minimum then
+                    Offer("Explosive Trap", "close-range area damage")
+                end
+                MeleeRotation(s, petUp)
             else
                 Mark(s, targetHP, "mark")
-                if AL.burst and s.rapidfire and not AL.HasBuff("player", "Rapid Fire") then
-                    Offer("Rapid Fire", "burst", { HealthGate("target", targetHP,
-                        SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false) })
+                if AL.burst then
+                    if s.bloodFury then Offer("Blood Fury", "burst racial", { burstGate }) end
+                    if s.rapidfire and not AL.HasBuff("player", "Rapid Fire") then
+                        Offer("Rapid Fire", "burst", { burstGate })
+                    end
                 end
                 if s.concussive and TargetTargetsPlayer() then Offer("Concussive Shot", "keep distance") end
                 local minimum = SettingNumber(s, "aoeMinEnemies", 2, 2, 5)
                 local count = s.aoe and ActiveEnemyCount(minimum)
                 if count and count >= minimum then Offer("Multi-Shot", "aoe") end
+                -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+                if s.volley and count and count >= minimum and not PlayerMoving() then
+                    Offer("Volley", "ranged area damage", {
+                        ManaGate(manaPercent, SettingNumber(s, "volleyMinMana", 35, 0, 100), false) })
+                end
                 local stingGate = HealthGate("target", targetHP, SettingNumber(s, "stingMinTargetHP", 35, 0, 100), false)
                 if not AL.HasDebuff("target", "Serpent Sting") and not AL.HasDebuff("target", "Scorpid Sting") then
                     local preferScorpid = s.scorpid and Ok("Scorpid Sting")
@@ -775,7 +858,18 @@ function M.NextSpell(s, inCombat, hostile)
                     elseif s.sting then Offer("Serpent Sting", "damage over time", { stingGate }) end
                 end
                 if s.aimed and not PlayerMoving() then Offer("Aimed Shot", "aimed shot") end
-                Offer("Summon Hawk", "hawk", { HealthGate("target", targetHP, 40, false) })
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				-- Sniper Shot is a learned stationary Marksmanship talent. Keep it
+				-- behind Aimed Shot and ahead of instant fillers, with both its real
+				-- mana cost and the user's conservation threshold enforced.
+				if s.sniper and not PlayerMoving() then
+					Offer("Sniper Shot", "learned stationary ranged shot", {
+						ManaGate(manaPercent, SettingNumber(s, "sniperMinMana", 20, 0, 80), false),
+					})
+				end
+                if s.summonHawk then
+                    Offer("Summon Hawk", "hawk", { HealthGate("target", targetHP, 40, false) })
+                end
                 if s.arcane then Offer("Arcane Shot", "ranged filler", {
                     ManaGate(manaPercent, SettingNumber(s, "arcaneMinMana", 20, 0, 80), false) }) end
                 if EnsureAutoShot() then Offer("Auto Shot", "start auto shot") end
@@ -805,7 +899,8 @@ end
 
 if AL.selfCastSpells then
     for _, name in ipairs({ "Aspect of the Hawk", "Aspect of the Monkey", "Aspect of the Cheetah",
-        "Call Pet", "Revive Pet", "Mend Pet", "Rapid Fire" }) do AL.selfCastSpells[name] = true end
+	        "Call Pet", "Revive Pet", "Mend Pet", "Rapid Fire", "Blood Fury", "Bestial Wrath", "Trueshot Aura",
+        "Explosive Trap" }) do AL.selfCastSpells[name] = true end
 end
 local function IntervalCurve(low, high)
 	local key = tostring(low) .. ":" .. tostring(high)
@@ -978,37 +1073,22 @@ local M = {
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
-M.buildKeys = { "leveling", "beastMastery", "marksmanship", "survival" }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- v1.1.5 launch scope: use the established ranged/melee-aware leveling
+-- rotation while the level-60 presets are withheld for later validation.
+M.buildKeys = { "leveling" }
 function M.NormalizeBuild(s)
     if type(s) ~= "table" then return end
-    local selected, count = nil, 0
-    for _, key in ipairs(M.buildKeys) do
-        if key ~= "leveling" then
-            local value = s[key]
-            local checked = not (issecretvalue and issecretvalue(value)) and value == true
-            s[key] = checked
-            if checked then selected, count = key, count + 1 end
-        end
-    end
-    if count ~= 1 then
-        for _, key in ipairs(M.buildKeys) do s[key] = false end
-        selected = "leveling"
-    end
-    s.leveling = selected == "leveling"
-    return selected
+    s.beastMastery, s.marksmanship, s.survival = false, false, false
+    s.leveling = true
+    return "leveling"
 end
 function M.SetBuild(key, enabled, s)
     if (issecretvalue and issecretvalue(enabled)) or type(enabled) ~= "boolean" then return end
-    local valid = false
-    for _, candidate in ipairs(M.buildKeys) do if candidate == key then valid = true; break end end
-    if not valid then return end
+    if key ~= "leveling" then return end
     s = s or AL.Profile("HUNTER")
     if type(s) ~= "table" then return end
-    if enabled then
-        for _, candidate in ipairs(M.buildKeys) do s[candidate] = candidate == key end
-    else
-        s[key] = false
-    end
+    s.leveling = true
     local selected = M.NormalizeBuild(s)
     if AL.UI and type(AL.UI.Repaint) == "function" then AL.UI.Repaint() end
     return selected
@@ -2495,17 +2575,15 @@ AL.RegisterRotation("HUNTER", M)
         local old, modern = leveling[name], advanced[name]
         if type(old) == "function" or type(modern) == "function" then
             advanced[name] = function(...)
-                -- Warm the inactive history first. Its optional tracker cannot
-                -- prevent the active rotation from receiving the real event.
-                if UsesLeveling() then
-                    if modern then ObserveInactive(modern, ...) end
-                    if old then return old(...) end
-                else
-                    if old then ObserveInactive(old, ...) end
-                    if modern then return modern(...) end
-                end
+                -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+                -- Level-60 Hunter trackers are withdrawn with their builds.
+                -- Do not run their protected API/event work behind Leveling.
+                if UsesLeveling() then if old then return old(...) end
+                elseif modern then return modern(...) end
             end
         end
     end
+    local savedProfile = root.Profile and root.Profile("HUNTER")
+    if type(savedProfile) == "table" then advanced.NormalizeBuild(savedProfile) end
     root.RegisterRotation("HUNTER", advanced)
 end

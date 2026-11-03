@@ -26,7 +26,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
             id="leveling-rotation", build="leveling", group="damage",
             controls = {
                 { key="leveling", label="Leveling Rotation", spell="Auto Shot", half=false,
-                  tooltip={"Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected."} },
+                  tooltip={"Leveling Rotation", "Uses the finalized ranged-first leveling rotation, automatically adding learned spells and talent abilities while retaining the melee fallback at close range."} },
             },
         },
 		{
@@ -109,8 +109,9 @@ AL.RegisterSimpleClassUI("HUNTER", {
 			id="preparation-opening", group="preparation",
 			controls = {
 				{ key = "aspect", half = false, label = { en = "Combat Aspect upkeep", fr = "Maintenir l'Aspect de combat", pt = "Manter Aspecto de combate", es = "Mantener Aspecto de combate", de = "Kampfaspekt halten", zh = "保持战斗守护" }, spell = "Aspect of the Hawk" },
-				{ key = "trueshot", label = "Maintain learned Trueshot Aura (BM/MM)", spell = "Trueshot Aura" },
-				{ key = "summonHawk", label = "Use learned Summon Hawk (all builds)", spell = "Summon Hawk" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "trueshot", label = "Maintain learned Trueshot Aura", spell = "Trueshot Aura" },
+				{ key = "summonHawk", label = "Use learned Summon Hawk", spell = "Summon Hawk" },
 				{ key = "mark", label = "Hunter's Mark", spell = "Hunter's Mark" },
 				{ type = "slider", key = "markMinTargetHP", label = { en = "Hunter's Mark minimum target health", fr = "Vie cible minimum pour Hunter's Mark", pt = "Vida mínima do alvo para Hunter's Mark", es = "Salud mínima del objetivo para Hunter's Mark", de = "Hunter's Mark: Mindestgesundheit des Ziels", zh = "Hunter's Mark目标最低生命值" },
 					min = 0, max = 100, step = 5, default = 45, suffix = " %", half = true },
@@ -130,12 +131,15 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ type = "slider", key = "stingMinTargetHP", label = { en = "Sting minimum target health", fr = "Vie cible minimum pour Sting", pt = "Vida mínima do alvo para Sting", es = "Salud mínima del objetivo para Sting", de = "Sting: Mindestgesundheit des Ziels", zh = "Sting目标最低生命值" },
 					min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 				{ key = "aimed", label = "Aimed Shot", spell = "Aimed Shot" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "sniper", label = "Use learned Sniper Shot", spell = "Sniper Shot" },
+				{ type = "slider", key = "sniperMinMana", label = "Sniper Shot minimum mana", min = 0, max = 80, step = 5, default = 20, suffix = " %" },
 				{ key = "arcane", label = "Arcane Shot", spell = "Arcane Shot" },
 				{ type = "slider", key = "arcaneMinMana", label = { en = "Arcane Shot minimum mana", fr = "Mana minimum pour Arcane Shot", pt = "Mana mínima para Arcane Shot", es = "Maná mínimo para Arcane Shot", de = "Arcane Shot Mindestmana", zh = "Arcane Shot最低法力值" },
 					min = 0, max = 80, step = 5, default = 20, suffix = " %", half = true },
 				{ key = "concussive", label = { en = "Concussive Shot when chased", fr = "Concussive Shot si poursuivi", pt = "Concussive Shot se perseguido", es = "Concussive Shot si te persiguen", de = "Concussive Shot bei Verfolgung", zh = "被追击时Concussive Shot" }, spell = "Concussive Shot" },
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-				{ type = "info", text = "The strengthened Aimed Shot remains the stationary primary shot. Serpent Sting is maintained on eligible targets; Sniper Shot remains ahead of Arcane Shot in Marksmanship, while Arcane Shot remains the instant ranged fallback." },
+				{ type = "info", text = "The strengthened Aimed Shot remains the stationary primary shot. Learned Sniper Shot follows it when ready and above its mana threshold; Arcane Shot remains the instant ranged fallback." },
 			},
 		},
 		{
@@ -164,8 +168,9 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ key = "aoe", label = { en = "Enable AoE mode", fr = "Activer l'AoE Multi-Shot", pt = "Ativar AoE Multi-Shot", es = "Activar AoE Multi-Shot", de = "Multi-Shot AoE aktivieren", zh = "启用Multi-Shot AoE" }, spell = "Multi-Shot" },
 				{ type = "slider", key = "aoeMinEnemies", label = { en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Enemigos mínimos", de = "Mindestanzahl Gegner", zh = "最少敌人数" },
 					min = 2, max = 5, step = 1, default = 2, half = true },
-				{ key = "explosiveTrap", label = "Survival: Explosive Trap AoE", spell = "Explosive Trap" },
-				{ key = "volley", label = "Volley at range (all builds)", spell = "Volley" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "explosiveTrap", label = "Explosive Trap at close range", spell = "Explosive Trap" },
+				{ key = "volley", label = "Volley at range", spell = "Volley" },
 				{ type = "slider", key = "volleyMinMana", label = "Volley minimum mana", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 				{ type = "info", text = "Explosive Trap requires AoE On and enough engaged enemies in melee. It shares the same tracked 30-second cooldown with Immolation, Freezing and Frost Trap. Optional Volley is ground-targeted, requires AoE On and a stationary player, and defaults OFF." },
 				{ type = "info", text = {
@@ -182,10 +187,13 @@ AL.RegisterSimpleClassUI("HUNTER", {
         {
             title="BURST LIMITS", id="burst-limits", group="burst",
             controls={
+					-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+					{ key = "bestialWrath", label = "Learned Bestial Wrath during Burst", spell = "Bestial Wrath", half = false },
 				{ key = "bloodFury", label = "Blood Fury during Burst", spell = "Blood Fury" },
 				{ key = "rapidfire", label = { en = "Rapid Fire during Burst", fr = "Rapid Fire pendant le Burst", pt = "Rapid Fire durante o Burst", es = "Rapid Fire durante el Burst", de = "Rapid Fire während Burst", zh = "Burst期间Rapid Fire" }, spell = "Rapid Fire" },
 				{ type = "slider", key = "burstMinTargetHP", label = { en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Burst: Mindestgesundheit des Ziels", zh = "Burst目标最低生命值" },
 					min = 0, max = 100, step = 5, default = 40, suffix = " %", half = true },
+					{ type = "info", text = "Bestial Wrath requires Burst On, a learned and ready spell, and a living pet confirmed in combat with the selected target." },
 			},
 		},
 	},

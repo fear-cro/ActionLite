@@ -164,9 +164,27 @@ function AL.RegisterSimpleClassUI(token, config, version)
 			burst = rowB.badges[2],
 		}
 		for _, cardDef in ipairs(config.cards or {}) do
-			local card = ui.Card(stack, Text(cardDef.title), Text(cardDef.subtitle), { id=cardDef.id, build=cardDef.build, group=cardDef.group, collapsed=cardDef.collapsed })
-			for _, control in ipairs(cardDef.controls or {}) do
-				BuildControl(card, control, ui, spellIDs, rotation)
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			-- A class can retain dormant implementation data while withdrawing a
+			-- build from the current release. Only render build-scoped cards when
+			-- that build is present in the rotation's public buildKeys list.
+			local buildAvailable = cardDef.build == nil
+			for _, key in ipairs(rotation and rotation.buildKeys or {}) do
+				if key == cardDef.build then
+					buildAvailable = true
+					break
+				elseif type(cardDef.build) == "table" then
+					for _, candidate in ipairs(cardDef.build) do
+						if key == candidate then buildAvailable = true; break end
+					end
+					if buildAvailable then break end
+				end
+			end
+			if buildAvailable then
+				local card = ui.Card(stack, Text(cardDef.title), Text(cardDef.subtitle), { id=cardDef.id, build=cardDef.build, group=cardDef.group, collapsed=cardDef.collapsed })
+				for _, control in ipairs(cardDef.controls or {}) do
+					BuildControl(card, control, ui, spellIDs, rotation)
+				end
 			end
 		end
 

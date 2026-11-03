@@ -1,11 +1,11 @@
 local ADDON, AL = ...
 
--- ActionLITE Paladin v0.15.1: original Leveling, optional talent builds and Holy Healing Rotation.
+-- ActionLITE Paladin v1.1.5: original Leveling and dungeon Holy Healing Rotation.
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
--- scope. Talent builds use the separate implementation below. Both observe
--- real casts so switching rotations retains resource and spell history.
+-- scope. The integrated module below supplies the complete spell catalog and
+-- dungeon-healing provider; its retired level-60 damage paths are unreachable.
 do
     local root = AL
     local leveling, advanced
@@ -62,6 +62,20 @@ local M = {
 		seal = "AUTO",
 		judgement = true,
 		holystrike = true,
+		holyShock = true,
+		holyShockMinMana = 10,
+		hammerOfWrath = true,
+		hammerOfWrathMinMana = 10,
+		hammerOfTheRighteous = true,
+		hammerOfTheRighteousMinMana = 10,
+		holyWrath = true,
+		holyWrathMinMana = 35,
+		holyShield = true,
+		holyShieldMinMana = 10,
+		swiftJudgement = true,
+		templarsBulwark = true,
+		templarsBulwarkHP = 35,
+		divineFavor = true,
 		exorcism = true,
 		hammer = true,
 		emergency = true,
@@ -101,25 +115,35 @@ local M = {
 -- created or passed to the framework.
 M.spells = {
 	{ 1044, "Blessing of Freedom" },
+	{ 20217, "Blessing of Kings" },
 	{ 19740, "Blessing of Might" },
 	{ 1022, "Blessing of Protection" },
 	{ 19742, "Blessing of Wisdom" },
+	{ 25898, "Greater Blessing of Kings" },
 	{ 19746, "Concentration Aura" },
 	{ 26573, "Consecration" },
 	{ 465, "Devotion Aura" },
 	{ 498, "Divine Protection" },
 	{ 642, "Divine Shield" },
+	{ 20216, "Divine Favor" },
 	{ 879, "Exorcism" },
 	{ 19750, "Flash of Light" },
 	{ 853, "Hammer of Justice" },
 	{ 635, "Holy Light" },
 	{ nil, "Holy Strike" },
+	{ 1311606, "Holy Shock" },
+	{ 24275, "Hammer of Wrath" },
+	{ 407632, "Hammer of the Righteous" },
+	{ 2812, "Holy Wrath" },
+	{ 20925, "Holy Shield" },
 	{ 20271, "Judgement" },
 	{ 633, "Lay on Hands" },
 	{ 1152, "Purify" },
 	{ 7328, "Redemption" },
 	{ 7294, "Retribution Aura" },
 	{ 25780, "Righteous Fury" },
+	{ 1310994, "Swift Judgement" },
+	{ 1311015, "Templar's Bulwark" },
 	{ 20375, "Seal of Command" },
 	{ 1311649, "Seal of Fury" },
 	{ 20165, "Seal of Light" },
@@ -171,7 +195,7 @@ M.minLevels = MINLEVEL
 
 local SEALS = { "Seal of Fury", "Seal of Command", "Seal of Righteousness", "Seal of the Crusader", "Seal of Light", "Seal of Wisdom" }
 local AURAS = { "Retribution Aura", "Devotion Aura", "Concentration Aura" }
-local BLESSINGS = { "Blessing of Might", "Blessing of Wisdom" }
+local BLESSINGS = { "Blessing of Might", "Blessing of Wisdom", "Blessing of Kings" }
 
 
 -- Protected health/mana control native display alpha; Lua never reads them.
@@ -205,8 +229,8 @@ local function LearnedID(name)
     return ref and Number(ref.id)
 end
 
--- Own the four seals and the two control cooldowns so this class update can
--- work with the existing Core, whose seal family predates Seal of Fury.
+-- Own seals and learned active-talent cooldowns so the Leveling engine remains
+-- deterministic when Forever protects cooldown fields in combat.
 local sealNames = {}
 for _, name in ipairs(SEALS) do sealNames[name] = true end
 local furyCastIDs = { [1311649] = true, [1311656] = true, [20163] = true }
@@ -214,7 +238,13 @@ local sealState, sealCache, sealAurasBlocked
 local sealDurations = {}
 local baseSpellIDs = {}
 for _, entry in ipairs(M.spells) do if entry[1] then baseSpellIDs[entry[2]] = entry[1] end end
-local controlCooldowns = { ["Judgement"] = 10, ["Hammer of Justice"] = 60 }
+local controlCooldowns = {
+    ["Judgement"] = 10, ["Hammer of Justice"] = 60,
+    ["Holy Shock"] = 10, ["Hammer of Wrath"] = 6,
+    ["Hammer of the Righteous"] = 6, ["Holy Wrath"] = 60,
+    ["Holy Shield"] = 10, ["Swift Judgement"] = 60,
+    ["Templar's Bulwark"] = 300, ["Divine Favor"] = 120,
+}
 local controlEnds, controlCastAt, controlDurations = {}, {}, {}
 local pendingCasts, finishedCasts, lastSent = {}, {}, nil
 
@@ -526,10 +556,11 @@ end
 
 local function PreferredBlessing(s, role)
 	local mode = SettingChoice(s, "blessingMode", {
-		AUTO = true, MIGHT = true, WISDOM = true,
+		AUTO = true, MIGHT = true, WISDOM = true, KINGS = true,
 	}, "AUTO")
 	if mode == "MIGHT" and Ok("Blessing of Might") then return "Blessing of Might" end
 	if mode == "WISDOM" and Ok("Blessing of Wisdom") then return "Blessing of Wisdom" end
+	if mode == "KINGS" and Ok("Blessing of Kings") then return "Blessing of Kings" end
 	if role == "TANK" and Ok("Blessing of Wisdom") then return "Blessing of Wisdom" end
 	if Ok("Blessing of Might") then return "Blessing of Might" end
 	return Ok("Blessing of Wisdom") and "Blessing of Wisdom" or nil
@@ -627,15 +658,24 @@ local function ShieldEquipped()
 end
 
 local function Ready(name)
+	if type(AL.IsSpellBlacklisted) == "function" then
+		local ok, blocked = pcall(AL.IsSpellBlacklisted, name)
+		if ok and SafeValue(blocked) and blocked == true then return false end
+	end
     if controlCooldowns[name] then return Ok(name) and ControlReady(name) end
     return Ok(name) and AL.IsReady(name)
 end
+
+local SELF_TARGET_CONTROL = {
+    ["Divine Favor"] = true, ["Holy Shield"] = true,
+    ["Templar's Bulwark"] = true, ["Holy Wrath"] = true,
+}
 
 local function Offer(name, reason, gates, preparation)
     if not Ready(name) then return false end
     local usable, shortage = SpellUsability(name)
     if usable == false or shortage == true then return false end
-    if not sealNames[name] then
+    if not sealNames[name] and not SELF_TARGET_CONTROL[name] then
         local inRange
         if controlCooldowns[name] then inRange = Bool((SafeCall(C_Spell and C_Spell.IsSpellInRange, LearnedID(name) or name, "target"))) end
         if inRange == nil then inRange = Bool((SafeCall(AL.InRange, name))) end
@@ -686,6 +726,17 @@ end
 local function InMelee()
     if Known("Holy Strike") then return Bool((SafeCall(AL.InRange, "Holy Strike"))) == true end
     return UnitWithin("target", 5) == true
+end
+
+local function PlayerMoving()
+    local speed = Number((SafeCall(GetUnitSpeed, "player")))
+    return speed and speed > 0 or false
+end
+
+local function SpellIsInstant(name)
+    local info = SafeCall(C_Spell and C_Spell.GetSpellInfo, LearnedID(name) or name)
+    local castTime = SafeValue(info) and type(info) == "table" and Number(info.castTime)
+    return castTime ~= nil and castTime <= 0
 end
 
 local function UndeadOrDemon()
@@ -792,6 +843,12 @@ local function Emergency(s, role, hp, mana)
     if not s.emergency then return end
     if s.layOnHands then Offer("Lay on Hands", "critical emergency", {
         HealthGate("player", hp, SettingNumber(s, "layOnHandsHP", 10, 1, 50), true) }) end
+    if role == "TANK" and s.templarsBulwark
+        and not AL.HasBuff("player", "Templar's Bulwark")
+        and not AL.HasBuff("player", "Forbearance") then
+        Offer("Templar's Bulwark", "learned tank emergency", {
+            HealthGate("player", hp, SettingNumber(s, "templarsBulwarkHP", 35, 5, 80), true) })
+    end
     if role == "DPS" and s.divineShield and not AL.HasBuff("player", "Divine Shield") then
         Offer("Divine Shield", "immunity", {
             HealthGate("player", hp, SettingNumber(s, "divineShieldHP", 18, 5, 60), true) })
@@ -825,6 +882,43 @@ local function Consecration(s, role, mana)
     end
 end
 
+local function TankHolyShield(s, role, mana, nearby)
+    if role ~= "TANK" or not s.holyShield or ShieldEquipped() ~= true
+        or not nearby and not InMelee() then return end
+    Offer("Holy Shield", "learned tank block protection", {
+        ManaGate(mana, SettingNumber(s, "holyShieldMinMana", 10, 0, 100), false) })
+end
+
+local function LearnedAoE(s, mana)
+    if not s.aoe then return end
+    local minimum = SettingNumber(s, "aoeMinEnemies", 2, 2, 5)
+    local enemies = EnemyCountMelee(minimum)
+    if not enemies or enemies < minimum then return end
+    if s.holyWrath and UndeadOrDemon() and not PlayerMoving() then
+        Offer("Holy Wrath", tostring(enemies) .. " undead/demon enemies", {
+            ManaGate(mana, SettingNumber(s, "holyWrathMinMana", 35, 0, 100), false) })
+    end
+    if s.hammerOfTheRighteous and InMelee() then
+        Offer("Hammer of the Righteous", tostring(enemies) .. " engaged enemies", {
+            ManaGate(mana, SettingNumber(s, "hammerOfTheRighteousMinMana", 10, 0, 100), false) })
+    end
+end
+
+local function LearnedBurst(s, mana, targetHP)
+    if not AL.burst then return end
+    local targetGate = HealthGate("target", targetHP,
+        SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false)
+    if s.swiftJudgement and ActiveSeal() then
+        Offer("Swift Judgement", "Burst: learned instant seal release", { targetGate })
+    end
+    if s.divineFavor and s.holyShock and Ready("Holy Shock") then
+        Offer("Divine Favor", "Burst: prepare learned Holy Shock", {
+            targetGate,
+            ManaGate(mana, SettingNumber(s, "holyShockMinMana", 10, 0, 100), false),
+        })
+    end
+end
+
 local function OffensivePriority(s, role, mana, targetHP)
     local targetCasting = Bool((SafeCall(AL.TargetCasting))) == true
     if s.hammer and not targetCasting then
@@ -843,6 +937,8 @@ local function OffensivePriority(s, role, mana, targetHP)
     end
     if s.hammer and targetCasting then Offer("Hammer of Justice", "stop cast") end
     ApplyPreparation(s, role, true, true)
+    TankHolyShield(s, role, mana)
+    LearnedBurst(s, mana, targetHP)
     Judgement(s, mana, targetHP, InMelee() and "on cooldown" or "ranged opener")
     Consecration(s, role, mana)
     if AL.burst then
@@ -850,6 +946,14 @@ local function OffensivePriority(s, role, mana, targetHP)
         Offer("Blood Fury", "burst", { gate })
         Offer("Berserking", "burst", { gate })
     end
+    if s.hammerOfWrath and (not PlayerMoving() or SpellIsInstant("Hammer of Wrath")) then
+        Offer("Hammer of Wrath", "learned execute", {
+        ManaGate(mana, SettingNumber(s, "hammerOfWrathMinMana", 10, 0, 100), false),
+        HealthGate("target", targetHP, 20, true) })
+    end
+    if s.holyShock then Offer("Holy Shock", "learned instant damage", {
+        ManaGate(mana, SettingNumber(s, "holyShockMinMana", 10, 0, 100), false) }) end
+    LearnedAoE(s, mana)
     if s.holystrike then Offer("Holy Strike", role == "TANK" and "tank strike" or "on cooldown", {
         ManaGate(mana, SettingNumber(s, "holyStrikeMinMana", 10, 0, 100), false) }) end
     if s.exorcism and UndeadOrDemon() then Offer("Exorcism", "undead / demon", {
@@ -872,6 +976,7 @@ function M.NextSpell(s, inCombat, hostile)
             ManaGate(mana, SettingNumber(s, "healMinMana", 10, 0, 100), false) }) end
         local prePull = hostile and Ready("Judgement") and UnitWithin("target", 10) == true
         ApplyPreparation(s, role, prePull)
+        TankHolyShield(s, role, mana, prePull)
         if prePull then Judgement(s, mana, targetHP, "pull") end
         if hostile then AddAction(AL.Ok("Attack") and "Attack" or nil, role == "TANK" and "tank opener" or "opener") end
     else
@@ -913,7 +1018,8 @@ end
 
 if AL.selfCastSpells then
     for _, list in ipairs({ SEALS, AURAS, BLESSINGS, { "Righteous Fury", "Consecration", "Holy Light", "Flash of Light",
-        "Divine Protection", "Divine Shield", "Lay on Hands", "Berserking", "Blood Fury" } }) do
+        "Divine Protection", "Divine Shield", "Divine Favor", "Holy Shield", "Templar's Bulwark",
+        "Lay on Hands", "Berserking", "Blood Fury" } }) do
         for _, name in ipairs(list) do AL.selfCastSpells[name] = true end
     end
 end
@@ -1100,56 +1206,35 @@ local M = {
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
-M.buildKeys = { "leveling", "protection", "retribution", "shockadin" }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- v1.1.5 launches with the proven Leveling Rotation only. The retired
+-- level-60 engines remain below as reference code, but cannot be selected or
+-- reached through saved profiles, the UI, or dispatch.
+M.buildKeys = { "leveling" }
 function M.NormalizeBuild(s)
     if type(s) ~= "table" then return end
-    local selected, count = nil, 0
-    for _, key in ipairs(M.buildKeys) do
-        if key ~= "leveling" then
-            local value = s[key]
-            local checked = not (issecretvalue and issecretvalue(value)) and value == true
-            s[key] = checked
-            if checked then selected, count = key, count + 1 end
-        end
-    end
-    if count ~= 1 then
-        for _, key in ipairs(M.buildKeys) do s[key] = false end
-        selected = "leveling"
-    end
-    s.leveling = selected == "leveling"
+    s.protection, s.retribution, s.shockadin = false, false, false
+    s.leveling = true
     local owner = s.paladinRoleBuild
     if issecretvalue and issecretvalue(owner) then owner = nil end
     local function IsTank(value)
         return not (issecretvalue and issecretvalue(value)) and value == "TANK"
     end
-    if selected == "leveling" then
-        if owner and owner ~= "leveling" then
-            s.paladinRole = IsTank(s.levelingPaladinRole) and "TANK" or "DPS"
-        else
-            s.levelingPaladinRole = IsTank(s.paladinRole) and "TANK" or "DPS"
-        end
+    if owner and owner ~= "leveling" then
+        s.paladinRole = IsTank(s.levelingPaladinRole) and "TANK" or "DPS"
     else
-        if owner == "leveling" then
-            s.levelingPaladinRole = IsTank(s.paladinRole) and "TANK" or "DPS"
-        end
-        s.paladinRole = selected == "protection" and "TANK" or "DPS"
+        s.levelingPaladinRole = IsTank(s.paladinRole) and "TANK" or "DPS"
     end
-    s.paladinRoleBuild = selected
+    s.paladinRoleBuild = "leveling"
     s.paladinPreviousDPS = nil
-    return selected
+    return "leveling"
 end
 function M.SetBuild(key, enabled, s)
     if (issecretvalue and issecretvalue(enabled)) or type(enabled) ~= "boolean" then return end
-    local valid = false
-    for _, candidate in ipairs(M.buildKeys) do if candidate == key then valid = true; break end end
-    if not valid then return end
+    if key ~= "leveling" then return end
     s = s or AL.Profile("PALADIN")
     if type(s) ~= "table" then return end
-    if enabled then
-        for _, candidate in ipairs(M.buildKeys) do s[candidate] = candidate == key end
-    else
-        s[key] = false
-    end
+    s.leveling = true
     local selected = M.NormalizeBuild(s)
     if AL.UI and type(AL.UI.Repaint) == "function" then AL.UI.Repaint() end
     return selected
@@ -1177,7 +1262,7 @@ M.spells = {
 	{ 4987, "Cleanse" },
 	{ 20216, "Divine Favor" },
 	{ 1310911, "Light's Vigil" },
-	{ 0, "Oath of Light" },
+	{ 1328548, "Oath of Light" },
 	{ 407632, "Hammer of the Righteous" },
 	{ 2812, "Holy Wrath" },
 	{ 20925, "Holy Shield" },
@@ -1215,7 +1300,6 @@ local MINLEVEL = {
 	["Devotion Aura"] = 1,
 	["Holy Light"] = 1,
 	["Blessing of Might"] = 4,
-	["Blessing of Kings"] = 20,
 	["Judgement"] = 4,
 	["Holy Strike"] = 6,
 	["Seal of Fury"] = 10,
@@ -1235,14 +1319,8 @@ local MINLEVEL = {
 	["Concentration Aura"] = 22,
 	["Sense Undead"] = 22,
 	["Turn Undead"] = 24,
-	["Holy Shock"] = 30,
 	["Seal of Light"] = 30,
 	["Seal of Wisdom"] = 38,
-	["Greater Blessing of Kings"] = 60,
-	["Holy Shield"] = 40,
-	["Swift Judgement"] = 25,
-	["Templar's Bulwark"] = 30,
-	["Hammer of the Righteous"] = 40,
 	["Holy Wrath"] = 50,
 	["Hammer of Wrath"] = 44,
 	["Cleanse"] = 42,
@@ -2512,7 +2590,7 @@ AL.RegisterRotation("PALADIN", M)
         effects = {}, applied = {}, cooldowns = {}, favorActive = false,
         favorChangedAt = 0, infusionUntil = 0, infusionChangedAt = 0,
         vigil = nil, oath = nil, lastHeal = nil,
-        lastBlessing = nil, lastJudgement = nil,
+        lastBlessing = nil, lastJudgement = nil, pendingUnit = nil,
     }
     local PL_SEALS = {
         "Seal of Fury", "Seal of Command", "Seal of Righteousness",
@@ -2580,7 +2658,13 @@ AL.RegisterRotation("PALADIN", M)
     end
     local function PLAvailable(spell, profile, ignoreRootReady, ignoreUsable)
         if not PLPermitted(spell, profile, ignoreUsable) or not PLCooldownReady(spell) then return false end
-        if not ignoreRootReady and root.IsReady then
+        if type(root.IsSpellBlacklisted) == "function" then
+            local ok, blocked = pcall(root.IsSpellBlacklisted, spell)
+            if ok and not PLSecret(blocked) and blocked == true then return false end
+        end
+        -- Always consult Core. It combines readable cooldowns with confirmed
+        -- cast fallbacks, including combat-protected cooldown fields.
+        if root.IsReady then
             local ok, ready = pcall(root.IsReady, spell)
             if not ok or PLSecret(ready) or ready == false then return false end
         end
@@ -2592,22 +2676,14 @@ AL.RegisterRotation("PALADIN", M)
         end
     end
     local function PLRosterUnits()
-        local units, raid = {}, false
-        for index = 1, 40 do
-            if PLExists("raid" .. index) then raid = true; break end
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- Healing Rotation is dungeon-only; party tokens never include player.
+        local units = {}
+        for index = 1, 4 do
+            local unit = "party" .. index
+            if PLExists(unit) then units[#units + 1] = unit end
         end
-        if raid then
-            for index = 1, 40 do
-                local unit = "raid" .. index
-                if PLExists(unit) then units[#units + 1] = unit end
-            end
-        else
-            for index = 1, 4 do
-                local unit = "party" .. index
-                if PLExists(unit) then units[#units + 1] = unit end
-            end
-            units[#units + 1] = "player"
-        end
+        units[#units + 1] = "player"
         return units
     end
     local function PLGroupUnitFor(source)
@@ -2619,8 +2695,21 @@ AL.RegisterRotation("PALADIN", M)
             if PLBool(UnitIsUnit, source, unit) == true then return unit end
         end
     end
-    local function PLHealingUnit()
-        return PLGroupUnitFor("target") or PLGroupUnitFor("focus")
+    local function PLGroupUnitNamed(targetName)
+        if PLSecret(targetName) or type(targetName) ~= "string" or targetName == ""
+            or type(UnitName) ~= "function" then return nil end
+        for _, unit in ipairs(PLRosterUnits()) do
+            local ok, name, realm = pcall(UnitName, unit)
+            if ok and not PLSecret(name) and type(name) == "string" then
+                local full = not PLSecret(realm) and type(realm) == "string"
+                    and realm ~= "" and (name .. "-" .. realm) or name
+                if targetName == name or targetName == full then return unit end
+            end
+        end
+    end
+    local function PLCurrentHealingUnit()
+        return PLGroupUnitFor("mouseover") or PLGroupUnitFor("target")
+            or PLGroupUnitFor("focus") or "player"
     end
     local function PLUnitKey(unit)
         if type(unit) ~= "string" then return nil end
@@ -2637,6 +2726,13 @@ AL.RegisterRotation("PALADIN", M)
         for _, unit in ipairs(PLRosterUnits()) do
             if PLUnitKey(unit) == key then return unit end
         end
+    end
+    local function PLHealingUnit()
+        local pending = paladinHealing.pendingUnit
+        if pending and PLNow() - pending.at <= 5 then
+            return PLUnitForKey(pending.key) or pending.unit
+        end
+        return PLCurrentHealingUnit()
     end
     local function PLSameUnit(left, right)
         if not left or not right then return false end
@@ -2799,11 +2895,6 @@ AL.RegisterRotation("PALADIN", M)
         if PLRole(unit) == "DAMAGER" then base = base - (context.dpsThresholdOffset or 10) end
         return math.max(0, base)
     end
-    local function PLSubgroup(unit)
-        if unit == "player" or unit:match("^party%d+$") then return "party" end
-        local index = tonumber(unit:match("^raid(%d+)$"))
-        return index and ("raid" .. math.floor((index - 1) / 5 + 1)) or nil
-    end
     local function PLEligiblePairUnit(unit)
         if not PLExists(unit) then return false end
         if PLBool(UnitIsDeadOrGhost, unit) == true then return false end
@@ -2820,7 +2911,7 @@ AL.RegisterRotation("PALADIN", M)
         return PLUnitForKey(record.key) or record.unit
     end
     local function PLManualSpell(profile)
-        return PLPreferred(profile, { "Holy Light", "Holy Shock", "Flash of Light" }, true)
+        return PLPreferred(profile, { "Holy Light", "Holy Shock", "Flash of Light" }, false)
     end
 
     function advanced.HealingEngineCastSucceeded(spell)
@@ -2829,6 +2920,7 @@ AL.RegisterRotation("PALADIN", M)
         if type(profile) ~= "table" or PLSecret(profile.healingEngine)
             or profile.healingEngine ~= true then return end
         local now, unit = PLNow(), PLHealingUnit()
+        paladinHealing.pendingUnit = nil
         if spell == "Oath of Light" then
             unit = unit or PLTankUnit()
             if unit then
@@ -2909,15 +3001,14 @@ AL.RegisterRotation("PALADIN", M)
 
     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
     -- Light's Vigil is friendly-only. Every candidate comes from the verified
-    -- friendly party/raid roster; no hostile-target request is constructed.
+    -- friendly dungeon-party roster; no hostile-target request is constructed.
     local function PLAppendVigilRequests(critical, profile, context)
-        if not PLKnown("Holy Shock") or not PLPermitted("Holy Shock", profile) then return end
+        if not PLAvailable("Holy Shock", profile) then return end
         local marked = PLVigilUnit()
         if marked and PLEligiblePairUnit(marked) then
-            local subgroup = PLSubgroup(marked)
             for _, secondary in ipairs(PLRosterUnits()) do
-                if secondary ~= marked and PLEligiblePairUnit(secondary)
-                    and PLSubgroup(secondary) == subgroup then
+                -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+                if secondary ~= marked and PLEligiblePairUnit(secondary) then
                     critical[#critical + 1] = {
                         spell = "Holy Shock", reason = "Holy: trigger tracked Light's Vigil",
                         unit = marked, requireReady = false,
@@ -2937,8 +3028,8 @@ AL.RegisterRotation("PALADIN", M)
             if PLEligiblePairUnit(primary) then
                 for right = left + 1, #units do
                     local secondary = units[right]
-                    if PLEligiblePairUnit(secondary)
-                        and PLSubgroup(primary) == PLSubgroup(secondary) then
+                    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+                    if PLEligiblePairUnit(secondary) then
                         critical[#critical + 1] = {
                             spell = "Light's Vigil", reason = "Holy: emergency party recovery setup",
                             unit = primary, requireReady = false,
@@ -3121,14 +3212,47 @@ AL.RegisterRotation("PALADIN", M)
     -- Infusion of Light is only inferred from an observed critical heal. If
     -- combat-log or aura data is unavailable, Holy Light remains emergency-only
     -- rather than guessing that the proc exists.
+    local function PLPruneHealingRoster()
+        local keep = {}
+        for _, unit in ipairs(PLRosterUnits()) do
+            keep[unit] = true
+            local key = PLUnitKey(unit)
+            if key then keep[key] = true end
+        end
+        keep.player = true
+        for key in pairs(paladinHealing.effects) do
+            if not keep[key] then paladinHealing.effects[key] = nil end
+        end
+        for key in pairs(paladinHealing.applied) do
+            if not keep[key] then paladinHealing.applied[key] = nil end
+        end
+        if paladinHealing.vigil and not keep[paladinHealing.vigil.key]
+            and not keep[paladinHealing.vigil.unit] then paladinHealing.vigil = nil end
+        if paladinHealing.oath and not keep[paladinHealing.oath.key]
+            and not keep[paladinHealing.oath.unit] then paladinHealing.oath = nil end
+    end
     local paladinHealingEvents = CreateFrame("Frame")
-    for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "COMBAT_LOG_EVENT_UNFILTERED" }) do
+    for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE",
+        "UNIT_SPELLCAST_SENT", "COMBAT_LOG_EVENT_UNFILTERED" }) do
         if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or type(CombatLogGetCurrentEventInfo) == "function" then
             pcall(paladinHealingEvents.RegisterEvent, paladinHealingEvents, event)
         end
     end
-    paladinHealingEvents:SetScript("OnEvent", function(_, event)
-        if event ~= "COMBAT_LOG_EVENT_UNFILTERED" then
+    paladinHealingEvents:SetScript("OnEvent", function(_, event, unit, targetName)
+        if event == "UNIT_SPELLCAST_SENT" then
+            if not PLSecret(unit) and unit == "player" then
+                local recipient = PLGroupUnitNamed(targetName) or PLCurrentHealingUnit()
+                paladinHealing.pendingUnit = {
+                    unit = recipient, key = PLUnitKey(recipient), at = PLNow(),
+                }
+            end
+            return
+        end
+        if event == "GROUP_ROSTER_UPDATE" then
+            PLPruneHealingRoster()
+            return
+        end
+        if event == "PLAYER_ENTERING_WORLD" then
             paladinHealing.effects = {}
             paladinHealing.applied = {}
             paladinHealing.vigil = nil
@@ -3137,6 +3261,7 @@ AL.RegisterRotation("PALADIN", M)
             paladinHealing.favorChangedAt = 0
             paladinHealing.infusionUntil = 0
             paladinHealing.infusionChangedAt = 0
+            paladinHealing.pendingUnit = nil
             return
         end
         if type(CombatLogGetCurrentEventInfo) ~= "function" then return end

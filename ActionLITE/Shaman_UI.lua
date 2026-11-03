@@ -39,7 +39,7 @@ local function BuildShamanUI(page, ui)
 			tooltip = help and { Text(label), Text(help) } or nil,
 			onChange = function()
 				local profile=ui.Profile()
-				if key=="elemental" or key=="enhancement" or key=="leveling" then rotation.SetBuild(key,profile[key]==true,profile) end
+				if key=="leveling" then rotation.SetBuild(key,true,profile) end
 				ui.Repaint()
 			end,
 		})
@@ -87,56 +87,14 @@ local function BuildShamanUI(page, ui)
 	end
 
 	local levelingCard = ui.Card(stack, "LEVELING ROTATION", "Original class rotation", { id="levelingCard", build="leveling", group="damage" })
-	Check(levelingCard, "leveling", "Leveling Rotation", "Lightning Bolt", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected.", true)
+	Check(levelingCard, "leveling", "Leveling Rotation", "Lightning Bolt", "Uses the finalized leveling rotation and automatically adapts to the learned spells and the selected melee or caster playstyle. This is the only damage rotation in this release.", true)
 
 	local levelingPreferences=ui.Card(stack,"LEVELING PLAYSTYLE",nil,{id="leveling-role",build="leveling",group="preparation"})
-	local roleCard = ui.Card(stack,
-		Text({ en = "ENHANCEMENT DAMAGE", fr = "SPECIALISATION DU CHAMAN", pt = "ESPECIALIZAÇÃO DO XAMÃ", es = "ESPECIALIZACIÓN DEL CHAMÁN", de = "SCHAMANEN-SPEZIALISIERUNG", zh = "萨满祭司专精" }),
-		Text({
-			en = "The selected specialization changes the real priority, weapon enchant, totems and mana policy.",
-			fr = "La specialisation choisie change reellement la priorite, l'enchantement, les totems et la gestion du mana.",
-			pt = "A especialização escolhida altera de fato a prioridade, o encantamento de arma, os totens e a gestão de mana.",
-			es = "La especialización elegida cambia realmente la prioridad, el encantamiento de arma, los tótems y la gestión de maná.",
-			de = "Die gewählte Spezialisierung ändert die echte Priorität, Waffenverzauberung, Totems und Mana-Strategie.",
-			zh = "所选专精会实际改变优先级、武器附魔、图腾和法力策略。",
-		}), { id="roleCard", build="enhancement", group="damage" })
 	Dropdown(levelingPreferences, "shamanRole",
 		{ en = "Active rotation", fr = "Rotation active", pt = "Rotação ativa", es = "Rotación activa", de = "Aktive Rotation", zh = "当前循环" }, {
 			{ label = { en = "Enhancement melee", fr = "Amelioration melee", pt = "Aperfeiçoamento corpo a corpo", es = "Mejora cuerpo a cuerpo", de = "Verstärkung Nahkampf", zh = "增强近战" }, value = "ENHANCEMENT" },
 			{ label = { en = "Elemental caster", fr = "Elementaire distance", pt = "Elemental conjurador", es = "Elemental lanzador", de = "Elementar Zauberer", zh = "元素施法" }, value = "ELEMENTAL" },
 		}, "ENHANCEMENT")
-	Check(roleCard, "enhancement", "Use Enhancement (18/33/0)", "Stormstrike",
-		"Uses the level 60 Enhancement priority with your learned spells and turns Use Elemental off. Overrides Active rotation while checked; unchecking selects Leveling Rotation, using the Active rotation choice. It does not change your talents or equipment.", true)
-	ui.Help(roleCard, "18/33/0: Stormstrike on its six-second cooldown, confirmed instant Maelstrom Lightning Bolt, Searing Totem, Flame Shock and Earth Shock. In melee, ordinary Lightning Bolt is withheld to preserve weapon swings. Existing spell permissions and sliders apply.")
-	Check(roleCard, "enhancementMaelstrom", "Use instant Maelstrom Lightning Bolt", "Lightning Bolt",
-		"Requires readable instant cast time, or five readable Maelstrom stacks with five learned talent points. Uses the Lightning Bolt checkbox and mana slider.")
-	local enhancementBurst=ui.Card(stack,"ENHANCEMENT BURST",nil,{id="enhancement-burst",build="enhancement",group="burst"})
-	Check(enhancementBurst, "enhancementRage", "Rage of the Farseer (Burst)", "Rage of the Farseer",
-		"Only in combat, in melee, with Burst On and the Burst target-health threshold met.")
-	Check(enhancementBurst, "enhancementRacials", "Racial cooldowns (Burst)", "Blood Fury",
-		"Learned Blood Fury or Berserking only, with Burst On and the Burst target-health threshold met.")
-	Dropdown(roleCard, "enhancementAirTotem", "Enhancement air totem", {
-		{ label="Automatic: Windfury / Grace of Air", value="AUTO" },
-		{ label="Windfury Totem", value="WINDFURY" },
-		{ label="Grace of Air Totem", value="GRACE" },
-		{ label="Disabled", value="OFF" },
-	}, "AUTO")
-	ui.Help(roleCard, "Enhancement AUTO uses Rockbiter Weapon, Strength of Earth, Windfury and Mana Spring. With Windfury Weapon, the automatic air totem changes to Grace of Air. Manual weapon and totem choices take precedence. Totems require Maintain combat totems.")
-
-	local elemental=ui.Card(stack,"ELEMENTAL - 31/7/13","Ranged spell rotation with learned spells through level 60.", { id="elemental", build="elemental", group="damage" })
-	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	Check(elemental,"elemental","Use Elemental (31/7/13)","Lightning Bolt",
-		"Select Elemental and turn off Use Enhancement. Selecting Enhancement turns Elemental off. Other settings and icon choices are preserved; Leveling Rotation uses the earlier Active rotation choice. This does not change your talents or equipment.",true)
-	Check(elemental,"elementalWaterShield","Prefer learned Water Shield","Water Shield",
-		"Requires Maintain shield and an actually learned Water Shield. Otherwise uses learned Lightning Shield. The reference 31/7/13 build does not learn Water Shield; its checkbox never invents a talent.")
-	local elementalBurst=ui.Card(stack,"ELEMENTAL BURST",nil,{id="elemental-burst",build="elemental",group="burst"})
-	Check(elementalBurst,"elementalMastery","Lightning Mastery during Burst","Lightning Mastery",
-		"Requires the learned spell, Burst On and the mana/target-health thresholds. Tracks its fifteen-second effect and releases Chain Lightning's cooldown during the effect; Chain Lightning still requires AoE On.")
-	Check(elementalBurst,"elementalRacials","Elemental racials during Burst","Berserking",
-		"Learned Blood Fury or Berserking only with Burst On, spell range and the Burst target-health threshold. No item or consumable use. The default Tauren preset has no offensive racial cooldown to add.")
-	ui.Help(elemental,"Normal damage: maintain your own missing Flame Shock, then repeat Lightning Bolt while stationary. Call of Thunder is passive and needs no control. At melee distance Elemental remains a caster. Earth/Frost Shocks provide instant fallbacks during movement or when the main casts are disabled or unavailable; Earth Shock still interrupts with its separate control.")
-	ui.Help(elemental,"AoE spells require AoE On and enough confirmed engaged enemies. Chain Lightning can be used at spell range; Fire Nova and Magma require confirmed enemies within eight yards. Searing Totem is used only when its target is confirmed within twenty yards. Existing mana, target-health, totem and spell controls apply.")
-
 	local steel = { 0.72, 0.62, 0.50, 1 }
 	local head = ui.Card(stack,
 		Text({ en = "SHAMAN - LIVE STATUS", fr = "CHAMAN - ETAT EN DIRECT", pt = "XAMÃ - STATUS AO VIVO", es = "CHAMÁN - ESTADO EN VIVO", de = "SCHAMANE - LIVE-STATUS", zh = "萨满祭司 - 实时状态" }),
@@ -164,7 +122,7 @@ local function BuildShamanUI(page, ui)
 		Text({ en = "SHIELDS, WEAPON & TOTEMS", fr = "BOUCLIER, ARME ET TOTEMS", pt = "ESCUDOS, ARMA E TOTENS", es = "ESCUDOS, ARMA Y TÓTEMS", de = "SCHILDE, WAFFE & TOTEMS", zh = "护盾、武器和图腾" }), nil, { id="maintenance", group="preparation" })
 	Check(maintenance, "shield",
 		{ en = "Maintain shield (automatic)", fr = "Maintenir le bouclier (automatique)", pt = "Manter escudo (automático)", es = "Mantener escudo (automático)", de = "Schild halten (automatisch)", zh = "自动保持护盾" }, "Lightning Shield")
-	ui.Help(maintenance, "The Elemental build prefers Water Shield only when learned and its preference is enabled; otherwise it uses Lightning Shield. Enhancement uses Lightning Shield. Shield and spell permissions still apply.")
+	ui.Help(maintenance, "The Leveling rotation maintains learned Lightning Shield. Shield and spell permissions still apply.")
 	Check(maintenance, "weapon",
 		{ en = "Maintain weapon enchant", fr = "Maintenir l'enchantement d'arme", pt = "Manter encantamento de arma", es = "Mantener encantamiento de arma", de = "Waffenverzauberung halten", zh = "维持武器附魔" }, "Windfury Weapon")
 	Dropdown(maintenance, "weaponMode",
@@ -206,7 +164,7 @@ local function BuildShamanUI(page, ui)
 	Check(offense, "frostshock",
 		{ en = "Frost Shock on low-health targets", fr = "Frost Shock sur cible faible", pt = "Frost Shock em alvos com pouca vida", es = "Frost Shock en objetivos con poca vida", de = "Frost Shock bei schwachen Zielen", zh = "对低生命目标使用 Frost Shock" }, "Frost Shock")
 	Check(offense, "lightningbolt", "Lightning Bolt", "Lightning Bolt")
-	ui.Help(offense, "With Use Enhancement (18/33/0), Lightning Bolt repeats at range while stationary; in melee it requires confirmed instant casting. Earth Shock is the default damage shock after Flame Shock; Frost Shock remains the low-health fallback when Earth Shock is unavailable or disabled.")
+	ui.Help(offense, "With the Enhancement melee playstyle, Lightning Bolt repeats at range while stationary. Earth Shock is the default damage shock after Flame Shock; Frost Shock remains the low-health fallback when Earth Shock is unavailable or disabled.")
 	ui.Help(offense, Text({
 		en = "Lightning Bolt opens at range in both specializations. Enhancement repeats it while stationary at range and uses it after melee priorities. Start Attack is a melee fallback. Red indicates out of range when range coloring is enabled.",
 		fr = "Eclair ouvre a distance dans les deux specialisations. Amelioration le repete immobile a distance et l'utilise apres les priorites de melee. Start Attack sert de repli au contact. Le rouge indique hors de portee si la coloration est activee.",
@@ -243,8 +201,9 @@ local function BuildShamanUI(page, ui)
 		{ en = "Drink below mana", fr = "Boire sous ce niveau de mana", pt = "Beber abaixo desta mana", es = "Beber bajo este maná", de = "Trinken unter Mana", zh = "法力低于此值时喝水" }, 0, 80, 30, " %")
 
 	local healingEngine = ui.Card(stack, "HEALING ROTATION", nil, { id="healing-engine", group="survival" })
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	Check(healingEngine, "healingEngine", "Enable Healing Rotation", "Healing Wave",
-		"Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation.", true)
+		"Enables five-player dungeon healing, selected-ally distress healing, and the protected Action focus pixel. Raids, world groups, battlegrounds, arenas and solo play continue using Leveling Rotation.", true)
 	Slider(healingEngine, "healingInitiateHP", "Initiate healing at HP", 5, 100, 80, " %")
 	Slider(healingEngine, "healingEmergencyHP", "Emergency healing", 5, 100, 30, " %")
 	Dropdown(healingEngine, "healingTotemEarth", "Call: Earth totem", {
@@ -277,17 +236,10 @@ local function BuildShamanUI(page, ui)
 		Text({ en = "AREA DAMAGE", fr = "AOE ET BURST", pt = "AOE E BURST", es = "AOE Y BURST", de = "AOE & BURST", zh = "AOE 和爆发" }), nil, { id="aoe", group="aoe" })
 	Check(aoe, "aoe", { en = "Enable AoE mode", fr = "Activer le mode AoE", pt = "Ativar modo AoE", es = "Activar modo AoE", de = "AoE-Modus aktivieren", zh = "启用 AoE 模式" }, nil,
 		{ en = "AoE totems require a confirmed nearby enemy count.", fr = "Les totems AoE exigent un nombre confirme d'ennemis proches.", pt = "Totens AoE exigem uma contagem confirmada de inimigos próximos.", es = "Los tótems AoE requieren un número confirmado de enemigos cercanos.", de = "AoE-Totems brauchen eine bestätigte Anzahl naher Gegner.", zh = "AoE 图腾需要已确认的附近敌人数量。" })
-	Check(aoe, "firenova", "Fire Nova / Fire Nova Totem", "Fire Nova",
-		"The selected Enhancement/Elemental builds use Forever's direct Fire Nova within eight yards. The existing leveling rotation retains Fire Nova Totem where learned. Requires AoE On, the enemy count and mana thresholds.")
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	Check(aoe, "firenova", "Fire Nova", "Fire Nova",
+		"Uses learned Fire Nova at close range. Caster Leveling also uses learned Chain Lightning while stationary. Both require AoE On plus the enemy-count and mana thresholds.")
 	Check(aoe, "magma", "Magma Totem", "Magma Totem")
-	Check(aoe, "enhancementChainLightning", "Enhancement: allow Chain Lightning", "Chain Lightning",
-		"Optional stationary AoE hard cast after melee and Maelstrom priorities. Off by default because it interrupts melee swings. Requires AoE On and the AoE mana/enemy thresholds. Maelstrom does not make it instant.")
-	Check(aoe,"elementalChainLightning","Elemental: use Chain Lightning","Chain Lightning",
-		"Requires Use Elemental, AoE On, the minimum confirmed engaged enemy count, range and stationary casting. Its 2.5-second cast and higher mana cost remain subject to the mana controls. Checks enemies within thirty-six yards for this ranged branch; nearby counts are checked separately for Fire Nova/Magma.")
-	Check(aoe,"elementalChainClearcasting","Chain Lightning only with Clearcasting","Chain Lightning",
-		"ON by default for the no-consumables setup. Requires readable Clearcasting or an explicit current zero mana cost. Hidden/unknown procs keep Lightning Bolt going. Turn this off to allow Chain Lightning from the AoE and mana settings alone.")
-	Slider(aoe,"elementalChainMana","Elemental Chain Lightning minimum mana",0,100,30," %",
-		"At or above this mana percentage, and at or above AoE minimum mana. Uses the current learned-rank cost. Chain Lightning is never automated with AoE Off in the selected Elemental build.")
 	Slider(aoe, "aoeMinEnemies",
 		{ en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Mínimo de enemigos", de = "Mindestanzahl Gegner", zh = "最少敌人数" }, 2, 5, 2, "")
 	Slider(aoe, "aoeMinMana",

@@ -66,6 +66,11 @@ local M = {
 		expose = false,
 		bladeFlurry = true,
 		shank = true,
+		deathMark = true,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		mutilate = true,
+		hemorrhage = true,
+		ghostlyStrike = true,
 		aoe = false,
 		sinisterMinEnergy = 45,
 		backstabMinEnergy = 60,
@@ -87,14 +92,20 @@ M.spells = {
 	{ 13877, "Blade Flurry" },
 	{ 1833, "Cheap Shot" },
 	{ 1725, "Distract" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 1316709, "Death Mark" },
 	{ 5277, "Evasion" },
 	{ 2098, "Eviscerate" },
 	{ 8647, "Expose Armor" },
 	{ 1966, "Feint" },
 	{ 703, "Garrote" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 14278, "Ghostly Strike" },
 	{ 1776, "Gouge" },
+	{ 16511, "Hemorrhage" },
 	{ 1766, "Kick" },
 	{ 408, "Kidney Shot" },
+	{ 1310707, "Mutilate" },
 	{ 921, "Pick Pocket" },
 	{ 14251, "Riposte" },
 	{ 1943, "Rupture" },
@@ -227,7 +238,10 @@ if AL.playerClass == "ROGUE" and CreateFrame and CombatLogGetCurrentEventInfo th
 			local ok, _, subEvent, _, _, _, _, _, destGUID, _, _, _, swingMiss, _, _, spellMiss =
 				pcall(CombatLogGetCurrentEventInfo)
 			if not ok or not SafeValue(subEvent) or not SafeValue(destGUID) then return end
-			if not UnitGUID or destGUID ~= UnitGUID("player") then return end
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			local guidOK, playerGUID = pcall(UnitGUID, "player")
+			if not guidOK or not SafeValue(playerGUID) or type(playerGUID) ~= "string"
+				or type(destGUID) ~= "string" or destGUID ~= playerGUID then return end
 			local missType = subEvent == "SWING_MISSED" and swingMiss
 				or (subEvent == "SPELL_MISSED" and spellMiss)
 			if SafeValue(missType) and missType == "PARRY" then
@@ -237,15 +251,23 @@ if AL.playerClass == "ROGUE" and CreateFrame and CombatLogGetCurrentEventInfo th
 	end
 end
 
-local function MainHandIsDagger()
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function WeaponIsDagger(slot)
 	local itemInfoInstant = GetItemInfoInstant or (C_Item and C_Item.GetItemInfoInstant)
 	if not GetInventoryItemID or not itemInfoInstant then return nil end
-	local okItem, itemID = pcall(GetInventoryItemID, "player", 16)
+	local okItem, itemID = pcall(GetInventoryItemID, "player", slot)
 	if not okItem or not SafeValue(itemID) or not itemID then return false end
 	local okInfo, _, _, _, _, _, classID, subclassID = pcall(itemInfoInstant, itemID)
 	if not okInfo or not SafeValue(classID) or not SafeValue(subclassID) then return nil end
 	local daggerID = Enum and Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Dagger or 15
 	return classID == 2 and subclassID == daggerID
+end
+
+local function MainHandIsDagger() return WeaponIsDagger(16) end
+local function TwoDaggers()
+	-- Mutilate requires a readable dagger in both weapon slots. Unknown weapon
+	-- data fails closed so the Leveling rotation always retains its safe fallback.
+	return WeaponIsDagger(16) == true and WeaponIsDagger(17) == true
 end
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -423,16 +445,61 @@ local AddAction, FinishDecision, EnergyGate, EnergyCost
 -- can protect the cooldown payload in combat, so successful casts provide the
 -- fallback while readable cooldown data always wins.
 local levelingShankEnd, levelingShankRetry = 0, 0
-local function LevelingTalentRank(wanted)
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local levelingGhostlyEnd, levelingGhostlyRetry = 0, 0
+local levelingTalentRanks, levelingTalentsStale = {}, true
+local LEVELING_TALENT_ALIASES = {
+	Initiative = 13976,
+	["Improved Slice and Dice"] = 14165,
+	Elusiveness = 13981,
+	Camouflage = 13975,
+	["Seal Fate"] = 14186,
+}
+local function RefreshLevelingTalents()
+	local nextRanks, readableRows = {}, 0
+	local localized = {}
+	for english, id in pairs(LEVELING_TALENT_ALIASES) do
+		localized[english] = SafeCall(C_Spell and C_Spell.GetSpellName, id)
+	end
 	for tab = 1, 3 do
 		for index = 1, 40 do
 			local name, _, _, _, rank = SafeCall(GetTalentInfo, tab, index, false, false)
-			if SafeValue(name) and type(name) == "string" and ReadableNumber(rank) then
+			rank = ReadableNumber(rank)
+			if SafeValue(name) and type(name) == "string" and rank then
+				readableRows = readableRows + 1
 				local english = (AL.englishNames and AL.englishNames[name]) or name
-				if english == wanted then return rank end
+				nextRanks[english] = rank
+				for canonical, native in pairs(localized) do
+					if SafeValue(native) and type(native) == "string" and native == name then
+						nextRanks[canonical] = rank
+					end
+				end
 			end
 		end
 	end
+	-- A protected in-combat scan commonly returns no readable rows. Preserve
+	-- the last out-of-combat snapshot instead of poisoning every fallback with
+	-- an apparently empty talent tree.
+	if readableRows > 0 then
+		levelingTalentRanks, levelingTalentsStale = nextRanks, false
+		return true
+	end
+	return false
+end
+local function LevelingTalentRank(wanted)
+	if levelingTalentsStale then RefreshLevelingTalents() end
+	return levelingTalentRanks[wanted]
+end
+
+if AL.playerClass == "ROGUE" and CreateFrame then
+	local talentFrame = CreateFrame("Frame")
+	for _, event in ipairs({ "SPELLS_CHANGED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED",
+		"PLAYER_ENTERING_WORLD" }) do
+		pcall(talentFrame.RegisterEvent, talentFrame, event)
+	end
+	talentFrame:SetScript("OnEvent", function()
+		levelingTalentsStale = true
+	end)
 end
 
 local function LevelingShankFallback()
@@ -441,9 +508,9 @@ local function LevelingShankFallback()
 	return 10
 end
 
-local function LevelingShankCooldown()
-	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs["Shank"]
-	local identifier = ref and ReadableNumber(ref.id) or "Shank"
+local function LevelingCooldown(spell)
+	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[spell]
+	local identifier = ref and ReadableNumber(ref.id) or spell
 	local info = SafeCall(C_Spell and C_Spell.GetSpellCooldown, identifier)
 	if SafeValue(info) and type(info) == "table" then
 		local start, duration = ReadableNumber(info.startTime), ReadableNumber(info.duration)
@@ -459,6 +526,8 @@ local function LevelingShankCooldown()
 	end
 end
 
+local function LevelingShankCooldown() return LevelingCooldown("Shank") end
+
 local function LevelingShankReady()
 	if not Ok("Shank") then return false end
 	local now = GetTime()
@@ -466,6 +535,18 @@ local function LevelingShankReady()
 	local expires = LevelingShankCooldown()
 	if expires ~= nil then levelingShankEnd = expires end
 	return levelingShankEnd <= now
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Ghostly Strike is a cooldown builder. Use the same guarded reader as Shank
+-- so a secret Forever cooldown payload is never tested as a Lua boolean.
+local function LevelingGhostlyReady()
+	if not Ok("Ghostly Strike") then return false end
+	local now = GetTime()
+	if levelingGhostlyRetry > now then return false end
+	local expires = LevelingCooldown("Ghostly Strike")
+	if expires ~= nil then levelingGhostlyEnd = expires end
+	return levelingGhostlyEnd <= now
 end
 
 function M.OnTargetChanged()
@@ -490,10 +571,16 @@ function M.OnCastResult(name, event)
 			local expires = LevelingShankCooldown()
 			levelingShankEnd = expires and expires > GetTime() and expires or GetTime() + LevelingShankFallback()
 			levelingShankRetry = 0
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		elseif name == "Ghostly Strike" then
+			local expires = LevelingCooldown("Ghostly Strike")
+			levelingGhostlyEnd = expires and expires > GetTime() and expires or GetTime() + 20
+			levelingGhostlyRetry = 0
 		end
-	elseif name == "Shank" and (event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
-		or event == "UNIT_SPELLCAST_INTERRUPTED") then
-		levelingShankRetry = GetTime() + 0.5
+	elseif event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
+		or event == "UNIT_SPELLCAST_INTERRUPTED" then
+		if name == "Shank" then levelingShankRetry = GetTime() + 0.5 end
+		if name == "Ghostly Strike" then levelingGhostlyRetry = GetTime() + 0.5 end
 	end
 end
 
@@ -627,9 +714,27 @@ local function StealthOpener(s)
 end
 
 local function Builder(s)
-	-- No reliable behind-target signal is supplied. A saved BACKSTAB builder
-	-- preference must not trap combat at the front of the target.
-	if Ok("Sinister Strike") then
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Learned talent builders are selected only when their weapon, range,
+	-- cooldown and non-resource usability requirements are confirmed. A readable
+	-- Energy shortage is allowed so EnergyGate can show a safe pooling state.
+	local function Candidate(name, enabled)
+		if not enabled or not Ok(name) or not InMeleeRange(name) then return false end
+		local usable, shortage = SpellUsability(name)
+		return usable ~= false or shortage == true
+	end
+	if LevelingGhostlyReady() and Candidate("Ghostly Strike", s.ghostlyStrike) then
+		return "Ghostly Strike", 40
+	end
+	if TwoDaggers() and Candidate("Mutilate", s.mutilate) then
+		return "Mutilate", 60
+	end
+	if Candidate("Hemorrhage", s.hemorrhage) then
+		return "Hemorrhage", 35
+	end
+	-- No reliable behind-target signal is supplied. Backstab remains a Stealth
+	-- opener; Sinister Strike is the dependable combat fallback.
+	if Candidate("Sinister Strike", true) then
 		return "Sinister Strike", SettingNumber(s, "sinisterMinEnergy", 45, 20, 100)
 	end
 	return nil
@@ -666,6 +771,17 @@ local function HealthGate(unit, value, threshold, below)
 	return { axis = unit == "player" and "playerHP" or "targetHP", kind = "health", unit = unit,
 		cut = below and NextFloat32(threshold / 100) or threshold / 100, below = below,
 		threshold = threshold }
+end
+
+local function EnergyAtMost(energy, threshold)
+	if energy ~= nil then return energy <= threshold end
+	local maximum = lastRotation.energyMaximum
+	if maximum and maximum > 0 and CurveAvailable("energy") then
+		if threshold >= maximum then return true end
+		return { axis = "energy", kind = "energy", unit = "player", below = true,
+			cut = NextFloat32(threshold / maximum), threshold = threshold }
+	end
+	return false
 end
 
 EnergyCost = function(spell, fallback)
@@ -846,7 +962,12 @@ end
 function M.NextSpell(s, inCombat, hostile)
 	-- A blocked energy curve must not repeatedly suppress a working Evasion
 	-- health curve. Disable only the failed unit/API until combat ends.
-	if not inCombat then curveFailures, energyMaximumCache = {}, nil end
+	if not inCombat then
+		curveFailures, energyMaximumCache = {}, nil
+		-- Prewarm Flash of Steel while talent rows are public. A successful Shank
+		-- can then use the correct eight-to-ten second fallback during combat.
+		LevelingTalentRank("Flash of Steel")
+	end
 	local targetHP
 	if hostile then targetHP = HealthPercent("target") end
 	lastRotation = { at = GetTime(), actions = {} }
@@ -862,15 +983,19 @@ function M.NextSpell(s, inCombat, hostile)
 			if s.stealth and OkReady("Stealth") and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
 				return "Stealth", "opener setup"
 			end
-			if not InMeleeRange("Sinister Strike") then return nil, "Approach target" end
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 			local builder, minimum = Builder(s)
 			if builder then
-				minimum = math.max(minimum, EnergyCost(builder, 45))
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				-- Talent builders use the live discounted cost (notably Efficient
+				-- Strikes Hemorrhage). Only Sinister Strike retains its user slider.
+				local actual = EnergyCost(builder, minimum)
+				minimum = builder == "Sinister Strike" and math.max(minimum, actual) or actual
 				AddAction(builder, openerBlocked and "positional opener fallback" or "opener", { EnergyGate(ReadableNumber(AL.Power(3)), minimum, builder) })
 				AddAction(nil, "Pool energy")
 				return FinishDecision()
 			end
-			return AL.known["Attack"] and "Attack", "opener"
+			return AL.known["Attack"] and "Attack" or nil, "Approach target"
 		end
 		return nil, "Ready"
 	end
@@ -908,8 +1033,15 @@ function M.NextSpell(s, inCombat, hostile)
 	local aoeActive = s.aoe and enemyCount ~= nil and enemyCount >= aoeMin
 	local burstGate = HealthGate("target", targetHP, SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false)
 	local meleeTarget = ConfirmedHostileTarget() and InMeleeRange("Sinister Strike")
-	if s.bladeFlurry and (AL.burst or aoeActive) and meleeTarget and ReadyUsable("Blade Flurry") and not AL.HasBuff("player", "Blade Flurry") then
-		AddAction("Blade Flurry", aoeActive and "aoe" or "burst", { burstGate, EnergyGate(energy, EnergyCost("Blade Flurry", 25), "Blade Flurry") })
+	if s.bladeFlurry and aoeActive and meleeTarget and ReadyUsable("Blade Flurry")
+		and not AL.HasBuff("player", "Blade Flurry") then
+		-- AoE On is independent of Burst and its target-health threshold.
+		AddAction("Blade Flurry", "aoe", {
+			EnergyGate(energy, EnergyCost("Blade Flurry", 25), "Blade Flurry") })
+	elseif s.bladeFlurry and AL.burst and meleeTarget and ReadyUsable("Blade Flurry")
+		and not AL.HasBuff("player", "Blade Flurry") then
+		AddAction("Blade Flurry", "burst", { burstGate,
+			EnergyGate(energy, EnergyCost("Blade Flurry", 25), "Blade Flurry") })
 	end
 	if AL.burst and meleeTarget then
 		if ReadyUsable("Blood Fury") then AddAction("Blood Fury", "burst", { burstGate }) end
@@ -924,6 +1056,19 @@ function M.NextSpell(s, inCombat, hostile)
 	local finishCP = EvisceratePoints()
 	local eviscerateAllowed = Ok("Eviscerate")
 	local finishGate = HealthGate("target", targetHP, 50, true)
+	-- Death Mark is a learned five-point finisher with delayed damage. Use the
+	-- high-health half of the Leveling split so the target has time to survive
+	-- its six-second storage window; low-health targets continue to Eviscerate.
+	local classification = TargetClassification()
+	local durableTarget = classification == "rare" or classification == "elite"
+		or classification == "rareelite" or classification == "worldboss"
+	if s.deathMark and durableTarget and cp >= 5 and Ok("Death Mark")
+		and FinisherAvailable("Death Mark") then
+		local survivalGate = HealthGate("target", targetHP, 50, false)
+		AddAction("Death Mark", "learned delayed finisher", { survivalGate,
+			EnergyGate(energy, EnergyCost("Death Mark", 25), "Death Mark") })
+		AddAction(nil, "Pool energy for Death Mark", { survivalGate })
+	end
 	if eviscerateAllowed and cp >= finishCP then
 		if FinisherAvailable("Eviscerate") then
 			AddAction("Eviscerate", tostring(cp) .. " cp at/below 50% target health", {
@@ -942,19 +1087,31 @@ function M.NextSpell(s, inCombat, hostile)
 		AddAction(nil, "Pool energy for Expose Armor", { finishGate })
 	end
 	if cp >= 5 and targetHP == nil and eviscerateAllowed and not CurveAvailable("health") then
-		AddAction(nil, "Target health unavailable"); return FinishDecision()
+		AddAction(AL.known["Attack"] and "Attack" or nil, "Hold five combo points until target health is readable")
+		return FinishDecision()
+	end
+	if cp >= 5 then
+		-- Do not waste capped combo points on another builder. Attack remains a
+		-- usable fallback instead of leaving the display on a pooling icon.
+		AddAction(AL.known["Attack"] and "Attack" or nil, "Hold five combo points for a finisher")
+		return FinishDecision()
 	end
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	-- Shank is a baseline strike and net Energy gain. Finishers remain ahead of
 	-- it so a guaranteed Boot Knife proc cannot waste points at the cap.
-	if s.shank and cp < 5 and LevelingShankReady() and ShankEligible() and InMeleeRange("Shank") then
+	if s.shank and cp <= 3 and LevelingShankReady() and ShankEligible()
+		and InMeleeRange("Shank") then
 		AddAction("Shank", "energy-generating strike", {
-			EnergyGate(energy, EnergyCost("Shank", 5), "Shank") })
+			EnergyGate(energy, EnergyCost("Shank", 5), "Shank"),
+			EnergyAtMost(energy, 60) })
 		AddAction(nil, "Pool energy for Shank"); return FinishDecision()
 	end
 	local builder, minimumEnergy = Builder(s)
 	if builder then
-		minimumEnergy = math.max(minimumEnergy, EnergyCost(builder, 45))
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		local actual = EnergyCost(builder, minimumEnergy)
+		minimumEnergy = builder == "Sinister Strike"
+			and math.max(minimumEnergy, actual) or actual
 		AddAction(builder, "builder", { EnergyGate(energy, minimumEnergy, builder) })
 		AddAction(nil, "Pool energy")
 	else AddAction(AL.known["Attack"] and "Attack" or nil, "melee") end
@@ -1045,37 +1202,18 @@ local M = {
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
-M.buildKeys = { "leveling", "assassination", "subtlety", "combat" }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+M.buildKeys = { "leveling" }
 function M.NormalizeBuild(s)
-    if type(s) ~= "table" then return end
-    local selected, count = nil, 0
-    for _, key in ipairs(M.buildKeys) do
-        if key ~= "leveling" then
-            local value = s[key]
-            local checked = not (issecretvalue and issecretvalue(value)) and value == true
-            s[key] = checked
-            if checked then selected, count = key, count + 1 end
-        end
-    end
-    if count ~= 1 then
-        for _, key in ipairs(M.buildKeys) do s[key] = false end
-        selected = "leveling"
-    end
-    s.leveling = selected == "leveling"
-    return selected
+    if type(s) ~= "table" then return "leveling" end
+    -- v1.1.5 Leveling-only release: retire saved level-60 selections and
+    -- keep the original finalized rotation active for every character.
+    for _, key in ipairs({ "assassination", "subtlety", "combat" }) do s[key] = false end
+    s.leveling = true
+    return "leveling"
 end
-function M.SetBuild(key, enabled, s)
-    if (issecretvalue and issecretvalue(enabled)) or type(enabled) ~= "boolean" then return end
-    local valid = false
-    for _, candidate in ipairs(M.buildKeys) do if candidate == key then valid = true; break end end
-    if not valid then return end
+function M.SetBuild(_, _, s)
     s = s or AL.Profile("ROGUE")
-    if type(s) ~= "table" then return end
-    if enabled then
-        for _, candidate in ipairs(M.buildKeys) do s[candidate] = candidate == key end
-    else
-        s[key] = false
-    end
     local selected = M.NormalizeBuild(s)
     if AL.UI and type(AL.UI.Repaint) == "function" then AL.UI.Repaint() end
     return selected
@@ -1091,7 +1229,7 @@ M.spells = {
 	{ 1833, "Cheap Shot" },
 	{ 14177, "Cold Blood" },
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	{ 0, "Death Mark" },
+	{ 1316709, "Death Mark" },
 	{ 1725, "Distract" },
 	{ 5277, "Evasion" },
 	{ 2098, "Eviscerate" },
@@ -1243,7 +1381,10 @@ if AL.playerClass == "ROGUE" and CreateFrame and CombatLogGetCurrentEventInfo th
 			local ok, _, subEvent, _, _, _, _, _, destGUID, _, _, _, swingMiss, _, _, spellMiss =
 				pcall(CombatLogGetCurrentEventInfo)
 			if not ok or not SafeValue(subEvent) or not SafeValue(destGUID) then return end
-			if not UnitGUID or destGUID ~= UnitGUID("player") then return end
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			local guidOK, playerGUID = pcall(UnitGUID, "player")
+			if not guidOK or not SafeValue(playerGUID) or type(playerGUID) ~= "string"
+				or type(destGUID) ~= "string" or destGUID ~= playerGUID then return end
 			local missType = subEvent == "SWING_MISSED" and swingMiss
 				or (subEvent == "SPELL_MISSED" and spellMiss)
 			if SafeValue(missType) and missType == "PARRY" then
@@ -2029,7 +2170,7 @@ end
 -- and uses a fixed Rupture duration. Native readable data remains preferred.
 local subCombo, subSpentAt, subBefore, subPremedUntil, subPremedOnly
 local subEpoch, subDots, subSnd, subLast, subPending = 0, {}, nil, nil, {}
-local subTalents, subAuraCache, subAuraBlocked = nil, {}, {}
+local subTalents, subTalentsStale, subAuraCache, subAuraBlocked = {}, true, {}, {}
 local subStealth, subStealthAt
 local subBuilders = { ["Sinister Strike"] = 1, Backstab = 1, Gouge = 1, Ambush = 1,
 	Garrote = 1, ["Cheap Shot"] = 2, Riposte = 1, Hemorrhage = 1, ["Ghostly Strike"] = 1 }
@@ -2045,23 +2186,44 @@ local function SubGUID(unit)
 	if SafeValue(guid) and type(guid) == "string" then return guid end
 end
 
-SubTalent = function(name)
-	if not subTalents then
-		subTalents = {}
-		for tab = 1, 3 do for index = 1, 40 do
-			local talent, _, _, _, rank = SafeCall(GetTalentInfo, tab, index, false, false)
-			if SafeValue(talent) and type(talent) == "string" and ReadableNumber(rank) then
-				local english = (AL.englishNames and AL.englishNames[talent]) or talent
-				subTalents[english] = rank
-				for key, id in pairs({ Initiative = 13976, ["Improved Slice and Dice"] = 14165,
-					Elusiveness = 13981, Camouflage = 13975, ["Seal Fate"] = 14186 }) do
-					local localized = SafeCall(C_Spell and C_Spell.GetSpellName, id)
-					if SafeValue(localized) and localized == talent then subTalents[key] = rank end
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function RefreshSubTalents()
+	local nextTalents, readableRows = {}, 0
+	local aliases = { Initiative = 13976, ["Improved Slice and Dice"] = 14165,
+		Elusiveness = 13981, Camouflage = 13975, ["Seal Fate"] = 14186 }
+	local localized = {}
+	for key, id in pairs(aliases) do localized[key] = SafeCall(C_Spell and C_Spell.GetSpellName, id) end
+	for tab = 1, 3 do for index = 1, 40 do
+		local talent, _, _, _, rank = SafeCall(GetTalentInfo, tab, index, false, false)
+		rank = ReadableNumber(rank)
+		if SafeValue(talent) and type(talent) == "string" and rank then
+			readableRows = readableRows + 1
+			local english = (AL.englishNames and AL.englishNames[talent]) or talent
+			nextTalents[english] = rank
+			for key, native in pairs(localized) do
+				if SafeValue(native) and type(native) == "string" and native == talent then
+					nextTalents[key] = rank
 				end
 			end
-		end end
+		end
+	end end
+	-- Do not replace a valid out-of-combat snapshot with an empty protected
+	-- scan. Core may ask these helpers only after the first combat cast.
+	if readableRows > 0 then
+		subTalents, subTalentsStale = nextTalents, false
+		return true
 	end
+	return false
+end
+
+SubTalent = function(name)
+	if subTalentsStale then RefreshSubTalents() end
 	return subTalents[name]
+end
+
+function M.RefreshTalentCache()
+	if subTalentsStale then return RefreshSubTalents() end
+	return true
 end
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -2293,8 +2455,11 @@ if AL.playerClass == "ROGUE" and CreateFrame then
 			subPending[guid] = { points = RoguePoints(), epoch = subEpoch, at = GetTime(), foreign = foreign }
 		elseif event == "UNIT_AURA" then subAuraCache = {}
 		elseif event == "PLAYER_DEAD" then subSnd = nil; subStealth = false; combatBuffEnds["Cold Blood"] = nil; subAuraBlocked = {}; SubTargetChanged()
-		elseif event == "PLAYER_REGEN_ENABLED" then subAuraBlocked, subAuraCache = {}, {}
-		elseif event == "SPELLS_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "CHARACTER_POINTS_CHANGED" then subTalents = nil
+		elseif event == "PLAYER_REGEN_ENABLED" then
+			subAuraBlocked, subAuraCache = {}, {}
+			RefreshSubTalents()
+		elseif event == "SPELLS_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "CHARACTER_POINTS_CHANGED" then
+			subTalentsStale = true
 		elseif event == "COMBAT_LOG_EVENT_UNFILTERED" and CombatLogGetCurrentEventInfo then
 			local ok, _, kind, _, source, _, _, _, dest, _, _, _, id, name, _, missType,
 				_, _, _, _, _, critical = pcall(CombatLogGetCurrentEventInfo)
@@ -2745,6 +2910,12 @@ AL.RegisterRotation("ROGUE", M)
     function advanced.NextSpell(profile, ...)
         if UsesLeveling(profile) then
             wasLeveling = true
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			-- The Leveling path still shares Core's combo-point and duration
+			-- helpers with this module. Prime their talent snapshot before combat.
+			if select(1, ...) ~= true and advanced.RefreshTalentCache then
+				advanced.RefreshTalentCache()
+			end
             return leveling.NextSpell(profile, ...)
         end
         if wasLeveling and advanced.OnRotationActivated then advanced.OnRotationActivated() end

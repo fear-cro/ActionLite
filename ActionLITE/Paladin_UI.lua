@@ -1,5 +1,5 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.16.2"
+local UI_VERSION = "0.17.1"
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 
@@ -79,7 +79,7 @@ local function BuildPaladinUI(page, ui)
 	end
 
 	local levelingCard = ui.Card(stack, "LEVELING ROTATION", "Original class rotation", { id="levelingCard", build="leveling", group="damage" })
-	Check(levelingCard, "leveling", "Leveling Rotation", "Judgement", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected.", true,
+	Check(levelingCard, "leveling", "Leveling Rotation", "Judgement", "Uses the finalized leveling rotation and every learned spell permitted by the settings. Leveling Rotation is the only damage or tank rotation in this release.", true,
 		function() rotation.SetBuild("leveling", ui.Profile().leveling == true, ui.Profile()); ui.Repaint() end)
 
 	local roleCard = ui.Card(stack,
@@ -94,8 +94,8 @@ local function BuildPaladinUI(page, ui)
 		}), { id="roleCard", build="leveling", group="preparation" })
 	Dropdown(roleCard, "paladinRole",
 		{ en = "Leveling role", fr = "Rotation active", pt = "Rotação ativa", es = "Rotación activa", de = "Aktive Rotation", zh = "当前循环" }, {
-			{ label = { en = "Retribution DPS", fr = "Vindicte DPS", pt = "Retribuição DPS", es = "Reprensión DPS", de = "Vergeltung DPS", zh = "惩戒 DPS" }, value = "DPS" },
-			{ label = { en = "Protection Tank", fr = "Protection Tank", pt = "Proteção Tanque", es = "Protección Tanque", de = "Schutz Tank", zh = "防护坦克" }, value = "TANK" },
+			{ label = { en = "Leveling DPS", fr = "DPS de progression", pt = "DPS de progressão", es = "DPS de progresión", de = "Level-DPS", zh = "升级 DPS" }, value = "DPS" },
+			{ label = { en = "Leveling Tank", fr = "Tank de progression", pt = "Tanque de progressão", es = "Tanque de progresión", de = "Level-Tank", zh = "升级坦克" }, value = "TANK" },
 		}, "DPS", function(value)
             local profile=ui.Profile()
             rotation.SetBuild("leveling",true,profile)
@@ -103,33 +103,14 @@ local function BuildPaladinUI(page, ui)
             profile.levelingPaladinRole=profile.paladinRole
             rotation.NormalizeBuild(profile)
 		end)
-	Check(roleCard, "protection", "Tank — Protection (8/33/10)", "Holy Shield",
-		"Uses the Protection priority with learned spells through level 60. Selecting Tank disables both DPS build boxes. Turning Tank off automatically selects Leveling Rotation. Talents, equipment, spell permissions and icon assignments are not changed.", true,
-		function() rotation.SelectBuild(ui.Profile(), "protection", ui.Profile().protection == true); ui.Repaint() end)
-	local buildCard = ui.Card(stack, "DPS BUILDS", "MythicSim level-60 references: Retribution 10/8/33; Shockadin 23/0/28", { id="buildCard", build="retribution", group="damage" })
-	local function SelectBuild(key, other)
-		rotation.SelectBuild(ui.Profile(), key, ui.Profile()[key] == true)
-		ui.Repaint()
-	end
-	Check(buildCard, "retribution", "Use Retribution (10/8/33)", "Seal of Command",
-		"Uses learned Retribution damage and execute priorities. Automatic seal mode keeps the weapon-based single-seal choice. Unsealed Wrath seal switching remains manual until its new stack state can be confirmed safely in combat. Selecting this disables Shockadin and Tank. Talents and equipment are not changed.", true,
-		function() SelectBuild("retribution", "shockadin") end)
-	Check(buildCard, "shockadin", "Use Shockadin (23/0/28)", "Holy Shock",
-		"Uses learned Shockadin damage priorities and automatic Seal of Righteousness. Selecting this disables Retribution and Tank. Select Leveling Rotation to use the earlier DPS priority. Talents and equipment are not changed.", true,
-		function() SelectBuild("shockadin", "retribution") end)
-	ui.Help(buildCard, "Unsealed Wrath replaced the former Twist of Light behavior. Automatic seal cycling is disabled so ActionLITE cannot consume its new stored-seal stacks at the wrong time.")
-	ui.Help(buildCard, "Area damage requires AoE On. Divine Favor requires Burst On and an eligible offensive Holy Shock. Only learned and enabled spells are used.")
 	local burstCard=ui.Card(stack,"BURST",nil,{id="burst",group="burst"})
-	local tankCard = ui.Card(stack, "PROTECTION — 8/33/10", "Tank defenses and independent Judgement", { id="tankCard", build="protection", group="survival" })
-	Check(tankCard, "holyShield", "Maintain Holy Shield", "Holy Shield",
-		"Tank only. Requires the learned spell and an equipped shield. Prepares for a nearby pull and maintains block protection in melee combat. Uses confirmed casts when aura or cooldown data is protected.", true)
-	Slider(tankCard, "holyShieldMinMana", "Holy Shield minimum mana", 0, 100, 10, " %")
-	Check(burstCard, "swiftJudgement", "Burst: use Swift Judgement", "Swift Judgement",
-		"Tank only and Burst On. Instantly unleashes the active seal without sharing or changing the normal Judgement cooldown. Uses its own cooldown and the configured target-health limits.", true)
-	Check(tankCard, "templarsBulwark", "Use Templar's Bulwark", "Templar's Bulwark",
-		"Tank only, with emergency spells enabled. Uses the learned absorb at or below its health slider, unless Forbearance or the absorb is already active. Independent of Burst On. Tank never automatically uses Divine Protection or Divine Shield.", true)
-	Slider(tankCard, "templarsBulwarkHP", "Templar's Bulwark at or below health", 5, 80, 35, " %")
-	ui.Help(tankCard, "Automatic Tank preparation keeps Seal of Fury, Righteous Fury, Blessing of Wisdom and Devotion Aura. Explicit seal, blessing and aura choices take priority. Area damage still requires AoE On and enough engaged nearby enemies.")
+	local tankTools = ui.Card(stack, "LEVELING TANK TOOLS", "Learned defensive talents", { id="tank-tools", group="survival" })
+	Check(tankTools, "holyShield", "Maintain Holy Shield", "Holy Shield",
+		"Leveling Tank only. Uses the learned spell with an equipped shield before a nearby pull and on cooldown in melee.", true)
+	Slider(tankTools, "holyShieldMinMana", "Holy Shield minimum mana", 0, 100, 10, " %")
+	Check(tankTools, "templarsBulwark", "Use Templar's Bulwark", "Templar's Bulwark",
+		"Leveling Tank only. Uses the learned emergency absorb at or below its health threshold while Forbearance is absent.", true)
+	Slider(tankTools, "templarsBulwarkHP", "Templar's Bulwark at or below health", 5, 80, 35, " %")
 
 	local steel = { 0.72, 0.62, 0.50, 1 }
 	local head = ui.Card(stack,
@@ -165,6 +146,7 @@ local function BuildPaladinUI(page, ui)
 			{ label = { en = "Automatic by role", fr = "Automatique selon le role", pt = "Automático pela função", es = "Automático según el rol", de = "Automatisch nach Rolle", zh = "按职责自动" }, value = "AUTO" },
 			{ label = "Blessing of Might", value = "MIGHT" },
 			{ label = "Blessing of Wisdom", value = "WISDOM" },
+			{ label = "Blessing of Kings", value = "KINGS" },
 		}, "AUTO")
 	Dropdown(preparation, "auraMode",
 		{ en = "Preferred aura", fr = "Aura preferee", pt = "Aura preferida", es = "Aura preferida", de = "Bevorzugte Aura", zh = "首选光环" }, {
@@ -191,13 +173,13 @@ local function BuildPaladinUI(page, ui)
 		zh = "防护自动模式优先使用已学会的 Seal of Fury。Righteous Fury 仍是独立的仇恨增益。",
 	}))
 	Check(preparation, "tankRighteousFury", "Righteous Fury", "Righteous Fury",
-		{ en = "Protection only. Maintains the level-10 threat buff whenever it is learned. Its live mana cost includes Legacy's free-cast effect.", fr = "Protection uniquement. Maintient le buff de menace de niveau 10 lorsqu'il est appris.", pt = "Somente Proteção. Mantém o buff de ameaça de nível 10 quando aprendido.", es = "Solo Protección. Mantiene el beneficio de amenaza de nivel 10 cuando está aprendido.", de = "Nur Schutz. Hält den Bedrohungsbuff ab Stufe 10 aufrecht, sobald er erlernt ist.", zh = "仅限防护。学会后维持10级可用的仇恨增益。" }, true)
+		{ en = "Leveling Tank only. Maintains the level-10 threat buff whenever it is learned. Its live mana cost includes Legacy's free-cast effect.", fr = "Tank de progression uniquement. Maintient le buff de menace de niveau 10 lorsqu'il est appris.", pt = "Somente Tanque de progressão. Mantém o buff de ameaça de nível 10 quando aprendido.", es = "Solo Tanque de progresión. Mantiene el beneficio de amenaza de nivel 10 cuando está aprendido.", de = "Nur Level-Tank. Hält den Bedrohungsbuff ab Stufe 10 aufrecht, sobald er erlernt ist.", zh = "仅限升级坦克。学会后维持10级可用的仇恨增益。" }, true)
 
 	local offense = ui.Card(stack,
 		Text({ en = "OFFENSIVE PRIORITY", fr = "PRIORITE OFFENSIVE", pt = "PRIORIDADE OFENSIVA", es = "PRIORIDAD OFENSIVA", de = "OFFENSIVPRIORITÄT", zh = "进攻优先级" }), nil, { id="offense", group="damage" })
-	Check(offense, "holyShock", "Use Holy Shock", "Holy Shock", "Shockadin: casts on cooldown when learned, enabled and above the configured mana minimum.")
+	Check(offense, "holyShock", "Use Holy Shock", "Holy Shock", "Leveling: uses learned Holy Shock when its normal priority, range and mana requirements are met.")
 	Slider(offense, "holyShockMinMana", "Holy Shock minimum mana", 0, 100, 10, " %")
-	Check(offense, "hammerOfWrath", "Use Hammer of Wrath", "Hammer of Wrath", "Protection, Retribution and Shockadin: casts when target health is at or below 20%, the spell is learned and ready, and mana meets the configured minimum. Movement is allowed only when the learned spell reports an instant cast from Champion of the Light.")
+	Check(offense, "hammerOfWrath", "Use Hammer of Wrath", "Hammer of Wrath", "Leveling: casts when target health is at or below 20%, the spell is learned and ready, and mana meets the configured minimum. Movement is allowed only when the learned spell reports an instant cast from Champion of the Light.")
 	Slider(offense, "hammerOfWrathMinMana", "Hammer of Wrath minimum mana", 0, 100, 10, " %")
 	Check(offense, "holystrike", "Holy Strike", "Holy Strike",
 		{ en = "Main melee strike when learned, ready and affordable.", fr = "Attaque de melee principale lorsqu'elle est apprise, disponible et abordable.", pt = "Golpe corpo a corpo principal quando aprendido, pronto e com mana suficiente.", es = "Golpe cuerpo a cuerpo principal cuando está aprendido, listo y es asequible.", de = "Hauptangriff im Nahkampf, wenn erlernt, bereit und bezahlbar.", zh = "已学会、可用且资源足够时的主要近战攻击。" })
@@ -223,10 +205,10 @@ local function BuildPaladinUI(page, ui)
 		{ en = "Allows Consecration only after the enemy threshold is confirmed.", fr = "Autorise Consecration uniquement lorsque le seuil d'ennemis est confirme.", pt = "Permite Consecration apenas após confirmar o limite de inimigos.", es = "Permite Consecration solo tras confirmar el umbral de enemigos.", de = "Erlaubt Consecration erst, wenn die Gegnerschwelle bestätigt ist.", zh = "仅在确认敌人数量阈值后才允许 Consecration。" })
 	Check(aoe, "consecration", "Consecration", "Consecration")
 	Check(aoe, "hammerOfTheRighteous", "Use Hammer of the Righteous", "Hammer of the Righteous",
-		"Protection and Retribution, AoE On only. Uses this attack instead of Holy Strike when learned, in melee and the engaged-enemy threshold is met. Their cooldown is shared.")
+		"Leveling Rotation, AoE On only. Uses this attack when learned, in melee and the engaged-enemy threshold is met.")
 	Slider(aoe, "hammerOfTheRighteousMinMana", "Hammer of the Righteous minimum mana", 0, 100, 10, " %")
 	Check(aoe, "holyWrath", "Use Holy Wrath", "Holy Wrath",
-		"Protection and Retribution, AoE On only. Requires a learned rank, an undead or demon target, the engaged-enemy threshold, sufficient mana and a stationary player.")
+		"Leveling Rotation, AoE On only. Requires a learned rank, an undead or demon target, the engaged-enemy threshold, sufficient mana and a stationary player.")
 	Slider(aoe, "holyWrathMinMana", "Holy Wrath minimum mana", 0, 100, 35, " %")
 	Slider(aoe, "aoeMinEnemies",
 		{ en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Mínimo de enemigos", de = "Mindestanzahl Gegner", zh = "最少敌人数" }, 2, 5, 2, "")
@@ -237,7 +219,9 @@ local function BuildPaladinUI(page, ui)
 	Slider(burstCard, "burstMinTargetHP",
 		{ en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Vida mínima del objetivo para Burst", de = "Burst Mindest-Zielgesundheit", zh = "爆发目标最低生命值" }, 0, 100, 40, " %")
 	Check(burstCard, "divineFavor", "Use Divine Favor", "Divine Favor",
-		"Shockadin Burst On only. Prepares a guaranteed critical Holy Shock when learned, enabled, ready, in range and above the Holy Shock mana threshold. The Burst target-health slider controls activation.", true)
+		"Leveling Rotation with Burst On. Prepares a guaranteed critical Holy Shock when learned, enabled, ready, in range and above the Holy Shock mana threshold. The Burst target-health slider controls activation.", true)
+	Check(burstCard, "swiftJudgement", "Use Swift Judgement", "Swift Judgement",
+		"Leveling Rotation with Burst On. Uses the learned instant seal release with an active seal and its own cooldown.", true)
 	ui.Help(aoe, Text({
 		en = "If the enemy count is protected, Consecration is withheld instead of being guessed on a single target.",
 		fr = "Si le nombre d'ennemis est protege, Consecration est retenu au lieu d'etre suppose sur une cible unique.",
@@ -249,7 +233,7 @@ local function BuildPaladinUI(page, ui)
 
 	local healingEngine = ui.Card(stack, "HEALING ROTATION", nil, { id="healing-engine", group="survival" })
 	Check(healingEngine, "healingEngine", "Enable Healing Rotation", "Holy Light",
-		"Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation.", true)
+		"Enables five-player dungeon healing, selected-ally distress healing, and the protected Action focus pixel. Raids and solo play continue using the Leveling Rotation.", true)
 	Slider(healingEngine, "healingInitiateHP", "Initiate healing at HP", 5, 100, 80, " %")
 	Slider(healingEngine, "healingEmergencyHP", "Emergency healing", 5, 100, 30, " %")
 	Dropdown(healingEngine, "healingAura", "Healing aura", {
@@ -284,7 +268,7 @@ local function BuildPaladinUI(page, ui)
 	Slider(survival, "divineProtectionHP",
 		{ en = "Divine Protection health threshold", fr = "Seuil de vie Divine Protection", pt = "Limite de vida Divine Protection", es = "Umbral de vida Divine Protection", de = "Divine Protection Gesundheitsschwelle", zh = "Divine Protection 生命阈值" }, 5, 80, 30, " % HP")
 	Check(survival, "divineShield", "Divine Shield", "Divine Shield",
-		{ en = "Retribution only. It is never suggested while the Tank role is active.", fr = "Vindicte uniquement. Il n'est jamais propose lorsque le role Tank est actif.", pt = "Somente Retribuição. Nunca é sugerido com a função Tanque ativa.", es = "Solo Reprensión. Nunca se sugiere con el rol de Tanque activo.", de = "Nur Vergeltung. Wird bei aktiver Tank-Rolle nie vorgeschlagen.", zh = "仅限惩戒。坦克职责激活时绝不会建议。" })
+		{ en = "Leveling DPS only. It is never suggested while the Leveling Tank role is active.", fr = "DPS de progression uniquement. Jamais propose avec le role Tank.", pt = "Somente DPS de progressão. Nunca é sugerido com a função Tanque.", es = "Solo DPS de progresión. Nunca se sugiere con el rol Tanque.", de = "Nur Level-DPS. Bei aktiver Tank-Rolle nie vorgeschlagen.", zh = "仅限升级 DPS。坦克职责激活时绝不会建议。" })
 	Slider(survival, "divineShieldHP",
 		{ en = "Divine Shield health threshold", fr = "Seuil de vie Divine Shield", pt = "Limite de vida Divine Shield", es = "Umbral de vida Divine Shield", de = "Divine Shield Gesundheitsschwelle", zh = "Divine Shield 生命阈值" }, 5, 60, 18, " % HP")
 	Check(survival, "layOnHands", "Lay on Hands", "Lay on Hands")
@@ -326,7 +310,8 @@ local function BuildPaladinUI(page, ui)
 		SetBadge("mana", type(state.mana) == "number" and ("MANA " .. math.floor(state.mana + 0.5) .. "%") or "MANA ?",
 			type(state.mana) == "number" and theme.gold or (theme.warn or theme.gold))
 		SetBadge("spells", tostring(state.knownCount or 0) .. " " .. (AL.L and AL.L("SPELLS"):upper() or "SPELLS"), steel)
-		SetBadge("role", state.role == "TANK" and "TANK" or state.shockadin and "SHOCKADIN" or "RETRIBUTION",
+		SetBadge("role", profile.healingEngine and "DUNGEON HEAL"
+			or state.role == "TANK" and "LEVELING TANK" or "LEVELING DPS",
 			state.role == "TANK" and (theme.warn or theme.gold) or theme.ok)
 		SetBadge("seal", "SEAL " .. ShortName(state.seal, "?"), state.seal and theme.gold or steel)
 		SetBadge("aura", "AURA " .. ShortName(state.aura, "?"), state.aura and theme.gold or steel)

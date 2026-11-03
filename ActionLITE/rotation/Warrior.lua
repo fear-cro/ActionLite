@@ -1,11 +1,11 @@
 local ADDON, AL = ...
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
--- ActionLITE Warrior v0.10.5: original Leveling plus optional talent builds.
+-- ActionLITE Warrior v0.10.6: finalized Leveling rotation only.
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
--- scope. Talent builds use the separate implementation below. Both observe
--- real casts so switching rotations retains resource and spell history.
+-- scope. The retired talent-build implementation below contributes only
+-- shared spell/UI data; all public decisions and cast history use Leveling.
 do
     local root = AL
     local leveling, advanced
@@ -45,7 +45,7 @@ do
 -- BEGIN ORIGINAL LEVELING IMPLEMENTATION (Warrior(7).lua)
 local ADDON, AL = ...
 
--- WoW Forever Warrior DPS / Tank leveling 1-30
+-- WoW Forever Warrior DPS / Tank leveling 1-60
 -- ActionLITE Warrior rotation v0.7.13
 -- Target: beta 1.60.1.69913.
 -- Data: client extraction 1.60.1.69876, unchanged in 69893/69913.
@@ -70,6 +70,15 @@ local M = {
 		revenge = true,
 		slam = true,
 		spear = true,
+		recklessSwings = true,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- Learned talent actives stay optional without selecting a simulated build.
+		bloodthirst = true,
+		mortalStrike = true,
+		whirlwind = true,
+		pummel = true,
+		deathWish = true,
+		recklessness = true,
 		demo = false,
 		aoe = false,
 		aoeMinEnemies = 2,
@@ -81,6 +90,10 @@ local M = {
 		tankInterrupt = true,
 		tankShieldBlock = true,
 		tankShieldWall = true,
+		tankShieldSlam = true,
+		tankLastStand = true,
+		tankLastStandHP = 30,
+		tankConcussionBlow = true,
 		tankDemo = true,
 		tankSunderMaxStacks = 5,
 		tankHeroicDumpRage = 20,
@@ -109,11 +122,15 @@ M.spells = {
 	{ 2457, "Battle Stance" },
 	{ 2458, "Berserker Stance" },
 	{ 2687, "Bloodrage" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 23881, "Bloodthirst" },
 	{ 1161, "Challenging Shout" },
 	{ 100, "Charge" },
 	{ 845, "Cleave" },
+	{ 12809, "Concussion Blow" },
 	{ 71, "Defensive Stance" },
 	{ 1160, "Demoralizing Shout" },
+	{ 12328, "Death Wish" },
 	{ 676, "Disarm" },
 	{ 5308, "Execute" },
 	{ 1715, "Hamstring" },
@@ -121,21 +138,27 @@ M.spells = {
 	{ 20252, "Intercept" },
 	{ 5246, "Intimidating Shout" },
 	{ 694, "Mocking Blow" },
+	{ 12975, "Last Stand" },
+	{ 12294, "Mortal Strike" },
 	{ 7384, "Overpower" },
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	{ 12323, "Piercing Howl" },
+	{ 6552, "Pummel" },
+	{ 1719, "Recklessness" },
 	{ 0, "Reckless Swings" },
 	{ 772, "Rend" },
 	{ 20230, "Retaliation" },
 	{ 6572, "Revenge" },
 	{ 72, "Shield Bash" },
 	{ 2565, "Shield Block" },
+	{ 23922, "Shield Slam" },
 	{ 871, "Shield Wall" },
 	{ 1240193, "Slam" },            -- Forever rank one, level 20
 	{ 7386, "Sunder Armor" },
 	{ 355, "Taunt" },
 	{ 6343, "Thunder Clap" },
 	{ 402927, "Victory Rush" },     -- Forever, level 20
+	{ 1680, "Whirlwind" },
 	{ 1310222, "Spearing Strike" }, -- Arms talent, rank 4
 	{ 12292, "Sweeping Strikes" },  -- Arms talent, rank 5
 }
@@ -167,11 +190,22 @@ local MINLEVEL = {
 	["Intimidating Shout"] = 22,
 	["Execute"] = 24,
 	["Spearing Strike"] = 25, -- Earliest theoretical access to Arms row 4.
+	["Reckless Swings"] = 25, -- Fury row 4; the live spell ID still needs an in-client probe.
 	["Challenging Shout"] = 26,
 	["Shield Wall"] = 28,
 	["Berserker Stance"] = 30,
 	["Intercept"] = 30,
 	["Sweeping Strikes"] = 30,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Death Wish"] = 30,
+	["Concussion Blow"] = 30,
+	["Whirlwind"] = 36,
+	["Pummel"] = 38,
+	["Bloodthirst"] = 40,
+	["Mortal Strike"] = 40,
+	["Shield Slam"] = 40,
+	["Recklessness"] = 50,
+	["Last Stand"] = 20,
 }
 
 local Ok, OkReady, Known = AL.LevelGates(MINLEVEL)
@@ -212,6 +246,17 @@ local LOCAL_COOLDOWNS = {
 	["Sweeping Strikes"] = 30,
 	["Thunder Clap"] = 6,
 	["Shield Block"] = 5,
+	["Reckless Swings"] = 15,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Bloodthirst"] = 6,
+	["Mortal Strike"] = 6,
+	["Whirlwind"] = 10,
+	["Pummel"] = 10,
+	["Death Wish"] = 180,
+	["Recklessness"] = 1800,
+	["Shield Slam"] = 6,
+	["Last Stand"] = 180,
+	["Concussion Blow"] = 45,
 }
 
 -- ==========================================================================
@@ -447,17 +492,96 @@ local function PlayerLevel()
 	return level
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Talent ranks are read only while they are public and cached transactionally.
+-- Moving talents in the pre-launch trees must not make the Leveling rotation
+-- assume a reference build or discard the last usable cache during combat.
+local levelingTalentRanks, levelingTalentsReady = {}, false
+local function RefreshLevelingTalentCache()
+	if type(GetTalentInfo) ~= "function" then return false end
+	local okCombat, inCombat = pcall(UnitAffectingCombat, "player")
+	if okCombat and SafeValue(inCombat) and inCombat == true then return false end
+	local candidate, readable = {}, 0
+	for tab = 1, 3 do
+		for index = 1, 40 do
+			local ok, talent, _, _, _, rank = pcall(GetTalentInfo, tab, index, false, false)
+			local value = HamstringNumber(rank)
+			if ok and SafeValue(talent) and type(talent) == "string"
+				and value and value >= 0 and value <= 5 then
+				candidate[talent] = value
+				local english = AL.englishNames and AL.englishNames[talent]
+				if type(english) == "string" then candidate[english] = value end
+				readable = readable + 1
+			end
+		end
+	end
+	if readable == 0 then return false end
+	local spellName = C_Spell and C_Spell.GetSpellName
+	if type(spellName) == "function" then
+		for english, id in pairs({ ["Booming Voice"] = 12321, ["Improved Slam"] = 12862 }) do
+			local ok, localized = pcall(spellName, id)
+			if ok and SafeValue(localized) and type(localized) == "string"
+				and candidate[localized] ~= nil then
+				candidate[english] = candidate[localized]
+			end
+		end
+	end
+	levelingTalentRanks, levelingTalentsReady = candidate, true
+	return true
+end
+
+local function LevelingTalentRank(name)
+	if not levelingTalentsReady then RefreshLevelingTalentCache() end
+	local rank = levelingTalentRanks[name]
+	return type(rank) == "number" and rank or 0
+end
+
+local levelingTalentEvents = CreateFrame("Frame")
+for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_TALENT_UPDATE",
+	"ACTIVE_TALENT_GROUP_CHANGED", "SPELLS_CHANGED" }) do
+	pcall(levelingTalentEvents.RegisterEvent, levelingTalentEvents, event)
+end
+levelingTalentEvents:SetScript("OnEvent", function()
+	-- Preserve the previous complete snapshot unless a new public scan succeeds.
+	RefreshLevelingTalentCache()
+end)
+
+local REND_DURATIONS = {
+	[772] = 9, [6546] = 12, [6547] = 15, [6548] = 18,
+	[11572] = 21, [11573] = 21, [11574] = 21,
+}
 local function RendDuration()
+	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs["Rend"]
+	local learnedID = ref and HamstringNumber(ref.id)
+	if learnedID and REND_DURATIONS[learnedID] then return REND_DURATIONS[learnedID] end
 	local level = PlayerLevel() or 1
+	if level >= 40 then return 21 end
 	if level >= 30 then return 18 end
 	if level >= 20 then return 15 end
 	if level >= 10 then return 12 end
 	return 9
 end
 
+local function BattleShoutDuration()
+	return 120 * (1 + 0.1 * math.min(5, LevelingTalentRank("Booming Voice")))
+end
+
+local function SlamCooldown()
+	return math.max(0, 15 - 2.5 * math.min(2, LevelingTalentRank("Improved Slam")))
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function WhirlwindCooldown()
+	-- Improved Whirlwind is passive. Read the character's actual rank instead
+	-- of assuming the removed Fury preset or a particular talent allocation.
+	return math.max(0, 10 - math.min(2, LevelingTalentRank("Improved Whirlwind")))
+end
+
 local function TrackSuccessfulCast(name, targetMatches)
 	local now = GetTime()
-	local cooldown = LOCAL_COOLDOWNS[name]
+	local cooldown = name == "Slam" and SlamCooldown()
+		or name == "Whirlwind" and WhirlwindCooldown()
+		or LOCAL_COOLDOWNS[name]
 	if cooldown then
 		localCastAt[name] = now
 		local expires = now + cooldown
@@ -484,7 +608,7 @@ local function TrackSuccessfulCast(name, targetMatches)
 	if guid and guid ~= trackedTargetGUID then ResetTargetTrackers() end
 
 	if name == "Battle Shout" then
-		battleShoutExpires = now + 180
+		battleShoutExpires = now + BattleShoutDuration()
 		return
 	end
 	if targetMatches == false then return end
@@ -499,6 +623,16 @@ local function TrackSuccessfulCast(name, targetMatches)
 end
 
 local TRACKED_CASTS = {
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Bloodthirst"] = true,
+	["Mortal Strike"] = true,
+	["Whirlwind"] = true,
+	["Pummel"] = true,
+	["Death Wish"] = true,
+	["Recklessness"] = true,
+	["Shield Slam"] = true,
+	["Last Stand"] = true,
+	["Concussion Blow"] = true,
 	["Rend"] = true,
 	["Demoralizing Shout"] = true,
 	["Sunder Armor"] = true,
@@ -509,6 +643,24 @@ local TRACKED_CASTS = {
 	["Thunder Clap"] = true,
 	["Battle Shout"] = true,
 	["Shield Block"] = true,
+	["Reckless Swings"] = true,
+}
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+function M.CanTrackSuggestedSpell(name)
+	return SafeValue(name) and type(name) == "string"
+		and TRACKED_CASTS[name] == true and Ok(name) or false
+end
+
+-- Readable spell IDs remain safe when C_Spell.GetSpellName is protected in
+-- combat. Include every known Classic rank used by the learned Leveling path.
+local LEVELING_CAST_IDS = {
+	[23881] = "Bloodthirst", [23892] = "Bloodthirst", [23893] = "Bloodthirst", [23894] = "Bloodthirst",
+	[12294] = "Mortal Strike", [21551] = "Mortal Strike", [21552] = "Mortal Strike", [21553] = "Mortal Strike",
+	[1680] = "Whirlwind", [6552] = "Pummel", [6554] = "Pummel",
+	[12328] = "Death Wish", [1719] = "Recklessness",
+	[23922] = "Shield Slam", [23923] = "Shield Slam", [23924] = "Shield Slam", [23925] = "Shield Slam",
+	[12975] = "Last Stand", [12809] = "Concussion Blow",
 }
 
 local function TrackedCastName(arg2, arg3, arg4)
@@ -517,6 +669,7 @@ local function TrackedCastName(arg2, arg3, arg4)
 			if type(value) == "string" and TRACKED_CASTS[value] then
 				return value
 			elseif type(value) == "number" then
+				if LEVELING_CAST_IDS[value] then return LEVELING_CAST_IDS[value] end
 				local ok, name = pcall(AL.SpellName, value)
 				if ok and SafeValue(name) and type(name) == "string" then
 					name = (AL.englishNames and AL.englishNames[name]) or name
@@ -663,7 +816,10 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	local ok, _, subEvent, _, sourceGUID, _, _, _, destGUID, _, _, _, _, spellName, _, _, amount =
 		pcall(CombatLogGetCurrentEventInfo)
 	if not ok or not SafeValue(subEvent) or not SafeValue(sourceGUID) then return end
-	if sourceGUID ~= UnitGUID("player") then return end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local guidOK, playerGUID = pcall(UnitGUID, "player")
+	if not guidOK or not SafeValue(playerGUID) or type(playerGUID) ~= "string"
+		or type(sourceGUID) ~= "string" or sourceGUID ~= playerGUID then return end
 
 	if subEvent == "SWING_DAMAGE" or subEvent == "SWING_MISSED" then
 		lastSwingAt = GetTime()
@@ -1181,7 +1337,7 @@ end
 -- Optional spenders must honor their sliders even when the client protects
 -- Rage. The existing display can apply native color-curve alpha to the main
 -- icon, mini-icon, key and glow without comparing a protected value in Lua.
-local plannedDumpRage, collectingRageCuts, lastRageDecision
+local plannedDumpRage, plannedPlayerHealth, collectingRageCuts, collectingHealthCuts, lastRageDecision
 local rageCurves, rageCurveFactory = {}, nil
 local rageCurveFailure, rageCurveCapability, rageCurveProbe
 
@@ -1199,6 +1355,23 @@ local function DumpGate(rage, threshold)
 	-- Affording a 15-Rage spell is not evidence that a 65-Rage slider passed.
 	-- Essential attacks still use HasRage + real spell usability independently.
 	return false, "Rage threshold unavailable"
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Health can be secret in combat on Forever. Native health curves decide
+-- whether health-gated Leveling actions are visible without branching on a
+-- protected value in Lua. This is used for Shield Wall and Reckless Swings.
+local function HealthGate(health, threshold, atOrBelow)
+	local readable = HamstringNumber(health)
+	if readable ~= nil then
+		return atOrBelow and readable <= threshold or not atOrBelow and readable >= threshold
+	end
+	if plannedPlayerHealth ~= nil then
+		return atOrBelow and plannedPlayerHealth <= threshold
+			or not atOrBelow and plannedPlayerHealth >= threshold
+	end
+	if collectingHealthCuts then collectingHealthCuts[threshold] = atOrBelow end
+	return false
 end
 
 local function RageIntervalCurve(low, high)
@@ -1392,6 +1565,14 @@ local function AoEDamage(s, rage, inMelee, tankMode)
 		and ReadyRageSpell("Thunder Clap") and HasRage(rage, RageSpellCost("Thunder Clap", 20)) then
 		return "Thunder Clap", "AoE damage + attack-speed slow"
 	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Whirlwind is a learned DPS AoE option in Berserker Stance. Never switch
+	-- stances to force it and never leak it into the Tank role.
+	if not tankMode and s.whirlwind ~= false and stance == 3
+		and ReadyRageSpell("Whirlwind")
+		and HasRage(rage, RageSpellCost("Whirlwind", 25)) then
+		return "Whirlwind", "AoE: learned Berserker attack"
+	end
 	local cleaveAt = tankMode and SettingNumber(s, "tankCleaveDumpRage", 20, 20, 100)
 		or SettingNumber(s, "cleaveDumpRage", CLEAVE_DUMP_RAGE, 20, 100)
 	if not StrikeQueued("Cleave") and not StrikeQueued("Heroic Strike")
@@ -1412,7 +1593,9 @@ end
 local function OverflowDump(s, rage, enemyCount, tankMode)
 	if not RageOverflowing(rage) then return nil end
 
-	local cleavePriority = MultiTargetConfirmed(enemyCount) and Ok("Cleave")
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Cleave is never selected unless the player explicitly enabled AoE.
+	local cleavePriority = s.aoe == true and MultiTargetConfirmed(enemyCount) and Ok("Cleave")
 
 	if cleavePriority and AL.SpellUsable("Cleave") then
 		return "Cleave", "prevent rage overflow - 2+ targets"
@@ -1452,6 +1635,11 @@ local function AnyRageSpenderUsable()
 	return (Ok("Heroic Strike") and AL.SpellUsable("Heroic Strike"))
 		or (Ok("Cleave") and AL.SpellUsable("Cleave"))
 		or (Ok("Slam") and AL.SpellUsable("Slam"))
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		or (Ok("Bloodthirst") and AL.SpellUsable("Bloodthirst"))
+		or (Ok("Mortal Strike") and AL.SpellUsable("Mortal Strike"))
+		or (Ok("Whirlwind") and AL.SpellUsable("Whirlwind"))
+		or (Ok("Shield Slam") and AL.SpellUsable("Shield Slam"))
 		or (Ok("Rend") and AL.SpellUsable("Rend"))
 		or (Ok("Sunder Armor") and AL.SpellUsable("Sunder Armor"))
 		or (Ok("Thunder Clap") and AL.SpellUsable("Thunder Clap"))
@@ -1541,12 +1729,24 @@ local function NextDPS(s, inCombat, hostile)
 	local targetHp = AL.HealthPercent("target")
 	local myHp = AL.HealthPercent("player")
 	local inMelee = AL.TargetInMelee()
+	local stance = PlayerStance()
 	local ttd = TargetTTD()
 	local aoeMinEnemies = SettingNumber(s, "aoeMinEnemies", 2, 2, 5)
 
 	local enemyCount = EnemyCountMelee(math.max(aoeMinEnemies, 5))
-	local multiTarget = MultiTargetConfirmed(enemyCount)
 	local aoeActive = AoEModeActive(s, enemyCount, aoeMinEnemies)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local multiTarget = aoeActive and MultiTargetConfirmed(enemyCount)
+
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Pummel is a learned Berserker-stance interrupt. Skip it when stance or
+	-- melee range cannot be positively established instead of forcing a stance.
+	if s.pummel ~= false and stance == 3 and AL.TargetCasting
+		and AL.TargetCasting() and VerifiedMelee(inMelee)
+		and ReadyRageSpell("Pummel")
+		and HasRage(rage, RageSpellCost("Pummel", 10)) then
+		return "Pummel", "interrupt"
+	end
 
 	-- Short-lived procs and survival.
 	if s.victory and myHp and myHp <= 65 and ReadyUsable("Victory Rush") then
@@ -1603,7 +1803,26 @@ local function NextDPS(s, inCombat, hostile)
 		and not BattleShoutActive()
 		and HasRage(rage, 10)
 		and AL.SpellUsable("Battle Shout") then
-		return "Battle Shout", "3 min buff"
+		return "Battle Shout", "maintain attack-power buff"
+	end
+
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Leveling Burst uses only learned talents. It never infers a Fury build or
+	-- changes stance to reach Recklessness.
+	if AL.burst and (not targetHp or targetHp > 35) and (not ttd or ttd >= 10) then
+		if s.deathWish ~= false and ReadyRageSpell("Death Wish")
+			and HasRage(rage, RageSpellCost("Death Wish", 10)) then
+			return "Death Wish", "Burst: learned damage cooldown"
+		end
+		if s.recklessness ~= false and stance == 3 and ReadyUsable("Recklessness") then
+			return "Recklessness", "Burst: learned Berserker cooldown"
+		end
+		-- Reckless Swings costs 25% base health. Its live spell ID is still
+		-- name-discovered, so the learned/usable gate remains authoritative.
+		if s.recklessSwings ~= false and VerifiedMelee(inMelee)
+			and ReadyUsable("Reckless Swings") and HealthGate(myHp, 70, false) then
+			return "Reckless Swings", "Burst: next four attacks generate Rage"
+		end
 	end
 
 	-- Racial cooldowns only for a target expected to survive.
@@ -1612,32 +1831,24 @@ local function NextDPS(s, inCombat, hostile)
 		if OkReady("Berserking") then return "Berserking", "burst" end
 	end
 
-	if not aoeActive and multiTarget and Ok("Cleave") then
-		local cleaveAt = SettingNumber(s, "cleaveDumpRage", CLEAVE_DUMP_RAGE, 20, 100)
-		local cleaveUsable = AL.SpellUsable("Cleave")
-
-		if cleaveUsable then
-			local allowed, rageSource = DumpGate(rage, cleaveAt)
-			if allowed then
-				return "Cleave",
-					rageSource == "numeric"
-						and ("2+ enemies within 7 yd - rage " .. tostring(cleaveAt) .. "+")
-						or ("2+ enemies within 7 yd - native Rage threshold " .. tostring(cleaveAt) .. "+")
-			end
-		end
-
-		-- Hard multi-target spender priority: do not let Heroic Strike or other
-		-- Rage consumers starve Cleave. Auto-attack until Cleave is affordable.
-		return AL.known["Attack"] and "Attack" or nil,
-			cleaveUsable
-				and ("2+ enemies - reserve rage for Cleave " .. tostring(cleaveAt) .. "+")
-				or "2+ enemies - pool rage for Cleave"
-	end
-
 	-- Spearing Strike is prioritized against its specialized targets.
 	if not aoeActive and s.spear and SpearingTarget() and ReadyUsable("Spearing Strike")
 		and HasRage(rage, 15) and inMelee then
 		return "Spearing Strike", "giant / dragonkin bonus"
+	end
+
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Use whichever level-40 primary strike the character actually learned.
+	-- This is learned-spell discovery, not a speculative Arms/Fury selection.
+	if not aoeActive and VerifiedMelee(inMelee) then
+		if s.mortalStrike ~= false and ReadyRageSpell("Mortal Strike")
+			and HasRage(rage, RageSpellCost("Mortal Strike", 30)) then
+			return "Mortal Strike", "learned primary strike"
+		end
+		if s.bloodthirst ~= false and ReadyRageSpell("Bloodthirst")
+			and HasRage(rage, RageSpellCost("Bloodthirst", 30)) then
+			return "Bloodthirst", "learned primary strike"
+		end
 	end
 
 	-- Slam is a real single-target spender. Prefer verified post-swing timing
@@ -1697,7 +1908,7 @@ local function NextDPS(s, inCombat, hostile)
 end
 
 -- ========================================================================
--- TANK: dungeons / leveling 1-30
+-- TANK: dungeons / leveling 1-60
 -- ========================================================================
 local function NextTank(s, inCombat, hostile)
 	if not inCombat then
@@ -1725,8 +1936,9 @@ local function NextTank(s, inCombat, hostile)
 	local needsTaunt = TargetNeedsTaunt()
 	local aoeMinEnemies = SettingNumber(s, "aoeMinEnemies", 2, 2, 5)
 	local enemyCount = EnemyCountMelee(math.max(aoeMinEnemies, 5))
-	local multiTarget = MultiTargetConfirmed(enemyCount)
 	local aoeActive = AoEModeActive(s, enemyCount, aoeMinEnemies)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local multiTarget = aoeActive and MultiTargetConfirmed(enemyCount)
 
 	-- Free survival before any Rage spending.
 	if s.victory and myHp and myHp <= 65 and ReadyUsable("Victory Rush") then
@@ -1755,21 +1967,42 @@ local function NextTank(s, inCombat, hostile)
 	end
 
 	-- Emergency defense. SpellUsable handles the shield requirement itself.
-	if s.tankShieldWall and myHp and myHp <= SettingNumber(s, "tankShieldWallHP", 35, 10, 80)
-		and ReadyUsable("Shield Wall") then
+	if s.tankShieldWall and ReadyUsable("Shield Wall")
+		and HealthGate(myHp, SettingNumber(s, "tankShieldWallHP", 35, 10, 80), true) then
 		return "Shield Wall", "emergency defensive"
 	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if s.tankLastStand ~= false and ReadyUsable("Last Stand")
+		and HealthGate(myHp, SettingNumber(s, "tankLastStandHP", 30, 10, 80), true) then
+		return "Last Stand", "emergency maximum health"
+	end
 
-	-- Priority interrupt when the target is casting and a shield is
-	-- equipped (or the client hides equipment state).
-	if s.tankInterrupt and shield ~= false and AL.TargetCasting
-		and AL.TargetCasting() and ReadyUsable("Shield Bash") then
-		return "Shield Bash", "interrupt"
+	-- Priority interrupt when the target is casting. Concussion Blow is a
+	-- learned fallback when Shield Bash cannot be used; neither is cast as
+	-- ordinary damage, so the stun remains available for control.
+	local targetCasting = AL.TargetCasting and AL.TargetCasting()
+	if targetCasting then
+		if s.tankInterrupt and shield ~= false and ReadyUsable("Shield Bash") then
+			return "Shield Bash", "interrupt"
+		end
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		if s.tankConcussionBlow ~= false and VerifiedMelee(inMelee)
+			and ReadyRageSpell("Concussion Blow")
+			and HasRage(rage, RageSpellCost("Concussion Blow", 15)) then
+			return "Concussion Blow", "interrupt fallback"
+		end
 	end
 
 	-- Revenge is this profile's best reactive threat ability.
 	if s.revenge and ReadyUsable("Revenge") then
 		return "Revenge", "reactive threat"
+	end
+
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if s.tankShieldSlam ~= false and shield ~= false and VerifiedMelee(inMelee)
+		and ReadyRageSpell("Shield Slam")
+		and HasRage(rage, RageSpellCost("Shield Slam", 20)) then
+		return "Shield Slam", "learned protection strike"
 	end
 
 	local slowSpell, slowReason = MaintainHamstring(s, rage, inMelee)
@@ -1846,14 +2079,14 @@ end
 
 function M.NextSpell(s, inCombat, hostile)
 	M.InitializeProtectionSettings(s)
-	plannedDumpRage, lastRageDecision = nil, nil
-	local cuts = {}
-	collectingRageCuts = cuts
+	plannedDumpRage, plannedPlayerHealth, lastRageDecision = nil, nil, nil
+	local rageCuts, healthCuts = {}, {}
+	collectingRageCuts, collectingHealthCuts = rageCuts, healthCuts
 	local spell, reason = ChooseSpell(s, inCombat, hostile)
-	collectingRageCuts = nil
-	if next(cuts) then
+	collectingRageCuts, collectingHealthCuts = nil, nil
+	if next(rageCuts) or next(healthCuts) then
 		lastRageDecision = { at = GetTime(), settings = s, inCombat = inCombat, hostile = hostile,
-			cuts = cuts, baseSpell = spell, baseReason = reason }
+			rageCuts = rageCuts, healthCuts = healthCuts, baseSpell = spell, baseReason = reason }
 	end
 	return spell, reason
 end
@@ -1862,31 +2095,72 @@ function M.SecretVisualPlan(spell, reason)
 	local d = lastRageDecision
 	if not d or GetTime() - d.at > 0.3 or spell ~= d.baseSpell or reason ~= d.baseReason then return nil end
 	if d.visualPlan ~= nil then return d.visualPlan or nil end
-	local maximum = RageMaximum()
-	if not maximum or not RageCurvesAvailable() then d.visualPlan = false; return nil end
-	local cuts, seen = { 0, 2 }, { [0] = true, [2] = true }
-	for threshold in pairs(d.cuts) do
-		local cut = threshold / maximum
-		if cut > 0 and cut < 2 and not seen[cut] then cuts[#cuts + 1], seen[cut] = cut, true end
+	local axes = {}
+	if next(d.healthCuts) then
+		local available = AL.ResourceIntervalAlpha
+			and select(1, AL.ResourceIntervalAlpha("health", "player", nil, 0, 2))
+		if available then
+			local axis = { kind = "health", unit = "player", cuts = { 0, 2 } }
+			local seen = { [0] = true, [2] = true }
+			for threshold, atOrBelow in pairs(d.healthCuts) do
+				local cut = AL.ResourceThresholdCut
+					and AL.ResourceThresholdCut(threshold, atOrBelow == true) or threshold / 100
+				if cut > 0 and cut < 2 and not seen[cut] then
+					axis.cuts[#axis.cuts + 1], seen[cut] = cut, true
+				end
+			end
+			table.sort(axis.cuts)
+			axes[#axes + 1] = axis
+		end
 	end
-	table.sort(cuts)
+	local maximum = RageMaximum()
+	if next(d.rageCuts) and maximum and RageCurvesAvailable() then
+		local axis = { kind = "power", unit = "player", powerType = 1, maximum = maximum, cuts = { 0, 2 } }
+		local seen = { [0] = true, [2] = true }
+		for threshold in pairs(d.rageCuts) do
+			local cut = threshold / maximum
+			if cut > 0 and cut < 2 and not seen[cut] then
+				axis.cuts[#axis.cuts + 1], seen[cut] = cut, true
+			end
+		end
+		table.sort(axis.cuts)
+		axes[#axes + 1] = axis
+	end
+	if #axes == 0 then d.visualPlan = false; return nil end
 	local plan = { rows = {}, masks = {}, spells = {}, baseSpell = spell, baseReason = reason }
 	local differs = false
-	for i = 1, #cuts - 1 do
-		local low, high = cuts[i], cuts[i + 1]
-		-- These samples are public interval boundaries from the user's settings,
-		-- not estimates or reads of protected Rage. Native alpha selects the row.
-		plannedDumpRage = (low + high) / 2 * maximum
+	local masks = {}
+	local function Rows(index)
+		if index <= #axes then
+			local axis = axes[index]
+			for i = 1, #axis.cuts - 1 do
+				local low, high = axis.cuts[i], axis.cuts[i + 1]
+				local sample = (low + high) / 2
+				if axis.kind == "power" then plannedDumpRage = sample * axis.maximum
+				else plannedPlayerHealth = math.min(100, sample * 100) end
+				local key = axis.kind .. ":player:" .. tostring(axis.powerType or "")
+					.. ":" .. tostring(low) .. ":" .. tostring(high)
+				masks[index] = { key = key, kind = axis.kind, unit = axis.unit,
+					powerType = axis.powerType, low = low, high = high }
+				Rows(index + 1)
+			end
+			if axis.kind == "power" then plannedDumpRage = nil else plannedPlayerHealth = nil end
+			return
+		end
 		local ok, candidate, why = pcall(ChooseSpell, d.settings, d.inCombat, d.hostile)
-		plannedDumpRage = nil
-		if not ok then d.visualPlan = false; return nil end
-		local key = "playerRage:" .. tostring(low) .. ":" .. tostring(high)
-		local mask = { key = key, kind = "power", unit = "player", powerType = 1, low = low, high = high }
-		plan.masks[key] = mask
-		plan.rows[#plan.rows + 1] = { spell = candidate, reason = why, masks = { mask } }
+		if not ok then error(candidate) end
+		local row = { spell = candidate, reason = why, masks = {} }
+		for i, mask in ipairs(masks) do
+			row.masks[i] = mask
+			plan.masks[mask.key] = mask
+		end
+		plan.rows[#plan.rows + 1] = row
 		if candidate then plan.spells[candidate] = true end
 		if candidate ~= spell then differs = true end
 	end
+	local ok = pcall(Rows, 1)
+	plannedDumpRage, plannedPlayerHealth = nil, nil
+	if not ok then d.visualPlan = false; return nil end
 	if not differs then d.visualPlan = false; return nil end
 	d.visualPlan = plan
 	return plan
@@ -1895,11 +2169,8 @@ end
 function M.EvaluateVisualMasks(plan)
 	local values = {}
 	for key, mask in pairs(plan.masks) do
-		local ok, value = pcall(RageVisualAlpha, mask)
-		if not ok then
-			RageCurveFailed()
-			return nil
-		end
+		local ok, value = AL.ResourceIntervalAlpha(mask.kind, mask.unit, mask.powerType, mask.low, mask.high)
+		if not ok then return nil end
 		values[key] = value
 	end
 	return values
@@ -2053,6 +2324,12 @@ local ADDON, AL = ...
 
 local A = _G.Action
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- The specialization engines are retained only as spell-menu data. Their
+-- duplicate event observers must stay inert while Leveling is the sole public
+-- rotation; the active Leveling trackers own all combat state.
+local ADVANCED_TRACKERS_ENABLED = false
+
 local M = {
 	defaults = {
         leveling = true,
@@ -2134,59 +2411,36 @@ local M = {
 -- ==========================================================================
 
 -- Rank-one IDs used to identify and display spells.
--- Exactly one rotation stays selected. Leveling is the default and the
--- fallback when a selected specialization is switched off or saved flags
--- conflict. A valid saved specialization takes priority during migration.
-M.buildKeys = { "leveling", "protection", "arms", "fury" }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Level-60 presets are intentionally unavailable for this release. Preserve
+-- the finalized Leveling engine and migrate every saved specialization flag
+-- back to it without changing the user's Leveling DPS/Tank role.
+M.buildKeys = { "leveling" }
 function M.NormalizeBuild(s)
     if type(s) ~= "table" then return end
-    local selected, count = nil, 0
-    for _, key in ipairs(M.buildKeys) do
-        if key ~= "leveling" then
-            local value = s[key]
-            local checked = not (issecretvalue and issecretvalue(value)) and value == true
-            s[key] = checked
-            if checked then selected, count = key, count + 1 end
-        end
-    end
-    if count ~= 1 then
-        for _, key in ipairs(M.buildKeys) do s[key] = false end
-        selected = "leveling"
-    end
-    s.leveling = selected == "leveling"
-    local owner = s.warriorRoleBuild
-    if issecretvalue and issecretvalue(owner) then owner = nil end
     local function IsTank(value)
         return not (issecretvalue and issecretvalue(value)) and value == "TANK"
     end
-    if selected == "leveling" then
-        if owner and owner ~= "leveling" then
-            s.warriorRole = IsTank(s.levelingWarriorRole) and "TANK" or "DPS"
-        else
-            s.levelingWarriorRole = IsTank(s.warriorRole) and "TANK" or "DPS"
-        end
+    local owner = s.warriorRoleBuild
+    if issecretvalue and issecretvalue(owner) then owner = nil end
+    local role
+    if owner and owner ~= "leveling" then
+        role = IsTank(s.levelingWarriorRole) and "TANK" or "DPS"
     else
-        if owner == "leveling" then
-            s.levelingWarriorRole = IsTank(s.warriorRole) and "TANK" or "DPS"
-        end
-        s.warriorRole = selected == "protection" and "TANK" or "DPS"
+        role = IsTank(s.warriorRole) and "TANK" or "DPS"
     end
-    s.warriorRoleBuild = selected
+    s.protection, s.arms, s.fury = false, false, false
+    s.leveling = true
+    s.warriorRole, s.levelingWarriorRole = role, role
+    s.warriorRoleBuild = "leveling"
     s.protectionPreviousDPS = nil
-    return selected
+    return "leveling"
 end
 function M.SetBuild(key, enabled, s)
     if (issecretvalue and issecretvalue(enabled)) or type(enabled) ~= "boolean" then return end
-    local valid = false
-    for _, candidate in ipairs(M.buildKeys) do if candidate == key then valid = true; break end end
-    if not valid then return end
+    if key ~= "leveling" then return end
     s = s or AL.Profile("WARRIOR")
     if type(s) ~= "table" then return end
-    if enabled then
-        for _, candidate in ipairs(M.buildKeys) do s[candidate] = candidate == key end
-    else
-        s[key] = false
-    end
     local selected = M.NormalizeBuild(s)
     if AL.UI and type(AL.UI.Repaint) == "function" then AL.UI.Repaint() end
     return selected
@@ -2456,14 +2710,17 @@ local function FuryTalentRank(name)
 	end
 	return furyTalentRanks[name]
 end
-local armsTalentEvents = CreateFrame("Frame")
-for _,event in ipairs({"PLAYER_ENTERING_WORLD","PLAYER_REGEN_ENABLED","PLAYER_TALENT_UPDATE",
-	"ACTIVE_TALENT_GROUP_CHANGED","SPELLS_CHANGED"}) do pcall(armsTalentEvents.RegisterEvent,armsTalentEvents,event) end
-armsTalentEvents:SetScript("OnEvent",function(_,event)
-	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	armsTalentRanks,furyTalentRanks,tankTalentRanks=nil,nil,nil
-	if event~="PLAYER_REGEN_ENABLED" then tankCooldownDurations={} end
-end)
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local armsTalentEvents
+if ADVANCED_TRACKERS_ENABLED then
+	armsTalentEvents = CreateFrame("Frame")
+	for _,event in ipairs({"PLAYER_ENTERING_WORLD","PLAYER_REGEN_ENABLED","PLAYER_TALENT_UPDATE",
+		"ACTIVE_TALENT_GROUP_CHANGED","SPELLS_CHANGED"}) do pcall(armsTalentEvents.RegisterEvent,armsTalentEvents,event) end
+	armsTalentEvents:SetScript("OnEvent",function(_,event)
+		armsTalentRanks,furyTalentRanks,tankTalentRanks=nil,nil,nil
+		if event~="PLAYER_REGEN_ENABLED" then tankCooldownDurations={} end
+	end)
+end
 
 local function TankTalentRank(name)
 	if not tankTalentRanks then
@@ -2574,16 +2831,19 @@ local function HamstringApplied(key)
 	hamstringAuraCache = nil
 end
 
-local hamstringTracker = CreateFrame("Frame")
-for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_DEAD", "PLAYER_TARGET_CHANGED",
-	"PLAYER_REGEN_ENABLED", "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED",
-	"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_AURA" }) do
-	pcall(hamstringTracker.RegisterEvent, hamstringTracker, event)
-end
-if type(CombatLogGetCurrentEventInfo) == "function" then
-	pcall(hamstringTracker.RegisterEvent, hamstringTracker, "COMBAT_LOG_EVENT_UNFILTERED")
-end
-hamstringTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local hamstringTracker
+if ADVANCED_TRACKERS_ENABLED then
+	hamstringTracker = CreateFrame("Frame")
+	for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_DEAD", "PLAYER_TARGET_CHANGED",
+		"PLAYER_REGEN_ENABLED", "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED",
+		"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED", "UNIT_AURA" }) do
+		pcall(hamstringTracker.RegisterEvent, hamstringTracker, event)
+	end
+	if type(CombatLogGetCurrentEventInfo) == "function" then
+		pcall(hamstringTracker.RegisterEvent, hamstringTracker, "COMBAT_LOG_EVENT_UNFILTERED")
+	end
+	hamstringTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if AL.playerClass ~= "WARRIOR" then return end
 	if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_DEAD" then
 		hamstringTargets, hamstringCasts = {}, {}
@@ -2653,8 +2913,9 @@ hamstringTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if GetTime() - entry.at > 5 then return end
 	entry.done = true
 	hamstringLastSucceeded = guid
-	HamstringApplied(entry.target)
-end)
+		HamstringApplied(entry.target)
+	end)
+end
 
 local function HamstringAuraState(key)
 	local now = GetTime()
@@ -2893,23 +3154,26 @@ local function PruneTrackedCasts()
 	end
 end
 
-local tracker = CreateFrame("Frame")
-tracker:RegisterEvent("PLAYER_ENTERING_WORLD")
-tracker:RegisterEvent("PLAYER_TARGET_CHANGED")
-tracker:RegisterEvent("PLAYER_REGEN_DISABLED")
-tracker:RegisterEvent("PLAYER_REGEN_ENABLED")
-tracker:RegisterEvent("PLAYER_DEAD")
-if type(CombatLogGetCurrentEventInfo) == "function" then
-	pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
-end
-for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED",
-	"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED" }) do
-	if not pcall(tracker.RegisterUnitEvent, tracker, event, "player") then
-		pcall(tracker.RegisterEvent, tracker, event)
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local tracker
+if ADVANCED_TRACKERS_ENABLED then
+	tracker = CreateFrame("Frame")
+	tracker:RegisterEvent("PLAYER_ENTERING_WORLD")
+	tracker:RegisterEvent("PLAYER_TARGET_CHANGED")
+	tracker:RegisterEvent("PLAYER_REGEN_DISABLED")
+	tracker:RegisterEvent("PLAYER_REGEN_ENABLED")
+	tracker:RegisterEvent("PLAYER_DEAD")
+	if type(CombatLogGetCurrentEventInfo) == "function" then
+		pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
 	end
-end
+	for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED",
+		"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED" }) do
+		if not pcall(tracker.RegisterUnitEvent, tracker, event, "player") then
+			pcall(tracker.RegisterEvent, tracker, event)
+		end
+	end
 
-tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
+	tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if event == "PLAYER_ENTERING_WORLD" then
 		furyRetryAfter = {}
 		pendingTrackedCast, finishedTrackedCasts = nil, {}
@@ -3019,7 +3283,10 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	local ok, _, subEvent, _, sourceGUID, _, _, _, destGUID, _, _, _, _, spellName, _, _, amount =
 		pcall(CombatLogGetCurrentEventInfo)
 	if not ok or not SafeValue(subEvent) or not SafeValue(sourceGUID) then return end
-	if sourceGUID ~= UnitGUID("player") then return end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local guidOK, playerGUID = pcall(UnitGUID, "player")
+	if not guidOK or not SafeValue(playerGUID) or type(playerGUID) ~= "string"
+		or type(sourceGUID) ~= "string" or sourceGUID ~= playerGUID then return end
 
 	if subEvent == "SWING_DAMAGE" or subEvent == "SWING_MISSED" then
 		lastSwingAt = GetTime()
@@ -3065,8 +3332,9 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 			end
 			sunderExpires = GetTime() + 30
 		end
-	end
-end)
+		end
+	end)
+end
 
 -- ==========================================================================
 -- HELPERS
@@ -3313,8 +3581,9 @@ function M.InitializeProtectionSettings(s)
 end
 
 function M.TankSetting(s,key)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	local bounds={tankSunderMaxStacks={5,0,5},tankHeroicDumpRage={20,20,100},
-		tankCleaveDumpRage={20,20,100},tankShieldWallHP={35,10,80},tankLastStandHP={25,10,80},
+		tankCleaveDumpRage={20,20,100},tankShieldWallHP={35,10,80},tankLastStandHP={30,10,80},
 		tankBurstMinTargetHP={35,0,100}}
 	local limits=bounds[key]
 	if limits then return SettingNumber(s,key,limits[1],limits[2],limits[3]) end
@@ -3764,7 +4033,7 @@ end
 local function OverflowDump(s, rage, enemyCount, tankMode)
 	if not RageOverflowing(rage) then return nil end
 
-	local cleavePriority = MultiTargetConfirmed(enemyCount) and Ok("Cleave")
+	local cleavePriority = s.aoe == true and MultiTargetConfirmed(enemyCount) and Ok("Cleave")
 
 	if cleavePriority and AL.SpellUsable("Cleave") then
 		return "Cleave", "prevent rage overflow - 2+ targets"
@@ -4873,39 +5142,17 @@ AL.RegisterRotation("WARRIOR", M)
         end
     end
 
-    local unpackValues = unpack or table.unpack
-    local function ObserveInactive(fn, ...)
-        local args, count = { ... }, select("#", ...)
-        for i = 1, count do
-            local value = args[i]
-            if type(value) == "table" and not (issecretvalue and issecretvalue(value)) then
-                local copy = {}
-                for key, item in pairs(value) do copy[key] = item end
-                args[i] = copy
-            end
-        end
-        -- Cast records carry per-engine completion flags (for example mana
-        -- accounting). The inactive tracker must never mark the active record.
-        pcall(fn, unpackValues(args, 1, count))
-    end
-
     for _, name in ipairs({
         "OnTargetChanged", "OnUIError", "OnCastSent", "OnCastResult",
         "RefreshManaCache", "OnManaCastSent", "OnManaCastSucceeded",
     }) do
-        local old, modern = leveling[name], advanced[name]
-        if type(old) == "function" or type(modern) == "function" then
+        local old = leveling[name]
+        if type(old) == "function" then
             advanced[name] = function(...)
-                -- Warm the inactive history first. Its optional tracker cannot
-                -- prevent the active rotation from receiving the real event.
-                if UsesLeveling() then
-                    if modern then ObserveInactive(modern, ...) end
-                    if old then return old(...) end
-                else
-                    if old then ObserveInactive(old, ...) end
-                    if modern then return modern(...) end
-                end
+                return old(...)
             end
+        else
+            advanced[name] = nil
         end
     end
     root.RegisterRotation("WARRIOR", advanced)

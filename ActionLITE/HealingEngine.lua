@@ -37,9 +37,12 @@ local FIVE_SECOND_RULE = 5
 -- wait when a protected health mask says that care is still required.
 local HEALING_CASTS = {
 	DRUID = {
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 		["Healing Touch"] = true, ["Regrowth"] = true, ["Rejuvenation"] = true,
 		["Swiftmend"] = true, ["Tranquility"] = true, ["Wild Growth"] = true,
 		["Nature's Swiftness"] = true, ["Elune's Light"] = true, ["Innervate"] = true,
+		["Thorns"] = true, ["Mark of the Wild"] = true, ["Faerie Fire"] = true,
+		["Moonfire"] = true, ["Insect Swarm"] = true,
 	},
 	PALADIN = {
 		["Holy Light"] = true, ["Flash of Light"] = true, ["Holy Shock"] = true,
@@ -136,24 +139,38 @@ local function UnitExistsPublic(unit)
 end
 
 function Engine:IsGrouped()
-	if type(IsInGroup) == "function" then
-		local grouped = SafeBoolean(IsInGroup)
-		if grouped == true then return true end
+	local eligible = self:DungeonState()
+	return eligible == true
+end
+
+-- Healing Rotation is intentionally limited to five-player dungeon instances
+-- for v1.1.5. Unknown instance state fails closed: Leveling remains active and
+-- no raid/battleground/follower-raid unit can be selected accidentally.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+function Engine:DungeonState()
+	if type(IsInRaid) == "function" and SafeBoolean(IsInRaid) == true then
+		return false, "raid group"
+	end
+	if type(IsInInstance) ~= "function" then return false, "instance API unavailable" end
+	local ok, inside, instanceType = pcall(IsInInstance)
+	if not ok or IsSecret(inside) or IsSecret(instanceType) then
+		return false, "instance state protected"
+	end
+	if inside ~= true or instanceType ~= "party" then
+		return false, "not a five-player dungeon"
+	end
+	local count = 1
+	for index = 1, 4 do
+		if UnitExistsPublic("party" .. index) then count = count + 1 end
 	end
 	if type(GetNumGroupMembers) == "function" then
-		local ok, count = pcall(GetNumGroupMembers)
-		count = ok and PublicNumber(count) or nil
-		if count and count > 0 then return true end
+		local countOK, reported = pcall(GetNumGroupMembers)
+		reported = countOK and PublicNumber(reported) or nil
+		if reported and reported > 5 then return false, "group exceeds five players" end
+		if reported and reported > count then count = reported end
 	end
-	-- Follower dungeons can expose party unit tokens even when a group count is
-	-- unavailable during the transition into the instance.
-	for index = 1, 4 do
-		if UnitExistsPublic("party" .. index) then return true end
-	end
-	for index = 1, 40 do
-		if UnitExistsPublic("raid" .. index) then return true end
-	end
-	return false
+	if count < 2 or count > 5 then return false, "five-player party unavailable" end
+	return true, "five-player dungeon"
 end
 
 local function ClampPercent(value, fallback)
@@ -174,11 +191,15 @@ function Engine:GetSettings(profile)
 	local initiate = ClampPercent(profile.healingInitiateHP, 80)
 	local emergency = math.min(initiate, ClampPercent(profile.healingEmergencyHP, 30))
 	local configured = profile.healingEngine == true
-	local grouped = configured and self:IsGrouped() or false
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local dungeon, restriction = false, "Healing Rotation disabled"
+	if configured then dungeon, restriction = self:DungeonState() end
 	return {
 		configured = configured,
-		grouped = grouped,
-		enabled = configured and grouped,
+		grouped = dungeon,
+		dungeon = dungeon,
+		enabled = configured and dungeon,
+		restriction = restriction,
 		initiate = initiate,
 		emergency = emergency,
 	}
@@ -234,23 +255,12 @@ function Engine:RegisterProvider(classToken, provider)
 	return false
 end
 
-local function RaidRosterVisible()
-	for index = 1, 40 do
-		if UnitExistsPublic("raid" .. index) then return true end
-	end
-	return false
-end
-
 local function RosterUnits()
 	local units = {}
-	if RaidRosterVisible() then
-		for index = 1, 40 do units[#units + 1] = "raid" .. index end
-	else
-		-- A five-player follower dungeon exposes its followers as party1-party4.
-		-- Player is explicit because party unit tokens never include the player.
-		for index = 4, 1, -1 do units[#units + 1] = "party" .. index end
-		units[#units + 1] = "player"
-	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Dungeon-only: party tokens never include the player.
+	for index = 4, 1, -1 do units[#units + 1] = "party" .. index end
+	units[#units + 1] = "player"
 	return units
 end
 
@@ -285,11 +295,19 @@ function Engine:TargetClassification()
 	return classification
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local roleCache = {}
 local function UnitRole(unit)
 	if type(UnitGroupRolesAssigned) ~= "function" then return "NONE" end
 	local ok, role = pcall(UnitGroupRolesAssigned, unit)
-	if not ok or IsSecret(role) or type(role) ~= "string" or not ROLE_PRIORITY[role] then return "NONE" end
-	return role
+	if not ok or IsSecret(role) or type(role) ~= "string" or not ROLE_PRIORITY[role] then
+		return roleCache[unit] or "NONE"
+	end
+	if role ~= "NONE" then
+		roleCache[unit] = role
+		return role
+	end
+	return roleCache[unit] or "NONE"
 end
 
 local function UnitOrdinal(unit)
@@ -351,7 +369,20 @@ function Engine:IsUnitEligible(unit, spell, request)
 end
 
 function Engine:BuildRoster(spell, request)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	local roster = {}
+	if request and type(request.unit) == "string" then
+		local eligible, role = self:IsUnitEligible(request.unit, spell, request)
+		if eligible then
+			roster[1] = {
+				unit = request.unit,
+				role = role,
+				priority = (ROLE_PRIORITY[role] or ROLE_PRIORITY.NONE) * 1000
+					+ (100 - UnitOrdinal(request.unit)),
+			}
+		end
+		return roster
+	end
 	for _, unit in ipairs(RosterUnits()) do
 		local eligible, role = self:IsUnitEligible(unit, spell, request)
 		if eligible then
@@ -622,7 +653,11 @@ function Engine:BuildPlan(baseSpell, baseReason)
 	local profile = AL.S and AL.S() or {}
 	local settings = self:GetSettings(profile)
 	if not self.SUPPORTED_CLASSES[AL.playerClass] or not settings.configured then return nil, settings end
-	if not settings.grouped then return nil, settings, "Solo bypass: leveling rotation active" end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if not settings.grouped then
+		return nil, settings, (settings.restriction or "Dungeon group unavailable")
+			.. "; Leveling Rotation active"
+	end
 	local casting = AL.CastingSpell and AL.CastingSpell()
 	local channeling = AL.PlayerChanneling and AL.PlayerChanneling()
 	if casting or channeling then return nil, settings, "Player cast in progress" end
@@ -670,7 +705,8 @@ function Engine:BuildPlan(baseSpell, baseReason)
 	local plan = { source = source or "base-rules", rows = {}, settings = settings,
 		manualTarget = manualUnit }
 
-	-- A deliberately selected party/raid member is an explicit distress signal.
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- A deliberately selected dungeon-party member is an explicit distress signal.
 	-- It bypasses health thresholds and every damage row until the user returns
 	-- to an enemy or clears the target.
 	if manualUnit then
@@ -1085,6 +1121,9 @@ function Engine:Update(baseSpell, baseReason)
 		supported = self.SUPPORTED_CLASSES[AL.playerClass] == true,
 		configured = settings and settings.configured or false,
 		grouped = settings and settings.grouped or false,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		dungeon = settings and settings.dungeon or false,
+		restriction = settings and settings.restriction or nil,
 		enabled = settings and settings.enabled or false,
 		initiate = settings and settings.initiate or 80,
 		emergency = settings and settings.emergency or 30,
@@ -1152,7 +1191,16 @@ for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "UNIT_C
 	"PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED" }) do
 	pcall(events.RegisterEvent, events, event)
 end
-events:SetScript("OnEvent", function()
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+events:SetScript("OnEvent", function(_, event)
+	if event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
+		-- Party tokens can be reassigned when a member joins, leaves, or changes
+		-- subgroup. Never carry a departed member's role onto the replacement.
+		for unit in pairs(roleCache) do roleCache[unit] = nil end
+	end
+	for _, unit in ipairs(RosterUnits()) do
+		if UnitExistsPublic(unit) then UnitRole(unit) end
+	end
 	-- The display driver performs the next protected-mask evaluation. Clearing
 	-- immediately prevents a departed unit's color from persisting between ticks.
 	Engine:ClearVisuals()

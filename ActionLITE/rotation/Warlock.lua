@@ -1,11 +1,11 @@
 local ADDON, AL = ...
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
--- ActionLITE Warlock v0.20.4: original Leveling plus optional talent builds.
+-- ActionLITE Warlock v0.20.7: learned-spell Leveling rotation only.
 
--- Leveling keeps the finalized pre-simulation implementation in its own
--- scope. Talent builds use the separate implementation below. Both observe
--- real casts so switching rotations retains resource and spell history.
+-- Leveling keeps the finalized learned-spell implementation in its own active
+-- scope. The retired talent-build block remains only to supply its complete
+-- spell catalog; its build flags and combat observers are disabled.
 do
     local root = AL
     local leveling, advanced
@@ -45,25 +45,36 @@ do
 -- BEGIN ORIGINAL LEVELING IMPLEMENTATION (Warlock(20261005-010754).Lua)
 local ADDON, AL = ...
 
--- Affliction leveling priority per the WoW Forever guide (levels 1-30)
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Learned-spell Warlock leveling priority through level 60.
 local M = {
 	defaults = {
 		armor = true, pet = true, immolate = true, agony = true,
+		corruption = true, siphonLife = true, shadowBolt = true,
 		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		amplifyCurse = true, wrack = true, conflagrate = true, shadowburn = true,
+		deathCoil = false, felDomination = true,
 		curseElements = false, curseWeakness = false, curseRecklessness = false, curseTongues = false, curseExhaustion = false,
 		lifetap = true, lifeTapMana = 25, shootMana = 25, drainsoul = true, fear = true, drink = true,
 		healthfunnel = true, healthFunnelPetHP = 40, healthFunnelMinPlayerHP = 60,
 		drainSoulMinShards = 1,
+		aoe = false, rainOfFire = true, hellfire = false,
+		aoeMinEnemies = 3, aoeMinMana = 30, hellfireMinHP = 70,
 	},
 }
 
 M.spells = {
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 18288, "Amplify Curse" },
 	{ 980, "Bane of Agony" },
+	{ 20554, "Berserking" },
+	{ 20572, "Blood Fury" },
 	{ 710, "Banish" },
+	{ 1293817, "Conflagrate" },
 	{ 172, "Corruption" },
 	{ 6201, "Create Healthstone" },
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	{ 0, "Create Spellstone" },
+	{ 2362, "Create Spellstone" },
 	{ 693, "Create Soulstone" },
 	{ 0, "Curse of Agony" }, -- Legacy name fallback; Forever uses Bane of Agony.
 	{ 440892, "Curse of the Elements" },
@@ -75,13 +86,16 @@ M.spells = {
 	{ 706, "Demon Armor" },
 	{ 687, "Demon Skin" },
 	{ 132, "Detect Lesser Invisibility" },
+	{ 6789, "Death Coil" },
 	{ 689, "Drain Life" },
 	{ 5138, "Drain Mana" },
 	{ 1120, "Drain Soul" },
 	{ 1098, "Enslave Demon" },
 	{ 126, "Eye of Kilrogg" },
 	{ 5782, "Fear" },
+	{ 18708, "Fel Domination" },
 	{ 755, "Health Funnel" },
+	{ 1949, "Hellfire" },
 	{ 348, "Immolate" },
 	{ 1454, "Life Tap" },
 	{ 5740, "Rain of Fire" },
@@ -89,11 +103,13 @@ M.spells = {
 	{ 5500, "Sense Demons" },
 	{ 5019, "Shoot" },
 	{ 686, "Shadow Bolt" },
+	{ 17877, "Shadowburn" },
 	{ 18265, "Siphon Life" },
 	{ 688, "Summon Imp" },
 	{ 712, "Summon Succubus" },
 	{ 697, "Summon Voidwalker" },
 	{ 5697, "Unending Breath" },
+	{ 1316697, "Wrack" },
 }
 
 local SOUL_SHARD = { 6265 }
@@ -119,6 +135,18 @@ local function ReadableString(v)
 	if type(v) ~= "string" then return nil end
 	if issecretvalue and issecretvalue(v) then return nil end
 	return v
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Secret booleans cannot be compared or used in a branch. Normalize every
+-- optional proximity/threat flag before the Leveling AoE counter sees it.
+local function ReadableFlag(v)
+	if issecretvalue and issecretvalue(v) then return nil end
+	if type(v) == "boolean" then return v end
+	if type(v) == "number" then
+		if v == 1 then return true end
+		if v == 0 then return false end
+	end
 end
 
 local function SafeCall(fn, ...)
@@ -301,6 +329,57 @@ local function PlayerMoving()
 		return false
 	end
 	return speed > 0
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Leveling AoE is intentionally conservative: it only activates from the
+-- user's AoE toggle after the configured number of engaged enemies can be
+-- confirmed in range. Unknown counts keep the single-target rotation.
+local function LevelingUnitWithin(unit, yards)
+	local squared, checked = SafeCall(UnitDistanceSquared, unit)
+	squared, checked = ReadableNumber(squared), ReadableFlag(checked)
+	if squared and squared >= 0 and checked ~= false then return squared <= yards * yards end
+	if yards <= 10 then
+		local nearby = ReadableFlag((SafeCall(CheckInteractDistance, unit, 3)))
+		if nearby ~= nil then return nearby end
+		-- A 30-yard spell range cannot prove that an enemy is close enough for
+		-- Hellfire. Unknown proximity keeps that self-damaging channel disabled.
+		return nil
+	end
+	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs["Shadow Bolt"]
+	return ReadableFlag((SafeCall(C_Spell and C_Spell.IsSpellInRange,
+		ref and ref.id or "Shadow Bolt", unit)))
+end
+
+local function LevelingEnemyCount(yards, limit)
+	local count, seen = 0, {}
+	for i = 1, 40 do
+		local unit = "nameplate" .. i
+		local exists = ReadableFlag((SafeCall(UnitExists, unit)))
+		local hostile = exists == true and ReadableFlag((SafeCall(UnitCanAttack, "player", unit)))
+		local dead = hostile == true and ReadableFlag((SafeCall(UnitIsDeadOrGhost, unit)))
+		if hostile == true and dead ~= true and LevelingUnitWithin(unit, yards) == true then
+			local combat = ReadableFlag((SafeCall(UnitAffectingCombat, unit)))
+			local threat = ReadableNumber((SafeCall(UnitThreatSituation, "player", unit)))
+			if combat == true or threat and threat > 0 then
+				local guid = ReadableString((SafeCall(UnitGUID, unit))) or unit
+				if not seen[guid] then
+					seen[guid], count = true, count + 1
+					if count >= limit then return count end
+				end
+			end
+		end
+	end
+	-- Nameplates may be disabled. A readable engaged target still proves one
+	-- enemy, but never invent enough enemies to start an area channel.
+	if count == 0 and ReadableFlag((SafeCall(UnitCanAttack, "player", "target"))) == true
+		and ReadableFlag((SafeCall(UnitIsDeadOrGhost, "target"))) ~= true
+		and LevelingUnitWithin("target", yards) == true then
+		local combat = ReadableFlag((SafeCall(UnitAffectingCombat, "target")))
+		local threat = ReadableNumber((SafeCall(UnitThreatSituation, "player", "target")))
+		if combat == true or threat and threat > 0 then count = 1 end
+	end
+	return count
 end
 
 -- Pure Soul Shard comparison. This intentionally does NOT check movement,
@@ -636,13 +715,71 @@ local function NextCurse(s, casting)
 	end
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Amplify Curse is a learned Burst tool, not a specialization selector. It is
+-- offered only when the very next Leveling action can consume it: a selected,
+-- missing Curse of Exhaustion, or a missing Bane of Agony after the utility
+-- curse phase is already complete.
+local LEVELING_COOLDOWN_FALLBACK = {
+	["Amplify Curse"] = 180,
+	["Conflagrate"] = 10,
+	["Shadowburn"] = 15,
+	["Death Coil"] = 120,
+	["Fel Domination"] = 300,
+}
+local levelingCooldownReadyAt, felDominationExpires = {}, 0
+local function LevelingCooldownReady(name)
+	return GetTime() >= (levelingCooldownReadyAt[name] or 0) and AL.IsReady(name)
+end
+local function AmplifyFollowup(s, casting, targetHp)
+	local selected, active = M.SelectedCurse(s), M.ActiveCurse(casting)
+	if selected and not active then
+		if selected == "Curse of Exhaustion" and AL.SpellUsable(selected)
+			and (not AL.InRange or AL.InRange(selected) ~= false) then
+			return selected
+		end
+		-- Every other selected utility curse keeps its established priority. Do
+		-- not spend Amplify on Agony before that curse has landed.
+		return nil
+	end
+	-- Bane follows Immolate and Corruption in the established Leveling order.
+	-- Only empower it when neither earlier enabled DoT is the next usable cast.
+	if s.immolate and AL.Ok("Immolate") and not DotUp("Immolate", casting)
+		and (not targetHp or targetHp > 50) and AL.SpellUsable("Immolate") then
+		return nil
+	end
+	if s.corruption ~= false and AL.Ok("Corruption") and not DotUp("Corruption", casting)
+		and (not targetHp or targetHp > 30) and AL.SpellUsable("Corruption") then
+		return nil
+	end
+	local agony = AgonySpell()
+	if s.agony and agony and not AgonyOnTarget(casting)
+		and (not targetHp or targetHp > 40) and AL.SpellUsable(agony)
+		and (not AL.InRange or AL.InRange(agony) ~= false) then
+		return agony
+	end
+end
+
+local function NextAmplifyCurse(s, inCombat, casting, targetHp, forceShoot)
+	if not inCombat or not AL.burst or s.amplifyCurse == false
+		or casting == "Amplify Curse" or forceShoot
+		or not AL.Ok("Amplify Curse") or not LevelingCooldownReady("Amplify Curse")
+		or not AL.SpellUsable("Amplify Curse") then
+		return nil
+	end
+	local followup = AmplifyFollowup(s, casting, targetHp)
+	if followup then
+		return "Amplify Curse", "Burst: empower next " .. followup
+	end
+end
+
 -- Allowed DoTs for Core's LIKELY fallback when the identity is secret.
 -- A successful cast is still required; a suggestion alone must
 -- never create a timer. Curses use SelectedCurse separately.
 local TRACKED_DOT_SETTINGS = {
-	["Immolate"] = "immolate", ["Corruption"] = true,
+	["Immolate"] = "immolate", ["Corruption"] = "corruption",
 	["Bane of Agony"] = "agony", ["Curse of Agony"] = "agony",
-	["Siphon Life"] = true,
+	["Siphon Life"] = "siphonLife",
 }
 
 function M.CanTrackSuggestedDebuff(name, s)
@@ -684,7 +821,7 @@ local function AfterCastingDot(casting, s, targetHp)
 
 	-- After Immolate, Corruption is next.
 	if stage < 2
-		and AL.Ok("Corruption")
+		and s.corruption ~= false and AL.Ok("Corruption")
 		and not DotUp("Corruption", casting)
 		and (not targetHp or targetHp > 30)
 		and AL.SpellUsable("Corruption")
@@ -707,7 +844,7 @@ local function AfterCastingDot(casting, s, targetHp)
 
 	-- After the earlier DoTs, Siphon Life is next when learned.
 	if stage < 4
-		and AL.Ok("Siphon Life")
+		and s.siphonLife ~= false and AL.Ok("Siphon Life")
 		and not DotUp("Siphon Life", casting)
 		and (not targetHp or targetHp > 40)
 		and AL.SpellUsable("Siphon Life")
@@ -736,7 +873,7 @@ local function AfterCastingDot(casting, s, targetHp)
 
 	-- With a wand equipped, Shadow Bolt requires mana above its threshold.
 	-- Without one, native spell usability remains the authority.
-	if AL.Ok("Shadow Bolt") and AL.SpellUsable("Shadow Bolt") then
+	if s.shadowBolt ~= false and AL.Ok("Shadow Bolt") and AL.SpellUsable("Shadow Bolt") then
 		return "Shadow Bolt", "queued after " .. casting
 	end
 	if AL.WandEquipped() and AL.Ok("Shoot") then
@@ -753,7 +890,7 @@ local function NextDot(s, casting, targetHp)
 	then
 		return "Immolate", "dot"
 	end
-	if AL.Ok("Corruption") and not DotUp("Corruption", casting)
+	if s.corruption ~= false and AL.Ok("Corruption") and not DotUp("Corruption", casting)
 		and (not targetHp or targetHp > 30)
 		and AL.SpellUsable("Corruption")
 	then
@@ -766,7 +903,7 @@ local function NextDot(s, casting, targetHp)
 	then
 		return agony, "dot"
 	end
-	if AL.Ok("Siphon Life") and not DotUp("Siphon Life", casting)
+	if s.siphonLife ~= false and AL.Ok("Siphon Life") and not DotUp("Siphon Life", casting)
 		and (not targetHp or targetHp > 40)
 		and AL.SpellUsable("Siphon Life")
 	then
@@ -774,10 +911,167 @@ local function NextDot(s, casting, targetHp)
 	end
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local CORRUPTION_DURATIONS = {
+	[172] = 12, [6222] = 15, [6223] = 18, [7648] = 18,
+	[11671] = 18, [11672] = 18, [25311] = 18,
+}
+local function CorruptionDuration(sent)
+	local id = sent and ReadableNumber(sent.spellID)
+	if not id then
+		local ref = AL.rangeSpellRefs and AL.rangeSpellRefs["Corruption"]
+		id = ref and ReadableNumber(ref.id)
+	end
+	return CORRUPTION_DURATIONS[id] or 18
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Talent reads are refreshed only outside combat and are transactional: a
+-- protected/empty scan keeps the last trustworthy Shadow and Flame rank.
+local shadowAndFlameRank, levelingTalentScanAt
+local function RefreshLevelingTalents()
+	if type(GetTalentInfo) ~= "function" or levelingTalentScanAt
+		and GetTime() - levelingTalentScanAt < 2 then return end
+	levelingTalentScanAt = GetTime()
+	local found, rank = false, 0
+	local localized = ReadableString((SafeCall(C_Spell and C_Spell.GetSpellName, 426316)))
+	for tab = 1, 3 do
+		for index = 1, 40 do
+			local name, _, _, _, value = SafeCall(GetTalentInfo, tab, index, false, false)
+			name, value = ReadableString(name), ReadableNumber(value)
+			local english = name and ((AL.englishNames and AL.englishNames[name]) or name)
+			if name and value and value >= 0 and value <= 5
+				and (english == "Shadow and Flame" or localized and name == localized) then
+				found, rank = true, value
+			end
+		end
+	end
+	if found then shadowAndFlameRank = rank end
+end
+
+local function ConflagratePreservesImmolate()
+	return shadowAndFlameRank == 5
+end
+
+-- Core owns the target timer. Correct it on the next frame, after Core has
+-- installed its conservative rank-one fallback; Core's normal miss and target
+-- change handlers still clear the record.
+function M.OnCastResult(name, event, sent)
+	if event ~= "UNIT_SPELLCAST_SUCCEEDED" then return end
+	local now, cooldown = GetTime(), LEVELING_COOLDOWN_FALLBACK[name]
+	if cooldown then levelingCooldownReadyAt[name] = now + cooldown end
+	if name == "Fel Domination" then
+		felDominationExpires = now + 15
+	elseif name == "Summon Imp" or name == "Summon Voidwalker" or name == "Summon Succubus" then
+		felDominationExpires = 0
+	elseif name == "Conflagrate" and not ConflagratePreservesImmolate() then
+		local castTarget = sent and ReadableString(sent.targetGUID)
+		local currentTarget = ReadableString((SafeCall(UnitGUID, "target")))
+		if not castTarget or not currentTarget or castTarget == currentTarget then
+			if AL.targetDebuffs then AL.targetDebuffs["Immolate"] = nil end
+		end
+	end
+	if name ~= "Corruption" then return end
+	local duration = CorruptionDuration(sent)
+	local targetGUID = sent and ReadableString(sent.targetGUID)
+	if C_Timer and type(C_Timer.After) == "function" then
+		C_Timer.After(0, function()
+			local timer = AL.targetDebuffs and AL.targetDebuffs["Corruption"]
+			if timer and (not targetGUID or not timer.targetGUID or timer.targetGUID == targetGUID) then
+				timer.expires = GetTime() + duration
+			end
+		end)
+	end
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function LevelingTargetTTD()
+	local action = _G.Action
+	local object = action and SafeCall(action.Unit, "target")
+	if not (issecretvalue and issecretvalue(object)) and object ~= nil
+		and (type(object) == "table" or type(object) == "userdata") then
+		local ttd = ReadableNumber((SafeCall(object.TimeToDie, object)))
+		if ttd and ttd > 0 and ttd < 3600 then return ttd end
+	end
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function PreferredLevelingSummon()
+	local shards = SoulShardCount()
+	if AL.Ok("Summon Voidwalker") and shards and shards > 0
+		and AL.SpellUsable("Summon Voidwalker") then
+		return "Summon Voidwalker"
+	end
+	if AL.Ok("Summon Imp") and AL.SpellUsable("Summon Imp") then return "Summon Imp" end
+end
+
+local function NextCombatPetRecovery(s, petMissing)
+	if not AL.burst or not s.pet or petMissing ~= true or not PlayerStationary() then return nil end
+	local summon = PreferredLevelingSummon()
+	if not summon then return nil end
+	local empowered = GetTime() < felDominationExpires or AL.HasBuff("player", "Fel Domination")
+	if empowered then return summon, "Burst: replace missing pet after Fel Domination" end
+	if s.felDomination ~= false and AL.Ok("Fel Domination")
+		and LevelingCooldownReady("Fel Domination") and AL.SpellUsable("Fel Domination") then
+		return "Fel Domination", "Burst: prepare missing pet replacement"
+	end
+end
+
+local function ImmolateRemaining(casting)
+	if not DotUp("Immolate", casting) or casting == "Immolate" then return nil end
+	local timer = AL.targetDebuffs and AL.targetDebuffs["Immolate"]
+	local expires = timer and ReadableNumber(timer.expires)
+	if expires then return math.max(0, expires - GetTime()) end
+end
+
+local function HasShardSurplus(s)
+	local count = SoulShardCount()
+	local reserve = math.max(1, math.floor(tonumber(s.drainSoulMinShards) or 1))
+	return count ~= nil and count > reserve, count, reserve
+end
+
+local function NextLearnedTalentDamage(s, casting, targetHp, ttd, forceShoot)
+	if forceShoot then return nil end
+	local inRange = AL.InRange
+	local finishing = targetHp and targetHp <= 20 or ttd and ttd <= 1.5
+	if s.shadowburn ~= false and finishing and AL.Ok("Shadowburn")
+		and LevelingCooldownReady("Shadowburn") and AL.SpellUsable("Shadowburn")
+		and (not inRange or inRange("Shadowburn") ~= false) then
+		-- Avoid a full protected-inventory fallback scan on every rotation tick;
+		-- only inspect shards after every other execute condition is satisfied.
+		local surplus = HasShardSurplus(s)
+		if surplus then return "Shadowburn", "learned finisher with Soul Shard above reserve" end
+	end
+
+	if s.conflagrate ~= false and AL.Ok("Conflagrate") and DotUp("Immolate", casting)
+		and casting ~= "Immolate" and LevelingCooldownReady("Conflagrate")
+		and AL.SpellUsable("Conflagrate") and (not inRange or inRange("Conflagrate") ~= false) then
+		local remaining = ImmolateRemaining(casting)
+		if ConflagratePreservesImmolate() or remaining and remaining <= 2 then
+			return "Conflagrate", ConflagratePreservesImmolate()
+				and "learned strike; 5/5 Shadow and Flame preserves Immolate"
+				or "learned strike in final Immolate window"
+		end
+	end
+
+	if s.deathCoil == true and AL.burst and (not targetHp or targetHp > 20)
+		and (not ttd or ttd >= 5) and AL.Ok("Death Coil")
+		and LevelingCooldownReady("Death Coil") and AL.SpellUsable("Death Coil")
+		and (not inRange or inRange("Death Coil") ~= false) then
+		return "Death Coil", "optional Burst damage and healing"
+	end
+end
+
 local function LevelingNextSpell(s, inCombat, hostile)
 	local myHp = AL.HealthPercent("player")
 	local manaPct = WarlockManaPercent()
-	local petUp = UnitExists("pet") and not UnitIsDeadOrGhost("pet")
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Relationship APIs can become secret in Forever combat. Unknown pet state
+	-- must skip optional pet branches instead of being tested as a Lua boolean.
+	local petExists = ReadableFlag((SafeCall(UnitExists, "pet")))
+	local petDead = petExists == true and ReadableFlag((SafeCall(UnitIsDeadOrGhost, "pet")))
+	local petUp = petExists == true and petDead ~= true
+	local petMissing = petExists == false or (petExists == true and petDead == true)
 	local petHp = petUp and AL.HealthPercent("pet") or nil
 	local targetHp = hostile and AL.HealthPercent("target") or nil
 	local casting = PlayerCastingSpell()
@@ -785,13 +1079,14 @@ local function LevelingNextSpell(s, inCombat, hostile)
 	local shootMana = tonumber(s.shootMana) or 25
 	local forceShoot, readableShootMana, effectiveShootThreshold, configuredShootMana, shootReason =
 		ShootState(s, manaPct)
+	if not inCombat then RefreshLevelingTalents() end
 
 	-- Core normally intercepts every active channel and returns the global
 	-- no-action/pooling state before this rotation runs. Keep this local fallback
 	-- for Warlock in case the class function is called directly.
 	if casting == "Health Funnel" or casting == "Drain Soul"
 		or casting == "Drain Life" or casting == "Drain Mana"
-		or casting == "Rain of Fire"
+		or casting == "Rain of Fire" or casting == "Hellfire" or casting == "Wrack"
 	then
 		return nil, "Channeling"
 	end
@@ -818,12 +1113,11 @@ local function LevelingNextSpell(s, inCombat, hostile)
 				return armor, "buff"
 			end
 		end
-		if s.pet and not petUp then
-			local shards = AL.ItemCount(SOUL_SHARD)
-			if AL.Ok("Summon Voidwalker") and (not shards or shards > 0) then
-				return "Summon Voidwalker", "pet"
-			end
-			if AL.Ok("Summon Imp") then return "Summon Imp", "pet" end
+		if s.pet and petMissing == true then
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			-- Unknown or zero shards must fall through to the shard-free Imp.
+			local summon = PreferredLevelingSummon()
+			if summon then return summon, "pet" end
 		end
 		-- Life Tap out of combat uses the same configured mana threshold.
 		-- Keep the higher OOC health safety margin before trading HP for mana.
@@ -862,7 +1156,7 @@ local function LevelingNextSpell(s, inCombat, hostile)
 				return nil, "Shadow Bolt blocked: " .. tostring(openerShootReason or "mana")
 			end
 
-			if AL.Ok("Shadow Bolt") and AL.SpellUsable("Shadow Bolt") then
+			if s.shadowBolt ~= false and AL.Ok("Shadow Bolt") and AL.SpellUsable("Shadow Bolt") then
 				return "Shadow Bolt", "opener"
 			end
 			if AL.WandEquipped() and AL.Ok("Shoot") then
@@ -874,6 +1168,10 @@ local function LevelingNextSpell(s, inCombat, hostile)
 	end
 
 	if not hostile then return nil, "No target" end
+
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local petSpell, petReason = NextCombatPetRecovery(s, petMissing)
+	if petSpell then return petSpell, petReason end
 
 	-- In-combat movement override. While the player is positively detected as
 	-- moving, recommend wand Shoot instead of cast-time/channel priorities.
@@ -896,6 +1194,9 @@ local function LevelingNextSpell(s, inCombat, hostile)
 		if AL.OkReady("Blood Fury") then return "Blood Fury", "burst" end
 		if AL.OkReady("Berserking") then return "Berserking", "burst" end
 	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local amplify, amplifyReason = NextAmplifyCurse(s, inCombat, casting, targetHp, forceShoot)
+	if amplify then return amplify, amplifyReason end
 
 	local curse, curseReason = NextCurse(s, casting)
 	if curse then return curse, curseReason end
@@ -909,6 +1210,29 @@ local function LevelingNextSpell(s, inCombat, hostile)
 
 	local dot, dotReason = NextDot(s, casting, targetHp)
 	if dot then return dot, dotReason end
+
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if s.aoe and PlayerStationary() and not forceShoot then
+		local minimum = math.max(2, math.min(5, math.floor(tonumber(s.aoeMinEnemies) or 3)))
+		local manaMinimum = math.max(0, math.min(100, tonumber(s.aoeMinMana) or 30))
+		if manaPct and manaPct >= manaMinimum then
+			if s.hellfire and myHp and myHp >= (tonumber(s.hellfireMinHP) or 70)
+				and LevelingEnemyCount(10, minimum) >= minimum
+				and AL.OkReady("Hellfire") and AL.SpellUsable("Hellfire") then
+				return "Hellfire", "AoE: nearby engaged enemies"
+			end
+			if s.rainOfFire ~= false and LevelingEnemyCount(30, minimum) >= minimum
+				and AL.OkReady("Rain of Fire") and AL.SpellUsable("Rain of Fire")
+				and (not AL.InRange or AL.InRange("Rain of Fire") ~= false) then
+				return "Rain of Fire", "AoE: engaged enemies"
+			end
+		end
+	end
+
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local ttd = LevelingTargetTTD()
+	local learned, learnedReason = NextLearnedTalentDamage(s, casting, targetHp, ttd, forceShoot)
+	if learned then return learned, learnedReason end
 
 	-- Soul Shard builder comes after the maintained DoT package. The bag-count
 	-- comparison is the authority: if detected shards are below the slider value,
@@ -962,7 +1286,19 @@ local function LevelingNextSpell(s, inCombat, hostile)
 		end
 	end
 
-	if AL.Ok("Shadow Bolt") and AL.SpellUsable("Shadow Bolt") then
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Wrack is a learned channel filler. Keep the proven DoT/shard/survival
+	-- priorities ahead of it, require its Affliction setup, and skip a target
+	-- whose readable remaining lifetime is shorter than the channel payoff.
+	if s.wrack ~= false and PlayerStationary()
+		and AgonyOnTarget(casting) and DotUp("Corruption", casting)
+		and (not ttd or ttd >= 6) and AL.Ok("Wrack")
+		and AL.IsReady("Wrack") and AL.SpellUsable("Wrack")
+		and (not AL.InRange or AL.InRange("Wrack") ~= false) then
+		return "Wrack", "learned filler after maintained DoTs"
+	end
+
+	if s.shadowBolt ~= false and AL.Ok("Shadow Bolt") and AL.SpellUsable("Shadow Bolt") then
 		return "Shadow Bolt", "filler"
 	end
 
@@ -1107,40 +1443,21 @@ local M = {
 	},
 }
 
--- Exactly one rotation stays selected. Leveling is the default and the
--- fallback when a selected specialization is switched off or saved flags
--- conflict. A valid saved specialization takes priority during migration.
-M.buildKeys = { "leveling", "destruction", "affliction", "demonology" }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- v1.1.5 ships only the proven Leveling rotation. Clear specialization flags
+-- left by earlier previews so an old SavedVariables file cannot reactivate a
+-- removed level-60 engine.
+M.buildKeys = { "leveling" }
 function M.NormalizeBuild(s)
     if type(s) ~= "table" then return end
-    local selected, count = nil, 0
-    for _, key in ipairs(M.buildKeys) do
-        if key ~= "leveling" then
-            local value = s[key]
-            local checked = not (issecretvalue and issecretvalue(value)) and value == true
-            s[key] = checked
-            if checked then selected, count = key, count + 1 end
-        end
-    end
-    if count ~= 1 then
-        for _, key in ipairs(M.buildKeys) do s[key] = false end
-        selected = "leveling"
-    end
-    s.leveling = selected == "leveling"
-    return selected
+	s.destruction, s.affliction, s.demonology = false, false, false
+	s.leveling = true
+	return "leveling"
 end
 function M.SetBuild(key, enabled, s)
-    if (issecretvalue and issecretvalue(enabled)) or type(enabled) ~= "boolean" then return end
-    local valid = false
-    for _, candidate in ipairs(M.buildKeys) do if candidate == key then valid = true; break end end
-    if not valid then return end
+	if key ~= "leveling" or (issecretvalue and issecretvalue(enabled)) or type(enabled) ~= "boolean" then return end
     s = s or AL.Profile("WARLOCK")
     if type(s) ~= "table" then return end
-    if enabled then
-        for _, candidate in ipairs(M.buildKeys) do s[candidate] = candidate == key end
-    else
-        s[key] = false
-    end
     local selected = M.NormalizeBuild(s)
     if AL.UI and type(AL.UI.Repaint) == "function" then AL.UI.Repaint() end
     return selected
@@ -1156,7 +1473,7 @@ M.spells = {
 	{ 172, "Corruption" },
 	{ 6201, "Create Healthstone" },
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	{ 0, "Create Spellstone" },
+	{ 2362, "Create Spellstone" },
 	{ 693, "Create Soulstone" },
 	{ 0, "Curse of Agony" }, -- Legacy name fallback; Forever uses Bane of Agony.
 	{ 440892, "Curse of the Elements" },
@@ -2098,7 +2415,14 @@ local function DestructionTalentRank()
     end
     return destShadowAndFlame
 end
-local demoTracker=CreateFrame("Frame")
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- The optional level-60 engines are retained only as spell-data reference in
+-- this release. Do not create or register their combat observer while the
+-- public dispatcher is Leveling-only.
+local ENABLE_OPTIONAL_BUILD_TRACKERS = false
+local demoTracker
+if ENABLE_OPTIONAL_BUILD_TRACKERS then
+demoTracker=CreateFrame("Frame")
 for _,event in ipairs({"UNIT_SPELLCAST_SENT","UNIT_SPELLCAST_SUCCEEDED","UNIT_SPELLCAST_FAILED",
     "UNIT_SPELLCAST_FAILED_QUIET","UNIT_SPELLCAST_INTERRUPTED","PLAYER_TARGET_CHANGED",
     "PLAYER_ENTERING_WORLD","PLAYER_DEAD","UNIT_PET","UNIT_AURA","PLAYER_REGEN_ENABLED","SPELLS_CHANGED","PLAYER_TALENT_UPDATE"})do
@@ -2216,6 +2540,7 @@ demoTracker:SetScript("OnEvent",function(_,event,unit,a2,a3,a4)
         demoDots[dotName]={at=now,expires=now+demoDuration[dotName],target=DemoTargetKey()};demoAuraCache.target=nil
     end
 end)
+end
 local function DemoCurveAvailable(kind,unit)
     local reader=kind=="power" and UnitPowerPercent or UnitHealthPercent
     if demoCurveFailures[kind..":"..unit]==reader then return false end
@@ -2835,7 +3160,13 @@ end
 local function NextLeveling(s, inCombat, hostile)
 	local myHp = AL.HealthPercent("player")
 	local manaPct = WarlockManaPercent()
-	local petUp = UnitExists("pet") and not UnitIsDeadOrGhost("pet")
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Keep the retained reference engine safe if it is ever re-enabled: protected
+	-- relationship values cannot be tested as booleans or treated as a missing pet.
+	local petExists = DemoBool((SafeCall(UnitExists, "pet")))
+	local petDead = petExists == true and DemoBool((SafeCall(UnitIsDeadOrGhost, "pet")))
+	local petUp = petExists == true and petDead ~= true
+	local petMissing = petExists == false or (petExists == true and petDead == true)
 	local petHp = petUp and AL.HealthPercent("pet") or nil
 	local targetHp = hostile and AL.HealthPercent("target") or nil
 	local casting = PlayerCastingSpell()
@@ -2876,7 +3207,7 @@ local function NextLeveling(s, inCombat, hostile)
 				return armor, "buff"
 			end
 		end
-		if s.pet and not petUp then
+		if s.pet and petMissing == true then
 			local shards = AL.ItemCount(SOUL_SHARD)
 			if AL.Ok("Summon Voidwalker") and (not shards or shards > 0) then
 				return "Summon Voidwalker", "pet"
@@ -3243,39 +3574,17 @@ AL.RegisterRotation("WARLOCK", M)
         end
     end
 
-    local unpackValues = unpack or table.unpack
-    local function ObserveInactive(fn, ...)
-        local args, count = { ... }, select("#", ...)
-        for i = 1, count do
-            local value = args[i]
-            if type(value) == "table" and not (issecretvalue and issecretvalue(value)) then
-                local copy = {}
-                for key, item in pairs(value) do copy[key] = item end
-                args[i] = copy
-            end
-        end
-        -- Cast records carry per-engine completion flags (for example mana
-        -- accounting). The inactive tracker must never mark the active record.
-        pcall(fn, unpackValues(args, 1, count))
-    end
-
     for _, name in ipairs({
         "OnTargetChanged", "OnUIError", "OnCastSent", "OnCastResult",
         "RefreshManaCache", "OnManaCastSent", "OnManaCastSucceeded",
     }) do
-        local old, modern = leveling[name], advanced[name]
-        if type(old) == "function" or type(modern) == "function" then
+        local old = leveling[name]
+        if type(old) == "function" then
             advanced[name] = function(...)
-                -- Warm the inactive history first. Its optional tracker cannot
-                -- prevent the active rotation from receiving the real event.
-                if UsesLeveling() then
-                    if modern then ObserveInactive(modern, ...) end
-                    if old then return old(...) end
-                else
-                    if old then ObserveInactive(old, ...) end
-                    if modern then return modern(...) end
-                end
+                return old(...)
             end
+        else
+            advanced[name] = nil
         end
     end
     root.RegisterRotation("WARLOCK", advanced)

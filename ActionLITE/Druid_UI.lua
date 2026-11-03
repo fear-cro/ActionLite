@@ -15,7 +15,8 @@ local function BuildCheck(key,label,spell)
 end
 
 AL.RegisterSimpleClassUI("DRUID", {
-	title = { en = "DRUID - DPS & TANK", fr = "DRUIDE - PROGRESSION DPS", pt = "DRUIDA - EVOLUÇÃO DPS", es = "DRUIDA - SUBIDA DPS", de = "DRUIDE - DPS LEVELN", zh = "德鲁伊 - 输出升级" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	title = { en = "DRUID - LEVELING & HEALING", fr = "DRUIDE - PROGRESSION ET SOINS", pt = "DRUIDA - EVOLUÇÃO E CURA", es = "DRUIDA - SUBIDA Y SANACIÓN", de = "DRUIDE - LEVELN & HEILUNG", zh = "德鲁伊 - 升级与治疗" },
 	subtitle = { en = "Adapts to caster, Bear and Cat forms", fr = "S'adapte aux formes lanceur, Ours et Felin", pt = "Adapta-se às formas conjurador, Urso e Felino", es = "Se adapta a las formas lanzador, Oso y Felino", de = "Passt sich an Zauber-, Bären- und Katzengestalt an", zh = "适应施法者、熊和猎豹形态" },
 	aoeKey = "aoe",
 	cards = {
@@ -24,7 +25,12 @@ AL.RegisterSimpleClassUI("DRUID", {
             id="leveling-rotation", build="leveling", group="damage",
             controls = {
                 { key="leveling", label="Leveling Rotation", spell="Wrath", half=false,
-                  tooltip={"Leveling Rotation", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected."} },
+                  tooltip={"Leveling Rotation", "Uses the finalized form-aware leveling rotation. Learned talent spells are added automatically; unavailable spells are skipped."} },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key="levelingMoonkin", label="Leveling: maintain learned Moonkin Form", spell="Moonkin Form", half=false },
+				{ key="levelingInsectSwarm", label="Leveling: maintain learned Insect Swarm", spell="Insect Swarm", half=false },
+				{ key="levelingStarfire", label="Leveling: use learned Starfire opener", spell="Starfire", half=false },
+				{ type="info", text="Caster leveling uses learned Balance talents without selecting a level-60 preset. Moonkin Form is maintained only from caster form while engaging a hostile target; travel and utility forms are preserved. A stationary Starfire opens once per target, then Insect Swarm and Moonfire are maintained before the original Wrath filler." },
             },
         },
 		{
@@ -32,12 +38,12 @@ AL.RegisterSimpleClassUI("DRUID", {
 			id = "healing-engine", group = "survival",
 			controls = {
 				{ key = "healingEngine", label = "Enable Healing Rotation", spell = "Healing Touch", half = false,
-				  tooltip = { "Enable Healing Rotation", "Enables grouped healing, selected-ally distress healing, and the protected Action focus pixel. Solo characters continue using the selected leveling or damage rotation." } },
+				  tooltip = { "Enable Healing Rotation", "Enables five-player dungeon healing, selected-ally distress healing, and the protected Action focus pixel. Solo and raid characters continue using the Leveling Rotation." } },
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				{ key = "healingWildGrowth", label = "Use Wild Growth for group healing", spell = "Wild Growth", half = false,
-				  tooltip = { "Protected group heal", "Requires two eligible injured members in the same party or raid subgroup and more than 50% mana. The live learned spell supplies Naturalist's cast-time reduction." } },
+				  tooltip = { "Protected group heal", "Requires two eligible injured dungeon-party members and more than 50% mana. The live learned spell supplies Naturalist's cast-time reduction." } },
 				{ type = "info", text = "Tank and healer thresholds use the selected values; known DPS members use each value minus 10 points. Tracks Regrowth and Rejuvenation, protects the five-second mana rule, and uses protected two-member health gates for Wild Growth. Swiftmend, Nature's Swiftness and Elune's Light remain emergency tools. Selecting a friendly group member requests immediate care; out of combat it can apply Mark of the Wild or top off above 80% mana." },
 			},
 		},
@@ -212,7 +218,10 @@ AL.RegisterSimpleClassUI("DRUID", {
 				{ key = "rake", label = "Rake", spell = "Rake" },
 				{ key = "rip", label = { en = "Rip on durable targets", fr = "Rip sur les cibles durables", pt = "Rip em alvos resistentes", es = "Rip en objetivos duraderos", de = "Rip auf zähe Ziele", zh = "对耐久目标Rip" }, spell = "Rip" },
 				{ key = "tigersfury", label = "Tiger's Fury", spell = "Tiger's Fury" },
-				{ type = "info", text = { en = "With Leveling Rotation selected: Rake above 40% target HP. Rip at 4+ combo points above 60%. Ferocious Bite at 5 points, or 3+ points at or below 40%. Claw builds points; Shred is an optional Prowl opener. These checkboxes also enable the corresponding spells in the selected Feral Cat build." } },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "levelingShiftingPower", label = "Use learned Shifting Power", spell = "Shifting Power", half = false },
+				{ type = "slider", key = "levelingShiftBelowEnergy", label = "Shifting Power below Energy", min = 0, max = 100, step = 5, default = 40 },
+				{ type = "info", text = { en = "In Cat Form, Leveling uses learned Shifting Power below the selected Energy value when at least 40 Energy can be restored; it replaces Tiger's Fury when learned. Rake, Rip, Ferocious Bite and Claw retain the finalized leveling priority." } },
 			},
 		},
 		{
@@ -221,13 +230,17 @@ AL.RegisterSimpleClassUI("DRUID", {
 			controls = {
 				{ key = "enrage", label = { en = "Enrage and Demoralizing Roar", fr = "Enrage et Demoralizing Roar", pt = "Enrage e Demoralizing Roar", es = "Enrage y Demoralizing Roar", de = "Enrage und Demoralizing Roar", zh = "Enrage和Demoralizing Roar" }, spell = "Enrage" },
 				{ key = "bash", label = { en = "Bash interrupt", fr = "Interruption Bash", pt = "Interrupção Bash", es = "Interrupción Bash", de = "Bash-Unterbrechung", zh = "Bash打断" }, spell = "Bash" },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ key = "levelingPrimalBite", label = "Use learned Primal Bite", spell = "Primal Bite", half = false },
+				{ type = "info", text = { en = "Leveling uses Primal Bite as the learned Bear primary strike after protecting Lacerate. Characters without the talent retain the original Bear priority." } },
             },
         },
         {
             title="AREA DAMAGE MODE", id="area-damage-mode", group="aoe",
             controls={
 				{ key = "aoe", label = { en = "Enable AoE Mode", fr = "Activer le mode AoE", pt = "Ativar modo AoE", es = "Activar modo AoE", de = "AoE-Modus aktivieren", zh = "启用AoE模式" }, spell = "Swipe" },
-				{ type = "info", text = { en = "The shared AoE mode also enables the selected Cat or Balance build's area-damage rules. In the older form-based profile, Swipe requires at least two confirmed enemies in melee range. Bear attacks wait for enough rage; Bash takes priority when a target is casting." } },
+				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+				{ type = "info", text = { en = "Leveling AoE follows the current form. Swipe requires at least two confirmed enemies in melee range. Bear attacks wait for enough Rage; Bash takes priority when a target is casting." } },
 			},
 		},
 	},
@@ -251,5 +264,6 @@ if originalBuilder and AL.RegisterClassUI then
             return ui.Slider(host,opts)
         end
         return originalBuilder(page,adapter)
-    end,"0.13.2")
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    end,"0.13.3")
 end

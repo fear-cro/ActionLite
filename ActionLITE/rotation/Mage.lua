@@ -57,6 +57,13 @@ local M = {
 	defaults = {
 		nuke = "AUTO",
 		primaryFire = false,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		arcaneBlast = true,
+		arcaneWrath = true,
+		frostfireBolt = true,
+		pyroblast = true,
+		frostBarrier = true,
+		frostBarrierMinMana = 25,
 		buffs = true,
 		conjure = true,
 		drink = true,
@@ -88,6 +95,9 @@ local M = {
 -- spellbook; its TBC ID is not treated as evidence of Forever support.
 M.spells = {
 	{ 1008, "Amplify Magic" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 400574, "Arcane Blast" },
+	{ 1326079, "Arcane Wrath" },
 	{ 1449, "Arcane Explosion" },
 	{ 1459, "Arcane Intellect" },
 	{ 5143, "Arcane Missiles" },
@@ -109,12 +119,15 @@ M.spells = {
 	{ 122, "Frost Nova" },
 	{ 6143, "Frost Ward" },
 	{ 116, "Frostbolt" },
+	{ 401502, "Frostfire Bolt" },
 	{ 7302, "Ice Armor" },
 	{ 11958, "Ice Block" },
+	{ 11426, "Ice Barrier" },
 	{ 30455, "Ice Lance" },
 	{ 6117, "Mage Armor" },
 	{ 1463, "Mana Shield" },
 	{ 118, "Polymorph" },
+	{ 11366, "Pyroblast" },
 	{ 475, "Remove Lesser Curse" },
 	{ 2948, "Scorch" },
 	{ 130, "Slow Fall" },
@@ -124,7 +137,7 @@ M.spells = {
 AL.selfCastSpells = AL.selfCastSpells or {}
 for _, name in ipairs({
 	"Arcane Intellect", "Frost Armor", "Ice Armor", "Mage Armor",
-	"Ice Block", "Mana Shield", "Evocation", "Conjure Water",
+	"Ice Block", "Ice Barrier", "Mana Shield", "Evocation", "Conjure Water",
 	"Conjure Food", "Conjure Mana Agate", "Berserking", "Frost Nova", "Arcane Explosion", "Cone of Cold",
 }) do
 	AL.selfCastSpells[name] = true
@@ -175,6 +188,11 @@ local ARMORS = { "Ice Armor", "Frost Armor", "Mage Armor" }
 
 -- Shared native gates keep opaque percentages in native display alpha only.
 local lastRotation
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Pyroblast is a one-attempt, stationary pull option in Leveling.  A real
+-- SENT event closes the opener until a target change, so protected casting
+-- data or a duplicate client failure event cannot leave the icon repeating.
+local pyroblastOpened = false
 local visibilityCurves, curveFailures, curveCapabilities = {}, {}, {}
 local IntervalCurve, ReadVisualAlpha
 local curveProbe
@@ -184,6 +202,10 @@ local LiveWandActive
 local wandStopPendingUntil = 0
 local wandRecoveryUntil = 0
 local cooldownSnapshots = {}
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Arcane Blast's learned stack is inferred only from confirmed player casts.
+-- Its eighteen-second lifetime never invents a stack or a learned talent.
+local arcaneBlastStacks, arcaneBlastUntil = 0, 0
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 -- Ice Lance and Fire Blast now share one eight-second cooldown. Preserve the
 -- shared lock when combat cooldown fields are protected or report only GCD.
@@ -666,7 +688,10 @@ local function SpellReady(name)
     return Bool((SafeCall(AL.IsReady, name))) == true, recovery
 end
 
-local WAND_HANDOFF_SPELLS = { ["Fire Blast"]=true, ["Frost Nova"]=true, ["Frostbolt"]=true, ["Fireball"]=true, ["Scorch"]=true }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local WAND_HANDOFF_SPELLS = { ["Fire Blast"]=true, ["Frost Nova"]=true, ["Frostbolt"]=true,
+    ["Fireball"]=true, ["Scorch"]=true, ["Arcane Blast"]=true, ["Arcane Wrath"]=true,
+    ["Frostfire Bolt"]=true, ["Pyroblast"]=true }
 
 local function Offer(name, reason, gates, preparation, showRange)
     if not Ok(name) then return false end
@@ -933,6 +958,12 @@ local function Defense(s, hostile, hp, mana)
         Offer("Ice Block", "Emergency", { HealthGate("player", hp, SettingNumber(s, "iceBlockHP", 18, 1, 60), true) })
     end
     if hostile and Enabled(s, "cspell") and Bool((SafeCall(AL.TargetCasting))) == true then Offer("Counterspell", "Interrupt") end
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    if hostile and Enabled(s, "frostBarrier") and not AL.HasBuff("player", "Ice Barrier") then
+        Offer("Ice Barrier", "learned Frost damage barrier", {
+            ManaGate(mana, SettingNumber(s, "frostBarrierMinMana", 25, 0, 100), false),
+        })
+    end
     if Enabled(s, "manaShield") and not AL.HasBuff("player", "Mana Shield") then
         Offer("Mana Shield", "Defense", {
             HealthGate("player", hp, SettingNumber(s, "manaShieldHP", 45, 5, 90), true),
@@ -945,6 +976,13 @@ end
 local function Offensive(s, inCombat, targetHP, mana, moving)
     WandThresholds(s, mana, targetHP, moving)
     local gates = DamageGates(s, mana, targetHP)
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- A learned Pyroblast is used only as a stationary pull.  Automatic
+    -- in-combat proc use remains manual because protected aura/cast-time data
+    -- cannot prove that every Forever proc makes this long cast safe.
+    if not inCombat and Enabled(s, "pyroblast") and not pyroblastOpened and not moving then
+        Offer("Pyroblast", "Leveling opener", gates)
+    end
     if inCombat then
         if AL.burst then Offer("Berserking", "Burst", { HealthGate("target", targetHP,
             SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false) }) end
@@ -964,6 +1002,25 @@ local function Offensive(s, inCombat, targetHP, mana, moving)
         if not Enabled(s, "primaryFire") and Enabled(s, "icelance") and TargetFrozen() then Offer("Ice Lance", "Frozen", gates) end
     end
     local clearcasting = AL.HasBuff("player", "Clearcasting")
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- A readable zero Arcane Missiles cost is positive evidence for a free
+    -- cast (Missile Barrage or Clearcasting). A hidden cost invents no proc.
+    local missileCost, ordinaryCost = SpellManaCost("Arcane Missiles"), SpellManaCost("Frostbolt")
+    local freeMissiles = AL.HasBuff("player", "Missile Barrage")
+        or missileCost == 0 and ordinaryCost and ordinaryCost > 0
+    if freeMissiles and not moving then
+        Offer("Arcane Missiles", "Missile Barrage / free cast", gates, false, true)
+    end
+    if arcaneBlastUntil <= GetTime() then arcaneBlastStacks, arcaneBlastUntil = 0, 0 end
+    if Enabled(s, "arcaneBlast") and arcaneBlastStacks < 4 and not moving then
+        Offer("Arcane Blast", "build eighteen-second Arcane buff", gates)
+    end
+    -- Arcane Wrath is a learned leveling spell.  Use it ahead of ordinary
+    -- fillers when stationary; characters that have not learned it simply
+    -- fall through because Offer validates the live spellbook.
+    if Enabled(s, "arcaneWrath") and not moving then
+        Offer("Arcane Wrath", "Learned cooldown", gates)
+    end
     if Enabled(s, "fireblast") and (inCombat or moving) and (moving or Enabled(s, "primaryFire") or not clearcasting) then
         local fireGates = {}
         for _, gate in ipairs(gates) do fireGates[#fireGates + 1] = gate end
@@ -971,6 +1028,14 @@ local function Offensive(s, inCombat, targetHP, mana, moving)
         Offer("Fire Blast", moving and "Moving" or "On cooldown", fireGates)
     end
     if not moving then
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- Frostfire Bolt is a learned stationary filler.  The live spellbook,
+        -- exact mana cost, cooldown/usability and range gates all remain
+        -- authoritative, so unlearned or disabled characters keep the
+        -- original preferred-nuke order.
+        if Enabled(s, "frostfireBolt") then
+            Offer("Frostfire Bolt", "Learned hybrid filler", gates)
+        end
         for _, name in ipairs(NukeCandidates(s)) do Offer(name, clearcasting and "Clearcast" or "Ranged damage", gates, false, true) end
         Wand(s, "Out of mana", nil, false)
     end
@@ -1010,7 +1075,10 @@ function M.CanTrackSuggestedSpell(name)
     return name == "Berserking"
 end
 
-function M.OnTargetChanged() lastRotation, AL.rotationSecretVisual = nil, nil end
+function M.OnTargetChanged()
+    lastRotation, AL.rotationSecretVisual = nil, nil
+    pyroblastOpened = false
+end
 
 function M.RefreshManaCache()
     EnsureTrackedMana(); RefreshManaRegen(); RefreshManaSensor()
@@ -1025,6 +1093,8 @@ function M.OnManaCastSent(name)
         trackedManaUpdatedAt = GetTime()
     end
     lastSentCastName, lastSentCastAt = name, GetTime()
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    if name == "Pyroblast" then pyroblastOpened = true end
     if name then cooldownSnapshots[name] = nil end
     if name == "Shoot" and LiveWandActive() then wandStopPendingUntil = GetTime() + 0.5 end
     return { cost = name and SpellManaCost(name), at=GetTime() }
@@ -1050,6 +1120,11 @@ end
 function M.OnCastResult(name, result)
     if result == "UNIT_SPELLCAST_SUCCEEDED" then
         -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        if name == "Pyroblast" then pyroblastOpened = true end
+        if name == "Arcane Blast" then
+            arcaneBlastStacks = math.min(4, (arcaneBlastUntil > GetTime() and arcaneBlastStacks or 0) + 1)
+            arcaneBlastUntil = GetTime() + 18
+        end
         local shared=SHARED_INSTANT_COOLDOWN[name]
         if shared then
             local expires=GetTime()+8
@@ -1088,6 +1163,9 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
         wandRecoveryUntil = 0
         cooldownSnapshots = {}
 		sharedInstantEnds = {}
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        arcaneBlastStacks, arcaneBlastUntil = 0, 0
+        pyroblastOpened = false
         lastSentCastName, lastSentCastAt, lastRotation, AL.rotationSecretVisual = nil, 0, nil, nil
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         M.RefreshManaCache()
@@ -1267,6 +1345,8 @@ local M = {
 		fireBurstMinMana = 40, fireFlamestrike = true, fireBlizzard = true,
 		frostfire = false,
 		frostfireBolt = true,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		pyroblast = true,
 		frostfireScorch = true,
 		frostfirePyroblast = true,
 		frostfireEureka = true,
@@ -1321,37 +1401,22 @@ local M = {
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
-M.buildKeys = { "leveling", "frost", "fire", "frostfire", "arcane" }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- v1.1.5 launch scope: keep the established leveling rotation as the only
+-- selectable combat profile until the level-60 presets are revalidated.
+M.buildKeys = { "leveling" }
 function M.NormalizeBuild(s)
     if type(s) ~= "table" then return end
-    local selected, count = nil, 0
-    for _, key in ipairs(M.buildKeys) do
-        if key ~= "leveling" then
-            local value = s[key]
-            local checked = not (issecretvalue and issecretvalue(value)) and value == true
-            s[key] = checked
-            if checked then selected, count = key, count + 1 end
-        end
-    end
-    if count ~= 1 then
-        for _, key in ipairs(M.buildKeys) do s[key] = false end
-        selected = "leveling"
-    end
-    s.leveling = selected == "leveling"
-    return selected
+    s.frost, s.fire, s.frostfire, s.arcane = false, false, false, false
+    s.leveling = true
+    return "leveling"
 end
 function M.SetBuild(key, enabled, s)
     if (issecretvalue and issecretvalue(enabled)) or type(enabled) ~= "boolean" then return end
-    local valid = false
-    for _, candidate in ipairs(M.buildKeys) do if candidate == key then valid = true; break end end
-    if not valid then return end
+    if key ~= "leveling" then return end
     s = s or AL.Profile("MAGE")
     if type(s) ~= "table" then return end
-    if enabled then
-        for _, candidate in ipairs(M.buildKeys) do s[candidate] = candidate == key end
-    else
-        s[key] = false
-    end
+    s.leveling = true
     local selected = M.NormalizeBuild(s)
     if AL.UI and type(AL.UI.Repaint) == "function" then AL.UI.Repaint() end
     return selected
@@ -1363,7 +1428,7 @@ end
 M.spells = {
 	{ 1008, "Amplify Magic" },
 	{ 400574, "Arcane Blast" },
-	{ 0, "Arcane Wrath" },
+	{ 1326079, "Arcane Wrath" },
 	{ 1449, "Arcane Explosion" },
 	{ 1459, "Arcane Intellect" },
 	{ 5143, "Arcane Missiles" },
@@ -3762,17 +3827,15 @@ AL.RegisterRotation("MAGE", M)
         local old, modern = leveling[name], advanced[name]
         if type(old) == "function" or type(modern) == "function" then
             advanced[name] = function(...)
-                -- Warm the inactive history first. Its optional tracker cannot
-                -- prevent the active rotation from receiving the real event.
-                if UsesLeveling() then
-                    if modern then ObserveInactive(modern, ...) end
-                    if old then return old(...) end
-                else
-                    if old then ObserveInactive(old, ...) end
-                    if modern then return modern(...) end
-                end
+                -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+                -- Level-60 Mage trackers are withdrawn with their builds.
+                -- Do not run their protected API/event work behind Leveling.
+                if UsesLeveling() then if old then return old(...) end
+                elseif modern then return modern(...) end
             end
         end
     end
+    local savedProfile = root.Profile and root.Profile("MAGE")
+    if type(savedProfile) == "table" then advanced.NormalizeBuild(savedProfile) end
     root.RegisterRotation("MAGE", advanced)
 end

@@ -1,11 +1,11 @@
 local ADDON, AL = ...
 
--- ActionLITE Priest v0.28.5: original Leveling plus optional talent builds.
+-- ActionLITE Priest v1.1.5: original Leveling and dungeon healing rotations.
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
--- scope. Talent builds use the separate implementation below. Both observe
--- real casts so switching rotations retains resource and spell history.
+-- scope. The integrated module below supplies the complete spell catalog and
+-- dungeon-healing provider; its retired level-60 damage path is unreachable.
 do
     local root = AL
     local leveling, advanced
@@ -85,6 +85,14 @@ local M = {
 		usePenance = true,
 		offensivePenanceMana = 80,
 		holyFire = true,
+		shadowWordDeath = true,
+		shadowDeathMinHP = 70,
+		shadowFiend = true,
+		shadowFiendMana = 70,
+		shadowInnerFocus = true,
+		shadowHolyNova = true,
+		aoeMinEnemies = 2,
+		aoeMinMana = 40,
 		burstMinTargetHP = 40,
 	},
 }
@@ -101,7 +109,9 @@ M.spells = {
 	{ 586, "Fade" },
 	{ 2054, "Heal" },
 	{ 14914, "Holy Fire" },
+	{ 15237, "Holy Nova" },
 	{ 588, "Inner Fire" },
+	{ 14751, "Inner Focus" },
 	{ 2050, "Lesser Heal" },
 	{ 8092, "Mind Blast" },
 	{ 15407, "Mind Flay" },
@@ -116,6 +126,8 @@ M.spells = {
 	{ 2006, "Resurrection" },
 	{ 9484, "Shackle Undead" },
 	{ 589, "Shadow Word: Pain" },
+	{ 1309595, "Shadow Word: Death" },
+	{ 401977, "Shadowfiend" },
 	{ 15487, "Silence" },
 	{ 585, "Smite" },
 	{ 5019, "Shoot" },
@@ -132,6 +144,7 @@ AL.selfCastSpells = AL.selfCastSpells or {}
 for _, name in ipairs({
 	"Power Word: Fortitude", "Divine Spirit", "Inner Fire", "Power Word: Shield", "Renew",
 	"Heal", "Lesser Heal", "Desperate Prayer", "Berserking", "Fade", "Touch of Weakness",
+	"Inner Focus", "Holy Nova",
 }) do
 	AL.selfCastSpells[name] = true
 end
@@ -139,8 +152,6 @@ end
 local MINLEVEL = {
 	["Lesser Heal"] = 1,
 	["Power Word: Fortitude"] = 1,
-	["Divine Spirit"] = 30,
-	["Penance"] = 30,
 	["Smite"] = 1,
 	["Shadow Word: Pain"] = 4,
 	["Power Word: Shield"] = 6,
@@ -483,15 +494,16 @@ local function SpellManaCost(spellName)
 
 		if C_Spell and type(C_Spell.GetSpellPowerCost) == "function" then
 			local ok, result = pcall(C_Spell.GetSpellPowerCost, identifier)
-			if ok and type(result) == "table" then costs = result end
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			if ok and SafeValue(result) and type(result) == "table" then costs = result end
 		elseif type(GetSpellPowerCost) == "function" then
 			local ok, result = pcall(GetSpellPowerCost, identifier)
-			if ok and type(result) == "table" then costs = result end
+			if ok and SafeValue(result) and type(result) == "table" then costs = result end
 		end
 
-		if costs then
+		if SafeValue(costs) and type(costs) == "table" then
 			for _, info in ipairs(costs) do
-				if type(info) == "table" then
+				if SafeValue(info) and type(info) == "table" then
 					local powerType = ReadableNumber(info.type)
 					local token = SafeValue(info.name) and info.name or nil
 
@@ -1401,8 +1413,16 @@ local function TargetAtOrBelow(targetHP, threshold)
 		and (targetHP <= threshold or math.abs(targetHP - threshold) < 1e-7)
 end
 
+local function ReadyKnown(name)
+	if type(AL.IsSpellBlacklisted) == "function" then
+		local ok, blocked = pcall(AL.IsSpellBlacklisted, name)
+		if ok and SafeValue(blocked) and blocked == true then return false end
+	end
+	return Ok(name) and AL.IsReady(name)
+end
+
 local function ReadyUsable(name)
-	return Ok(name) and AL.IsReady(name) and AL.SpellUsable(name)
+	return ReadyKnown(name) and AL.SpellUsable(name)
 end
 
 local HEALING_SPELL_IDS = {
@@ -1413,22 +1433,20 @@ local HEALING_SPELL_IDS = {
 }
 
 local function HealingKnown(name)
-	-- First trust ActionLITE's spellbook scan.
-	if AL.known and AL.known[name] then
-		return true
-	end
-
-	-- Secondary direct spell-known check when the client provides one.
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Resolve learned state first, then apply the same permission, blacklist,
+	-- cooldown and resource gates as every offensive Leveling recommendation.
+	local known = AL.known and AL.known[name] == true
 	local spellID = HEALING_SPELL_IDS[name]
-	if spellID and type(IsSpellKnown) == "function" then
-		local ok, known = pcall(IsSpellKnown, spellID)
-		if ok and SafeValue(known) and known then
-			return true
-		end
+	if not known and spellID and type(IsSpellKnown) == "function" then
+		local ok, learned = pcall(IsSpellKnown, spellID)
+		if ok and SafeValue(learned) and learned == true then known = true end
 	end
-
-	-- Final fallback to the normal Priest gate.
-	return Ok(name) and true or false
+	if not known then known = Ok(name) and true or false end
+	if not known or AL.Allowed and not AL.Allowed(name) then return false end
+	if AL.IsReady and not AL.IsReady(name) then return false end
+	local usable, shortage = AL.SpellUsable(name)
+	return usable ~= false and shortage ~= true
 end
 
 local function PlayerMoving()
@@ -1529,7 +1547,8 @@ local function LevelingShieldGroupAllowed()
 end
 
 local function TargetWithin10Yards()
-	if not UnitExists("target") then return false end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if not AL.SafeBoolean or AL.SafeBoolean(UnitExists, "target") ~= true then return false end
 
 	if type(UnitDistanceSquared) == "function" then
 		local ok, distanceSquared = pcall(UnitDistanceSquared, "target")
@@ -1869,15 +1888,25 @@ local function ShieldReady()
 	return true
 end
 
-local function MaintainCombatShield(s, inCombat)
-	if not s.shield or not inCombat then return nil end
-	if not ShieldReady() then return nil end
-	return "Power Word: Shield", "maintain shield"
+local function MaintainCombatShield(s, inCombat, playerHPOverride)
+	if not s.shield or not inCombat or not ShieldReady() then return nil end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Native protected-health rows pass a public interval sample here. The live
+	-- protected value itself remains inside Blizzard's curve/alpha pipeline.
+	local health = type(playerHPOverride) == "number"
+		and playerHPOverride or PlayerHealthPercent()
+	-- A readable value is decided here. When Forever protects player health,
+	-- SecretHealVisualState supplies the same threshold through a native curve.
+	if type(health) ~= "number" then return nil end
+	local threshold = SettingNumber(s, "shieldHP", 65, 5, 100)
+	if health > threshold then return nil end
+	return "Power Word: Shield", "health at/below shield slider"
 end
 
 local function DirectHeal()
-	if HealingKnown("Heal") then return "Heal" end
-	if HealingKnown("Lesser Heal") then return "Lesser Heal" end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if not PlayerMoving() and HealingKnown("Heal") then return "Heal" end
+	if not PlayerMoving() and HealingKnown("Lesser Heal") then return "Lesser Heal" end
 end
 
 -- Original Priest filler selectors.
@@ -2035,6 +2064,7 @@ PrioritySelfHealing = function(s, inCombat, playerHP)
 	if inCombat then
 		if playerHP < 60
 			and s.heal
+			and not PlayerMoving()
 			and HealingKnown("Lesser Heal")
 		then
 			return "Lesser Heal",
@@ -2045,6 +2075,7 @@ PrioritySelfHealing = function(s, inCombat, playerHP)
 		if playerHP < 80
 			and renewActive
 			and s.heal
+			and not PlayerMoving()
 			and HealingKnown("Lesser Heal")
 		then
 			return "Lesser Heal",
@@ -2114,9 +2145,14 @@ local function SelfRecovery(s, inCombat, hostile, playerHP, moving)
 		return "Desperate Prayer", "emergency heal"
 	end
 
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- CheckInteractDistance can itself be protected. Fear's health gate may use
+	-- a public native-row sample, but its melee gate must also remain public.
+	local meleeOK, melee = pcall(AL.TargetInMelee)
+	melee = meleeOK and SafeValue(melee) and melee == true
 	if inCombat and hostile and s.fear
 		and playerHP <= SettingNumber(s, "fearHP", 50, 5, 95)
-		and AL.TargetInMelee() and ReadyUsable("Psychic Scream") then
+		and melee and ReadyUsable("Psychic Scream") then
 		return "Psychic Scream", "make distance"
 	end
 
@@ -2129,13 +2165,60 @@ local function SelfRecovery(s, inCombat, hostile, playerHP, moving)
 	return nil
 end
 
-local function Burst(s, targetHP)
+local function ConfirmedTargetRange(spell)
+	if type(AL.InRange) ~= "function" then return true end
+	local ok, value = pcall(AL.InRange, spell)
+	if not ok or not SafeValue(value) then return false end
+	return value ~= false and value ~= 0
+end
+
+local function Burst(s, role, mana, targetHP)
 	if not AL.burst or not TargetWorthAtLeast(targetHP,
 		SettingNumber(s, "burstMinTargetHP", 40, 0, 100)) then return nil end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Talent actives are learned-gated; no talent build is inferred from a
+	-- checkbox. Shadowfiend is saved for low mana and Inner Focus is prepared
+	-- only when a direct Leveling nuke can consume it on the following pass.
+	if s.shadowFiend and type(mana) == "number"
+		and mana <= SettingNumber(s, "shadowFiendMana", 70, 0, 100)
+		and ReadyUsable("Shadowfiend") and ConfirmedTargetRange("Shadowfiend") then
+		return "Shadowfiend", "Burst: learned mana support"
+	end
+	if s.shadowInnerFocus and ReadyUsable("Inner Focus")
+		and not AL.HasBuff("player", "Inner Focus") then
+		local nukeReady = s.mindBlast and ReadyKnown("Mind Blast")
+		if role == "SMITE" then
+			nukeReady = nukeReady or s.holyFire and ReadyKnown("Holy Fire")
+				or ReadyKnown("Smite")
+		end
+		if nukeReady then return "Inner Focus", "Burst: prepare learned direct spell" end
+	end
 	if ReadyUsable("Berserking") and not AL.HasBuff("player", "Berserking") then
 		return "Berserking", "burst"
 	end
 	return nil
+end
+
+local function LearnedExecute(s, targetHP, playerHP)
+	if not s.shadowWordDeath or not TargetAtOrBelow(targetHP, 20)
+		or not ReadyUsable("Shadow Word: Death")
+		or not ConfirmedTargetRange("Shadow Word: Death") then return nil end
+	-- Shadow Word: Death now deals 30% maximum-health backlash when it does
+	-- not kill. Never guess through protected player health.
+	if type(playerHP) ~= "number" then playerHP = PlayerHealthPercent() end
+	if type(playerHP) ~= "number"
+		or playerHP < SettingNumber(s, "shadowDeathMinHP", 70, 30, 100) then return nil end
+	return "Shadow Word: Death", "learned execute; health safety passed"
+end
+
+local function LearnedAoE(s, mana)
+	if not s.aoe or not s.shadowHolyNova or EngagedEnemies() < 2
+		or type(mana) ~= "number"
+		or not ManaAtLeast(mana, SettingNumber(s, "aoeMinMana", 40, 0, 100))
+		or not ReadyUsable("Holy Nova") then return nil end
+	local ok, melee = pcall(AL.TargetInMelee)
+	if not ok or not SafeValue(melee) or melee ~= true then return nil end
+	return "Holy Nova", "AoE: multiple confirmed melee enemies"
 end
 
 local function DamageOverTime(s, role, mana, targetHP)
@@ -2277,20 +2360,28 @@ local function OffensivePenance(s, mana, moving)
 	return PENANCE, "offensive penance"
 end
 
-local function Offense(s, role, mana, targetHP, moving)
+local function Offense(s, role, mana, targetHP, moving, executePlayerHP)
 	if s.silence and AL.TargetCasting() and ReadyUsable("Silence") then
 		return "Silence", "interrupt"
 	end
+
+	local aoe, aoeReason = LearnedAoE(s, mana)
+	if aoe then return aoe, aoeReason end
 
 	-- Maintained DoTs are the first normal offensive priority.
 	local dot, dotReason = DamageOverTime(s, role, mana, targetHP)
 	if dot then return dot, dotReason end
 
-	local burst, burstReason = Burst(s, targetHP)
-	if burst then return burst, burstReason end
-
+	-- Let an eligible offensive Penance resolve before Inner Focus so the
+	-- free-cast buff is not consumed by the channel instead of the next nuke.
 	local penanceSpell, penanceReason = OffensivePenance(s, mana, moving)
 	if penanceSpell then return penanceSpell, penanceReason end
+
+	local burst, burstReason = Burst(s, role, mana, targetHP)
+	if burst then return burst, burstReason end
+
+	local execute, executeReason = LearnedExecute(s, targetHP, executePlayerHP)
+	if execute then return execute, executeReason end
 
 	-- Preserve the newest rev's target-health wand finisher. This is independent
 	-- of the hard Smite/Mind Blast mana interlocks below.
@@ -2458,9 +2549,11 @@ for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_START", "UNIT_SP
 end
 levelingCast.frame:SetScript("OnEvent", levelingCast.Observe)
 
-local function ComputeNextSpell(s, inCombat, hostile, manaOverride, targetHPOverride)
+local function ComputeNextSpell(s, inCombat, hostile, manaOverride, targetHPOverride, playerHPOverride)
 	local role = Role(s)
-	local playerHP = PlayerHealthPercent()
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local playerHP = type(playerHPOverride) == "number"
+		and playerHPOverride or PlayerHealthPercent()
 	local mana = manaOverride
 	if mana == nil then mana = GateManaPercent() end
 	if type(mana) ~= "number" then
@@ -2487,7 +2580,7 @@ local function ComputeNextSpell(s, inCombat, hostile, manaOverride, targetHPOver
 	-- Maintain Power Word: Shield before EVERY other Priest action.
 	-- This runs before healing, fear, DoTs, burst, Mind Blast, Smite, Shoot/wand,
 	-- and all other class-rotation recommendations.
-	local combatShield, shieldReason = MaintainCombatShield(s, true)
+	local combatShield, shieldReason = MaintainCombatShield(s, true, playerHP)
 	if combatShield then return combatShield, shieldReason end
 
 	-- HIGHEST SELF-HEALING PRIORITY DIRECTLY AFTER SHIELD.
@@ -2503,7 +2596,7 @@ local function ComputeNextSpell(s, inCombat, hostile, manaOverride, targetHPOver
 	if not hostile then return nil, "No target" end
 	local wait = levelingCast.Wait()
 	if wait then return nil, wait end
-	return Offense(s, role, mana, targetHP, moving)
+	return Offense(s, role, mana, targetHP, moving, playerHP)
 end
 
 -- Keep the original Leveling priorities. Public slider intervals describe
@@ -2511,23 +2604,55 @@ end
 -- row without inspecting either protected resource in Lua.
 local manaVisualPlan, manaVisualFailure
 local function NativeResourcePlan(s, inCombat, hostile)
-	if not hostile then return nil end
 	if manaVisualFailure and GetTime() - manaVisualFailure < 1 then return nil end
 	local liveMana = ReadCurrentManaPercent()
 	if liveMana == nil then
 		local ok, value = pcall(AL.ManaPercent)
 		if ok then liveMana = ReadableNumber(value) end
 	end
-	local targetHP = ReadableNumber(AL.HealthPercent("target"))
-	local nativeMana = liveMana == nil and WandAvailable(s)
+	local targetHP = hostile and ReadableNumber(AL.HealthPercent("target")) or nil
+	local playerHP = ReadableNumber(PlayerHealthPercent())
+	local nativeMana = hostile and liveMana == nil and WandAvailable(s)
 		and AL.ResourceIntervalAlpha("power", "player", 0, 0, 2)
-	local nativeHealth = targetHP == nil and AL.ResourceIntervalAlpha("health", "target", nil, 0, 2)
-	if not nativeMana and not nativeHealth then return nil end
+	local nativeHealth = hostile and targetHP == nil
+		and AL.ResourceIntervalAlpha("health", "target", nil, 0, 2)
+
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Every public threshold which changes a pre-offense Leveling decision gets
+	-- its own boundary. The client selects a row with protected alpha; Lua only
+	-- evaluates representative public samples from the resulting intervals.
+	local playerHealthSettings = {}
+	local function PlayerHealthBoundary(percent, inclusive)
+		playerHealthSettings[#playerHealthSettings + 1] = { percent, inclusive }
+	end
+	if inCombat then
+		if s.shield then
+			PlayerHealthBoundary(SettingNumber(s, "shieldHP", 65, 5, 100), true)
+		end
+		if s.renew then PlayerHealthBoundary(80, false) end
+		if s.heal then
+			PlayerHealthBoundary(60, false)
+			PlayerHealthBoundary(20, true)
+		end
+		if hostile and s.fear then
+			PlayerHealthBoundary(SettingNumber(s, "fearHP", 50, 5, 95), true)
+		end
+		if s.fade or s.touchOfWeakness then PlayerHealthBoundary(50, false) end
+	else
+		if s.renew or s.heal then PlayerHealthBoundary(80, false) end
+	end
+	if inCombat and hostile and s.shadowWordDeath then
+		PlayerHealthBoundary(SettingNumber(s, "shadowDeathMinHP", 70, 30, 100), false)
+	end
+	local nativePlayerHealth = playerHP == nil and #playerHealthSettings > 0
+		and AL.ResourceIntervalAlpha("health", "player", nil, 0, 2)
+	if not nativeMana and not nativeHealth and not nativePlayerHealth then return nil end
 
 	local axes = {}
-	local function Axis(kind, unit, powerType, settings)
+	local function Axis(kind, unit, powerType, settings, sampleKey)
 		local axis = { key = kind .. ":" .. unit .. ":" .. tostring(powerType or ""),
-			kind = kind, unit = unit, powerType = powerType, cuts = { 0, 2 }, boundaries = {} }
+			kind = kind, unit = unit, powerType = powerType, sampleKey = sampleKey or kind,
+			cuts = { 0, 2 }, boundaries = {} }
 		local seen = { [0] = true, [2] = true }
 		for _, setting in ipairs(settings) do
 			local cut = AL.ResourceThresholdCut(setting[1], setting[2])
@@ -2540,6 +2665,8 @@ local function NativeResourcePlan(s, inCombat, hostile)
 		{ WandManaThreshold(s), true }, { MindBlastManaThreshold(s), true },
 		{ SettingNumber(s, "plagueMinMana", 40, 0, 100), false },
 		{ SettingNumber(s, "offensivePenanceMana", 80, 0, 100), false },
+		{ SettingNumber(s, "aoeMinMana", 40, 0, 100), false },
+		{ SettingNumber(s, "shadowFiendMana", 70, 0, 100), true },
 	}) end
 	if nativeHealth then Axis("health", "target", nil, {
 		{ SettingNumber(s, "dotMinTargetHP", 35, 0, 100), false },
@@ -2547,11 +2674,21 @@ local function NativeResourcePlan(s, inCombat, hostile)
 		{ SettingNumber(s, "vampiricMinTargetHP", 60, 0, 100), false },
 		{ SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false },
 		{ SettingNumber(s, "wandTargetHP", 20, 0, 80), true },
-	}) end
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- Shadow Word: Death always uses its own inclusive 20% execute boundary.
+		{ 20, true },
+	}, "targetHealth") end
+	if nativePlayerHealth then
+		Axis("health", "player", nil, playerHealthSettings, "playerHealth")
+	end
+	local protectedSources = {}
+	if nativeMana then protectedSources[#protectedSources + 1] = "mana" end
+	if nativeHealth then protectedSources[#protectedSources + 1] = "target health" end
+	if nativePlayerHealth then protectedSources[#protectedSources + 1] = "player health" end
 	local plan = { at = GetTime(), rows = {}, masks = {}, spells = {},
 		manaProtected = nativeMana == true, targetHealthProtected = nativeHealth == true,
-		source = nativeMana and (nativeHealth and "native mana and target-health thresholds" or "native mana thresholds")
-			or "native target-health thresholds" }
+		playerHealthProtected = nativePlayerHealth == true,
+		source = "native " .. table.concat(protectedSources, ", ") .. " thresholds" }
 	local samples, masks = {}, {}
 	local function Rows(index)
 		if index <= #axes then
@@ -2562,7 +2699,7 @@ local function NativeResourcePlan(s, inCombat, hostile)
 				-- Coincident minimum/inclusive-maximum sliders have an exact
 				-- boundary cell one float wide; evaluate that cell at the slider.
 				if axis.boundaries[low] and high == AL.ResourceThresholdCut(axis.boundaries[low], true) then sample = axis.boundaries[low] end
-				samples[axis.kind] = sample
+				samples[axis.sampleKey] = sample
 				masks[index] = { kind = axis.kind, unit = axis.unit, powerType = axis.powerType, low = low, high = high,
 					key = axis.key .. ":" .. tostring(low) .. ":" .. tostring(high) }
 				Rows(index + 1)
@@ -2570,13 +2707,20 @@ local function NativeResourcePlan(s, inCombat, hostile)
 			return
 		end
 		local mana = samples.power or GateManaPercent()
-		local spell, reason = ComputeNextSpell(s, inCombat, hostile, mana, samples.health)
+		local spell, reason = ComputeNextSpell(s, inCombat, hostile, mana,
+			samples.targetHealth, samples.playerHealth)
 		spell, reason = FinalManaGuard(s, spell, reason, mana)
 		if spell == "Shoot" and type(reason) == "string" and reason:find("^Shoot instead of Smite") then
 			reason = "Conserve mana at " .. tostring(WandManaThreshold(s)) .. "%"
 		end
 		if AL.WandSuggestion then spell, reason = AL.WandSuggestion(spell, reason) end
-		local row = { spell = spell, reason = reason, masks = {} }
+		local row = {
+			spell = spell, reason = reason, masks = {},
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			-- A protected self-heal plan can exist without a hostile target. Preserve
+			-- the normal idle artwork for its non-healing Ready/No target bands.
+			idle = not spell and (reason == "Ready" or reason == "No target"),
+		}
 		for i, mask in ipairs(masks) do row.masks[i] = mask end
 		plan.rows[#plan.rows + 1] = row
 	end
@@ -2610,18 +2754,10 @@ local function NativeResourcePlan(s, inCombat, hostile)
 		plan.rows = combined
 	end
 
-	-- Preserve the existing protected-health healing overlay in the same plan.
-	-- A healing row masks the damage row on both A slots (A[3] and A[6]).
-	local heal, threshold, why = M.SecretHealVisualState()
-	if heal and threshold and AL.ResourceIntervalAlpha("health", "player", nil, 0, 2) then
-		local cut = AL.ResourceThresholdCut(threshold, false)
-		local spell, reason = heal, why
-		if AL.WandSuggestion then spell, reason = AL.WandSuggestion(spell, reason) end
-		local below = { kind = "health", unit = "player", low = 0, high = cut }
-		local above = { kind = "health", unit = "player", low = cut, high = 2 }
-		for _, row in ipairs(plan.rows) do row.masks[#row.masks + 1] = above end
-		table.insert(plan.rows, 1, { spell = spell, reason = reason, masks = { below } })
-	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Player health is already a first-class axis above. The old scalar healing
+	-- overlay could express only one spell and caused Shield to hide Renew and
+	-- Lesser Heal in higher health bands, so it must not be added to this plan.
 	for _, row in ipairs(plan.rows) do
 		for _, mask in ipairs(row.masks) do
 			mask.key = mask.kind .. ":" .. mask.unit .. ":" .. tostring(mask.powerType or "") .. ":" .. tostring(mask.low) .. ":" .. tostring(mask.high)
@@ -2635,8 +2771,7 @@ local function NativeResourcePlan(s, inCombat, hostile)
 	-- candidates. Keep the scalar suggestion empty when the client owns it.
 	if #plan.rows > 1 then
 		plan.baseSpell = nil
-		plan.baseReason = nativeMana and (nativeHealth and "Native resource thresholds" or "Native mana thresholds")
-			or "Native target-health thresholds"
+		plan.baseReason = "Native " .. table.concat(protectedSources, ", ") .. " thresholds"
 	end
 	return plan
 end
@@ -2866,6 +3001,13 @@ function M.SecretHealVisualState()
 
 	local renewActive = RenewActive()
 
+	-- Combat shielding respects its visible slider even when player health is
+	-- protected. This row is evaluated by Blizzard's native health curve.
+	if inCombat and s.shield and ShieldReady() then
+		return "Power Word: Shield", SettingNumber(s, "shieldHP", 65, 5, 100),
+			"shield health slider", true, renewActive
+	end
+
 	-- Highest healing priority:
 	-- Renew below 80% whenever Renew is absent.
 	if s.renew
@@ -2876,7 +3018,8 @@ function M.SecretHealVisualState()
 	end
 
 	-- Once Renew is active, Lesser Heal becomes the direct-heal layer.
-	if s.heal and HealingKnown("Lesser Heal") then
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if s.heal and not PlayerMoving() and HealingKnown("Lesser Heal") then
 		if inCombat then
 			return "Lesser Heal", 60, "combat direct-heal threshold 60", true, renewActive
 		end
@@ -3095,7 +3238,7 @@ local M = {
         leveling = true,
 		priestRole = "SHADOW",
 		shadow = false,
-		healingDiscipline = false,
+		healingDiscipline = true,
 		healingHoly = false,
 		shadowForm = true,
 		shadowMindFlay = true,
@@ -3154,37 +3297,23 @@ local shadow = { cooldowns={}, dots={}, buffs={}, pending={}, completed={}, tale
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
-M.buildKeys = { "leveling", "shadow" }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- v1.1.5 exposes only the proven Leveling damage rotation. The standalone
+-- level-60 Shadow engine remains inert reference code so its healing-provider
+-- integration can be removed safely in a later cleanup.
+M.buildKeys = { "leveling" }
 function M.NormalizeBuild(s)
     if type(s) ~= "table" then return end
-    local selected, count = nil, 0
-    for _, key in ipairs(M.buildKeys) do
-        if key ~= "leveling" then
-            local value = s[key]
-            local checked = not (issecretvalue and issecretvalue(value)) and value == true
-            s[key] = checked
-            if checked then selected, count = key, count + 1 end
-        end
-    end
-    if count ~= 1 then
-        for _, key in ipairs(M.buildKeys) do s[key] = false end
-        selected = "leveling"
-    end
-    s.leveling = selected == "leveling"
-    return selected
+    s.shadow = false
+    s.leveling = true
+    return "leveling"
 end
 function M.SetBuild(key, enabled, s)
     if (issecretvalue and issecretvalue(enabled)) or type(enabled) ~= "boolean" then return end
-    local valid = false
-    for _, candidate in ipairs(M.buildKeys) do if candidate == key then valid = true; break end end
-    if not valid then return end
+    if key ~= "leveling" then return end
     s = s or AL.Profile("PRIEST")
     if type(s) ~= "table" then return end
-    if enabled then
-        for _, candidate in ipairs(M.buildKeys) do s[candidate] = candidate == key end
-    else
-        s[key] = false
-    end
+    s.leveling = true
     local selected = M.NormalizeBuild(s)
     if AL.UI and type(AL.UI.Repaint) == "function" then AL.UI.Repaint() end
     return selected
@@ -3256,9 +3385,7 @@ end
 local MINLEVEL = {
 	["Lesser Heal"] = 1,
 	["Power Word: Fortitude"] = 1,
-	["Divine Spirit"] = 30,
 	["Divine Grace"] = 10,
-	["Penance"] = 30,
 	["Smite"] = 1,
 	["Shadow Word: Pain"] = 4,
 	["Power Word: Shield"] = 6,
@@ -3606,15 +3733,16 @@ local function SpellManaCost(spellName)
 
 		if C_Spell and type(C_Spell.GetSpellPowerCost) == "function" then
 			local ok, result = pcall(C_Spell.GetSpellPowerCost, identifier)
-			if ok and type(result) == "table" then costs = result end
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			if ok and SafeValue(result) and type(result) == "table" then costs = result end
 		elseif type(GetSpellPowerCost) == "function" then
 			local ok, result = pcall(GetSpellPowerCost, identifier)
-			if ok and type(result) == "table" then costs = result end
+			if ok and SafeValue(result) and type(result) == "table" then costs = result end
 		end
 
-		if costs then
+		if SafeValue(costs) and type(costs) == "table" then
 			for _, info in ipairs(costs) do
-				if type(info) == "table" then
+				if SafeValue(info) and type(info) == "table" then
 					local powerType = ReadableNumber(info.type)
 					local token = SafeValue(info.name) and info.name or nil
 
@@ -4543,22 +4671,19 @@ local HEALING_SPELL_IDS = {
 }
 
 local function HealingKnown(name)
-	-- First trust ActionLITE's spellbook scan.
-	if AL.known and AL.known[name] then
-		return true
-	end
-
-	-- Secondary direct spell-known check when the client provides one.
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Keep the inert reference implementation aligned with Leveling's gates.
+	local known = AL.known and AL.known[name] == true
 	local spellID = HEALING_SPELL_IDS[name]
-	if spellID and type(IsSpellKnown) == "function" then
-		local ok, known = pcall(IsSpellKnown, spellID)
-		if ok and SafeValue(known) and known then
-			return true
-		end
+	if not known and spellID and type(IsSpellKnown) == "function" then
+		local ok, learned = pcall(IsSpellKnown, spellID)
+		if ok and SafeValue(learned) and learned == true then known = true end
 	end
-
-	-- Final fallback to the normal Priest gate.
-	return Ok(name) and true or false
+	if not known then known = Ok(name) and true or false end
+	if not known or AL.Allowed and not AL.Allowed(name) then return false end
+	if AL.IsReady and not AL.IsReady(name) then return false end
+	local usable, shortage = AL.SpellUsable(name)
+	return usable ~= false and shortage ~= true
 end
 
 local function PlayerMoving()
@@ -4659,7 +4784,8 @@ local function LevelingShieldGroupAllowed()
 end
 
 local function TargetWithin10Yards()
-	if not UnitExists("target") then return false end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if not AL.SafeBoolean or AL.SafeBoolean(UnitExists, "target") ~= true then return false end
 
 	if type(UnitDistanceSquared) == "function" then
 		local ok, distanceSquared = pcall(UnitDistanceSquared, "target")
@@ -5000,14 +5126,20 @@ local function ShieldReady()
 end
 
 local function MaintainCombatShield(s, inCombat)
-	if not s.shield or not inCombat then return nil end
-	if not ShieldReady() then return nil end
-	return "Power Word: Shield", "maintain shield"
+	if not s.shield or not inCombat or not ShieldReady() then return nil end
+	local health = PlayerHealthPercent()
+	-- A readable value is decided here. When Forever protects player health,
+	-- SecretHealVisualState supplies the same threshold through a native curve.
+	if type(health) ~= "number" then return nil end
+	local threshold = SettingNumber(s, "shieldHP", 65, 5, 100)
+	if health > threshold then return nil end
+	return "Power Word: Shield", "health at/below shield slider"
 end
 
 local function DirectHeal()
-	if HealingKnown("Heal") then return "Heal" end
-	if HealingKnown("Lesser Heal") then return "Lesser Heal" end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if not PlayerMoving() and HealingKnown("Heal") then return "Heal" end
+	if not PlayerMoving() and HealingKnown("Lesser Heal") then return "Lesser Heal" end
 end
 
 -- Original Priest filler selectors.
@@ -5169,6 +5301,7 @@ PrioritySelfHealing = function(s, inCombat, playerHP)
 	if inCombat then
 		if playerHP < 60
 			and s.heal
+			and not PlayerMoving()
 			and HealingKnown("Lesser Heal")
 		then
 			return "Lesser Heal",
@@ -5179,6 +5312,7 @@ PrioritySelfHealing = function(s, inCombat, playerHP)
 		if playerHP < 80
 			and renewActive
 			and s.heal
+			and not PlayerMoving()
 			and HealingKnown("Lesser Heal")
 		then
 			return "Lesser Heal",
@@ -6191,6 +6325,13 @@ function M.SecretHealVisualState()
 
 	local renewActive = RenewActive()
 
+	-- Combat shielding respects its visible slider even when player health is
+	-- protected. This row is evaluated by Blizzard's native health curve.
+	if inCombat and s.shield and ShieldReady() then
+		return "Power Word: Shield", SettingNumber(s, "shieldHP", 65, 5, 100),
+			"shield health slider", true, renewActive
+	end
+
 	-- Highest healing priority:
 	-- Renew below 80% whenever Renew is absent.
 	if s.renew
@@ -6201,7 +6342,8 @@ function M.SecretHealVisualState()
 	end
 
 	-- Once Renew is active, Lesser Heal becomes the direct-heal layer.
-	if s.heal and HealingKnown("Lesser Heal") then
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if s.heal and not PlayerMoving() and HealingKnown("Lesser Heal") then
 		if inCombat then
 			return "Lesser Heal", 60, "combat direct-heal threshold 60", true, renewActive
 		end
@@ -6422,7 +6564,7 @@ shadow.ReadVisualAlpha = function(mask)
     if mask.kind == "power" then color = UnitPowerPercent(mask.unit, mask.powerType, false, curve)
     else color = UnitHealthPercent(mask.unit, false, curve) end
     local _, _, _, alpha = color:GetRGBA()
-    if SafeValue(alpha) and shadow.Number(alpha) == nil then error("Shaman resource curve returned no display alpha") end
+    if SafeValue(alpha) and shadow.Number(alpha) == nil then error("Priest resource curve returned no display alpha") end
     return alpha
 end
 
@@ -6517,7 +6659,7 @@ function M.EvaluateVisualMasks(plan)
 				shadow.curveFailures[mask.kind .. ":" .. mask.unit .. ":" .. tostring(mask.powerType or "")] = {
 					reader = mask.kind == "power" and UnitPowerPercent or UnitHealthPercent,
 					factory = C_CurveUtil and C_CurveUtil.CreateColorCurve }
-				error("Shaman resource curve unavailable")
+				error("Priest resource curve unavailable")
 			end
 			values[key] = value
 		end
@@ -6535,7 +6677,7 @@ function M.ApplyVisualRow(nodes, row, values)
                 shadow.curveFailures[mask.kind .. ":" .. mask.unit .. ":" .. tostring(mask.powerType or "")] = {
                     reader = mask.kind == "power" and UnitPowerPercent or UnitHealthPercent,
                     factory = C_CurveUtil and C_CurveUtil.CreateColorCurve }
-                error("Shaman resource alpha unavailable")
+                error("Priest resource alpha unavailable")
             end
         else node:SetAlpha(1) end
 	end
@@ -6816,7 +6958,7 @@ AL.RegisterRotation("PRIEST", M)
     local priestHealing = {
         effects = {}, cooldowns = {}, innerFocusUntil = 0,
 		penanceChannelUntil = 0, rapidChannelUntil = 0,
-		lastHeal = nil, lastRacial = nil,
+		lastHeal = nil, lastRacial = nil, pendingUnit = nil,
     }
 
     local function HPNow()
@@ -6839,22 +6981,14 @@ AL.RegisterRotation("PRIEST", M)
         return HPBool(UnitExists, unit) == true
     end
     local function HPRosterUnits()
-        local units, raid = {}, false
-        for index = 1, 40 do
-            if HPExists("raid" .. index) then raid = true; break end
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- Healing Rotation is dungeon-only; party tokens never include player.
+        local units = {}
+        for index = 1, 4 do
+            local unit = "party" .. index
+            if HPExists(unit) then units[#units + 1] = unit end
         end
-        if raid then
-            for index = 1, 40 do
-                local unit = "raid" .. index
-                if HPExists(unit) then units[#units + 1] = unit end
-            end
-        else
-            for index = 1, 4 do
-                local unit = "party" .. index
-                if HPExists(unit) then units[#units + 1] = unit end
-            end
-            units[#units + 1] = "player"
-        end
+        units[#units + 1] = "player"
         return units
     end
     local function HPGroupUnitFor(source)
@@ -6866,8 +7000,21 @@ AL.RegisterRotation("PRIEST", M)
             if HPBool(UnitIsUnit, source, unit) == true then return unit end
         end
     end
-    local function HPHealingUnit()
-        return HPGroupUnitFor("target") or HPGroupUnitFor("focus")
+    local function HPGroupUnitNamed(targetName)
+        if HPSecret(targetName) or type(targetName) ~= "string" or targetName == ""
+            or type(UnitName) ~= "function" then return nil end
+        for _, unit in ipairs(HPRosterUnits()) do
+            local ok, name, realm = pcall(UnitName, unit)
+            if ok and not HPSecret(name) and type(name) == "string" then
+                local full = not HPSecret(realm) and type(realm) == "string"
+                    and realm ~= "" and (name .. "-" .. realm) or name
+                if targetName == name or targetName == full then return unit end
+            end
+        end
+    end
+    local function HPCurrentHealingUnit()
+        return HPGroupUnitFor("mouseover") or HPGroupUnitFor("target")
+            or HPGroupUnitFor("focus") or "player"
     end
     local function HPUnitKey(unit)
         if type(unit) ~= "string" then return nil end
@@ -6878,6 +7025,19 @@ AL.RegisterRotation("PRIEST", M)
             end
         end
         return unit
+    end
+    local function HPUnitForKey(key)
+        if type(key) ~= "string" then return nil end
+        for _, unit in ipairs(HPRosterUnits()) do
+            if HPUnitKey(unit) == key then return unit end
+        end
+    end
+    local function HPHealingUnit()
+        local pending = priestHealing.pendingUnit
+        if pending and HPNow() - pending.at <= 5 then
+            return HPUnitForKey(pending.key) or pending.unit
+        end
+        return HPCurrentHealingUnit()
     end
     local function HPEffectActive(unit, spell)
         local key = HPUnitKey(unit)
@@ -6907,6 +7067,10 @@ AL.RegisterRotation("PRIEST", M)
     end
     local function HPAvailable(spell, profile, ignoreUsable)
         if type(spell) ~= "string" or spell == "" or not HPKnown(spell) then return false end
+        if type(root.IsSpellBlacklisted) == "function" then
+            local ok, blocked = pcall(root.IsSpellBlacklisted, spell)
+            if ok and not HPSecret(blocked) and blocked == true then return false end
+        end
         if root.Allowed then
             local ok, allowed = pcall(root.Allowed, spell, profile)
             if not ok or HPSecret(allowed) or allowed == false then return false end
@@ -6938,6 +7102,10 @@ AL.RegisterRotation("PRIEST", M)
         end
         if discipline then return "DISCIPLINE" end
         if holy then return "HOLY" end
+        -- Healing Rotation always has one provider. Saved profiles from before
+        -- this migration default to Discipline when neither box was selected.
+        profile.healingDiscipline, profile.healingHoly = true, false
+        return "DISCIPLINE"
     end
     local function HPCasterDPS(unit, role)
         if role ~= "DAMAGER" or type(UnitClass) ~= "function" then return false end
@@ -6960,7 +7128,7 @@ AL.RegisterRotation("PRIEST", M)
         -- passive self-heal whenever it heals another friendly target.
         if spec == "DISCIPLINE" then
             return HPPreferred(profile, {
-                "Penance", "Greater Heal", "Flash Heal", "Heal", "Lesser Heal",
+                "Greater Heal", "Penance", "Flash Heal", "Heal", "Lesser Heal",
             })
         end
         return HPPreferred(profile, {
@@ -6968,10 +7136,7 @@ AL.RegisterRotation("PRIEST", M)
         })
     end
     local function HPFillerSpell(profile)
-        if HPKnown("Flash Heal") then
-            return HPAvailable("Flash Heal", profile) and "Flash Heal" or nil
-        end
-        return HPPreferred(profile, { "Heal", "Lesser Heal" })
+        return HPPreferred(profile, { "Flash Heal", "Heal", "Lesser Heal" })
     end
 	local function HPAppendEmergencyRacials(critical, profile, context)
 		-- Learned racials are race-specific, so the spellbook is the race gate.
@@ -7037,13 +7202,15 @@ AL.RegisterRotation("PRIEST", M)
         local profile = root.S and root.S() or {}
         if profile.healingEngine ~= true then return end
         local now, unit = HPNow(), HPHealingUnit()
+        priestHealing.pendingUnit = nil
         if spell == "Power Word: Shield" then
             -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
             -- Track only our confirmed cast. External shields do not populate
             -- this timer, allowing the client to accept our equal/higher rank.
-            -- Track the full shield duration. This also covers the shorter
-            -- Weakened Soul reapplication lock when auras are protected.
-            HPSetEffect(unit, spell, 30)
+            -- The protected fallback represents Weakened Soul/reapplication,
+            -- not the full absorb lifetime. A consumed shield may be replaced
+            -- after the 15-second lock.
+            HPSetEffect(unit, spell, 15)
         elseif spell == "Renew" then
             HPSetEffect(unit, spell, 15)
         elseif spell == "Power Infusion" then
@@ -7100,10 +7267,9 @@ AL.RegisterRotation("PRIEST", M)
     end
 
     function advanced.HealingEngineDamagePlan()
-        -- Every Priest healing spec uses Shoot when a wand is available. The
-        -- shared engine owns that recommendation and its shot timer; suppress
-        -- the non-wand Shadow Word: Pain fallback for this healer ruleset.
-        return false
+        -- The shared engine owns Shoot when an enabled wand is available. Nil
+        -- preserves its timed Shadow Word: Pain fallback for non-wand Priests.
+        return nil
     end
 
     function advanced.HealingEnginePlan(profile, context)
@@ -7311,15 +7477,41 @@ AL.RegisterRotation("PRIEST", M)
         }
     end
 
+    local function HPPruneHealingRoster()
+        local keep = {}
+        for _, unit in ipairs(HPRosterUnits()) do
+            keep[unit] = true
+            local key = HPUnitKey(unit)
+            if key then keep[key] = true end
+        end
+        keep.player = true
+        for key in pairs(priestHealing.effects) do
+            if not keep[key] then priestHealing.effects[key] = nil end
+        end
+    end
     local priestHealingEvents = CreateFrame("Frame")
-    for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE" }) do
+    for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "UNIT_SPELLCAST_SENT" }) do
         pcall(priestHealingEvents.RegisterEvent, priestHealingEvents, event)
     end
-    priestHealingEvents:SetScript("OnEvent", function()
+    priestHealingEvents:SetScript("OnEvent", function(_, event, unit, targetName)
+        if event == "UNIT_SPELLCAST_SENT" then
+            if not HPSecret(unit) and unit == "player" then
+                local recipient = HPGroupUnitNamed(targetName) or HPCurrentHealingUnit()
+                priestHealing.pendingUnit = {
+                    unit = recipient, key = HPUnitKey(recipient), at = HPNow(),
+                }
+            end
+            return
+        end
+        if event == "GROUP_ROSTER_UPDATE" then
+            HPPruneHealingRoster()
+            return
+        end
         priestHealing.effects = {}
         priestHealing.innerFocusUntil = 0
         priestHealing.penanceChannelUntil = 0
 		priestHealing.rapidChannelUntil = 0
+        priestHealing.pendingUnit = nil
     end)
 
     root.RegisterRotation("PRIEST", advanced)

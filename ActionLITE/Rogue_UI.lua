@@ -31,9 +31,7 @@ local function BuildRogueUI(page, ui)
 			half = not full,
 			tooltip = help and { Text(label), Text(help) } or nil,
 			onChange = function()
-				if key == "combat" or key == "subtlety" or key == "assassination" or key == "leveling" then
-					rotation.SetBuild(key, ui.Profile()[key] == true, ui.Profile())
-				end
+				if key == "leveling" then rotation.SetBuild(key, true, ui.Profile()) end
 				ui.Repaint()
 			end,
 		})
@@ -68,7 +66,7 @@ local function BuildRogueUI(page, ui)
 
 	local steel = { 0.72, 0.62, 0.50, 1 }
 	local levelingCard = ui.Card(stack, "LEVELING ROTATION", "Original class rotation", { id="levelingCard", build="leveling", group="damage" })
-	Check(levelingCard, "leveling", "Leveling Rotation", "Sinister Strike", "Uses the finalized class rotation from before the level-60 sim builds, with its original priorities and existing settings. Select a DPS or Tank build to switch rotations. Turning the active build off automatically selects Leveling Rotation. One rotation always stays selected.", true)
+	Check(levelingCard, "leveling", "Leveling Rotation", "Sinister Strike", "Uses the finalized leveling rotation with every learned baseline and talent ability that is supported by the class settings. This is the only damage rotation in this release.", true)
 
 	local head = ui.Card(stack,
 		Text({ en = "ROGUE - DPS LEVELING", fr = "VOLEUR - PROGRESSION DPS", pt = "LADINO - PROGRESSÃO DPS", es = "PÍCARO - PROGRESIÓN DPS", de = "SCHURKE - DPS-LEVELN", zh = "潜行者 - 输出升级" }),
@@ -90,73 +88,6 @@ local function BuildRogueUI(page, ui)
 		zh = "Forever 可能会保护能量和连击点。ActionLITE 优先使用可读数值，然后根据施法和战斗日志推断，不会把未知值当作零。",
 	}), { justify = "CENTER" })
 
-	local combat = ui.Card(stack, "COMBAT - 17/32/2", "Level 60 reference build; uses learned spells while leveling.", { id="combat", build="combat", group="damage" })
-	Check(combat, "combat", "Use Combat (17/32/2)", "Sinister Strike",
-		"Enable this build's priorities. Turning it off automatically checks Leveling Rotation. This selects a rotation; it does not change your talents or equipment.")
-	ui.Help(combat, "Combat uses Sinister Strike, applies Slice and Dice at 1+ points only when its player buff is missing, then spends five points on Eviscerate at any target health. On normal targets at or below 50% health, it can finish with 1+ points. At zero points it builds first; rare/elite targets still require five.")
-	ui.Help(combat, "The reference has a dagger, but the client does not provide a reliable rear-position check. Backstab remains a Stealth opener and combat prefers Sinister Strike, so facing the target cannot trap the rotation.")
-	local combatBurst=ui.Card(stack,"COMBAT BURST",nil,{id="combat-burst",build="combat",group="burst"})
-	Check(combatBurst, "combatAdrenalineRush", "Use Adrenaline Rush during Burst", "Adrenaline Rush",
-		"Requires Use Combat, Burst On, a learned ready spell, a target in melee range, and energy at or below the slider. The Burst minimum target-health slider also applies.")
-	Slider(combatBurst, "combatAdrenalineEnergy", "Adrenaline Rush maximum energy", 0, 100, 60, " energy",
-		"Use Adrenaline Rush at or below this energy amount. Spend energy first above it. This is an energy amount, not a percentage.")
-	Check(combatBurst, "combatRacials", "Use offensive racials during Burst", "Berserking",
-		"Blood Fury or Berserking, if learned, enabled in Spells, ready, and Burst On. Uses the Burst minimum target-health slider. Does not activate items or consumables.")
-	ui.Help(combat, "Blade Flurry uses the existing AoE checkbox, spell checkbox and enemy-count slider. It requires AoE On and enough confirmed enemies in melee range; it does not require Burst or its target-health threshold.")
-
-	local subtlety = ui.Card(stack, "SUBTLETY - 12/8/31", "Learned talent builders, own Rupture and Stealth options.", { id="subtlety", build="subtlety", group="damage" })
-	Check(subtlety, "subtlety", "Use Subtlety (12/8/31)", "Hemorrhage",
-		"Select Subtlety and turn off the other Rogue builds. Other saved settings and icon choices are preserved. Turning all build checkboxes off restores the existing leveling priorities.")
-	Check(subtlety, "subtletyHemorrhage", "Use Hemorrhage", "Hemorrhage",
-		"Preferred learned combat builder. Uses its current energy cost, including readable discounts. Falls back to learned Sinister Strike when disabled, unlearned or unusable.")
-	Slider(subtlety, "subtletyHemorrhageEnergy", "Hemorrhage minimum energy", 0, 100, 0, " energy",
-		"Additional energy minimum. Zero uses the spell's actual cost, including the current Efficient Strikes discount when readable.")
-	Check(subtlety, "subtletyGhostlyStrike", "Use Ghostly Strike", "Ghostly Strike",
-		"Uses the learned builder cooldown while your own Hemorrhage effect is active. After a successful cast, its seven-second window immediately uses enabled Ambush or an absent Garrote without requiring Stealth. A positional failure falls through to normal builders.")
-	Check(subtlety, "subtletyRupture", "Maintain own Rupture", "Rupture",
-		"Use at the selected combo-point minimum and target-health threshold, only while your own bleed is absent. Normal-target low-health Eviscerate has priority.")
-	ComboSlider(subtlety, "subtletyRuptureCP", "Subtlety Rupture combo points", 3)
-	Slider(subtlety, "subtletyRuptureHP", "Rupture minimum target health", 0, 100, 50, " % HP",
-		"At or above this target health. Helps avoid a new bleed on a nearly defeated target. This is separate from Burst's target-health slider.")
-	ComboSlider(subtlety, "subtletyEviscerateCP", "Subtlety Eviscerate combo points", 4,
-		"Normal targets use this minimum above 50% health. At or below 50%, the existing 1+ point execute fallback applies. Rare/elite/unknown targets still require five points.")
-	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	Check(subtlety, "subtletyDeathMark", "Use Death Mark", "Death Mark",
-		"Uses the learned ten-second-cooldown finisher at five combo points. A tracked Rupture is established first when enabled so its damage stores at twice the rate. Death Mark is skipped for targets below its health slider or known to have six seconds or less remaining.")
-	Slider(subtlety, "subtletyDeathMarkHP", "Death Mark minimum target health", 0, 100, 50, " % HP",
-		"Use Death Mark at or above this target health so its delayed six-second damage has time to complete.")
-	Check(subtlety, "subtletyAmbush", "Use Ambush from Stealth", "Ambush",
-		"Requires a learned spell, a confirmed dagger and melee range. Ambush still needs rear position. A reported positional failure switches to a non-positional builder. The reference's Ironfoe main hand uses Hemorrhage.")
-	local subtletyBurst=ui.Card(stack,"SUBTLETY BURST",nil,{id="subtlety-burst",build="subtlety",group="burst"})
-	Check(subtletyBurst, "subtletyPremeditation", "Use Premeditation during Burst", "Premeditation",
-		"Requires Burst On, Stealth, melee range and at most three combo points. Adds two points without assuming that a missing native point read means zero.")
-	Check(subtletyBurst, "subtletyVanish", "Use offensive Vanish during Burst", "Vanish",
-		"OFF by default. Can drop combat; enable only when you want an offensive Stealth reset. Requires Burst On, active Slice and Dice, 0-1 points, at least 60 energy, and an available learned Stealth follow-up. A dagger Ambush requires rear position; Vanish keeps its normal reagent requirement.")
-	Check(subtletyBurst, "subtletyPreparation", "Use Preparation during Burst", "Preparation",
-		"Requires offensive Vanish enabled, Burst On and a used Vanish cooldown in an eligible Stealth setup. Resets Rogue ability cooldowns. Does not reset racial cooldowns.")
-	Check(subtletyBurst, "subtletyRacials", "Use Subtlety offensive racials", "Berserking",
-		"Learned Blood Fury or Berserking only during Burst. The existing Burst minimum target-health slider and individual Spells permissions apply.")
-	ui.Help(subtlety, "Subtlety applies a missing Slice and Dice at 1+ points, keeps its active player buff, and uses its own Rupture timer. Normal enemies use four-point Eviscerates by default; rare/elite enemies retain five-point Eviscerates. At zero points, use a learned builder.")
-	ui.Help(subtlety, "The 12/8/31 reference has no area attack. AoE On keeps its single-target rotation. Blade Flurry is used only if actually learned in another talent arrangement, with AoE On and the existing enemy-count threshold. No consumables or item cooldowns are added.")
-
-	local assassination = ui.Card(stack, "ASSASSINATION - 38/11/2", "Two-dagger Mutilate build; no consumables.", { id="assassination", build="assassination", group="damage" })
-	Check(assassination, "assassination", "Use Assassination (38/11/2)", "Mutilate",
-		"Select Assassination and turn off Combat/Subtlety. Saved settings, talents, equipment and icon assignments are preserved. Turn all build checkboxes off for the existing leveling rotation.")
-	Check(assassination, "assassinationMutilate", "Use Mutilate", "Mutilate",
-		"Preferred learned builder with a confirmed dagger in both hands. Awards two base combo points. Uses the learned rank and current energy cost; falls back to Sinister Strike if disabled, unlearned, unavailable or the weapons do not qualify. Mutilate does not require rear position or poison.")
-	Slider(assassination, "assassinationMutilateEnergy", "Mutilate minimum energy", 0, 100, 0, " energy",
-		"Additional energy minimum. Zero uses the actual learned spell cost, normally 60. A resource shortage waits for Mutilate instead of repeatedly spending its energy on Sinister Strike.")
-	ComboSlider(assassination, "assassinationEviscerateCP", "Assassination Eviscerate combo points", 4,
-		"Normal targets use this minimum above 50% health. At or below 50%, the existing 1+ point execute fallback applies. Rare/elite/unknown targets still require five. At zero points, build first.")
-	local assassinationBurst=ui.Card(stack,"ASSASSINATION BURST",nil,{id="assassination-burst",build="assassination",group="burst"})
-	Check(assassinationBurst, "assassinationColdBlood", "Use Cold Blood during Burst", "Cold Blood",
-		"Requires Assassination, Burst On, a learned ready spell, melee range and the Burst minimum target-health threshold. Establishes an enabled Slice and Dice first. Uses the live cooldown, or a three-minute timer after a successful cast when protected.")
-	Check(assassinationBurst, "assassinationRacials", "Use Assassination offensive racials", "Berserking",
-		"Blood Fury or Berserking, if learned and ready, only during Burst On. The Burst target-health slider and individual Spells checkboxes apply.")
-	ui.Help(assassination, "Applies a missing Slice and Dice at 1+ combo points, including after Mutilate, and preserves its active player buff. Uses four-point Eviscerates on normal enemies by default; rare/elite enemies retain five. Readable combo points take priority; successful casts provide a fallback when points are hidden.")
-	ui.Help(assassination, "Venom is now a passive effect triggered by Shank, so it is no longer listed as a castable spell. Learned Shank is used on cooldown after required finishers to generate Energy and activate Venom. Poison application remains manual. Mutilate and Cold Blood retain their spell entries.")
-	ui.Help(assassination, "The 38/11/2 build has no area attack. AoE On retains its single-target priorities. A different talent arrangement can use learned Blade Flurry only with AoE On and enough confirmed engaged enemies. No poison application, item cooldowns or consumables are automated.")
-
 	local opening = ui.Card(stack,
 		Text({ en = "STEALTH & OPENING", fr = "FURTIVITE ET OUVERTURE", pt = "FURTIVIDADE E ABERTURA", es = "SIGILO Y APERTURA", de = "STEALTH & ERÖFFNUNG", zh = "潜行与起手" }), nil, { id="opening", group="preparation" })
 	Check(opening, "stealth",
@@ -170,14 +101,21 @@ local function BuildRogueUI(page, ui)
 			{ label = "Ambush", value = "AMBUSH" },
 			{ label = "Garrote", value = "GARROTE" },
 		}, "BACKSTAB")
-	ui.Help(opening, "Leveling/Combat/Assassination: Automatic tries Backstab with a dagger, then another learned opener. Backstab requires melee range and rear position. Assassination uses Mutilate as its ordinary combat builder. Subtlety uses its own Ambush option and Hemorrhage/Sinister fallback. A reported positional failure selects a fallback.")
+	ui.Help(opening, "Automatic tries Backstab with a dagger, then another learned opener. Backstab requires melee range and rear position. A reported positional failure selects Sinister Strike instead of trapping the rotation.")
 
 	local builders = ui.Card(stack,
 		Text({ en = "BUILDERS & PROCS", fr = "GENERATEURS ET PROCS", pt = "GERADORES E PROCS", es = "GENERADORES Y PROCS", de = "AUFBAUER & PROCS", zh = "生成技与触发" }), nil, { id="builders", group="damage" })
 	ui.Help(builders, "Energy sliders set the minimum energy before using a builder. The spell must also be affordable.")
-	ui.Help(builders, "Combat and leveling use Sinister Strike; Subtlety prefers Hemorrhage/Ghostly Strike and Assassination prefers two-dagger Mutilate. Learned Shank is shared by every rotation. Each selected build has a learned Sinister Strike fallback. Backstab remains a Stealth opener; general usability does not prove rear position.")
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	ui.Help(builders, "Leveling prefers enabled learned talent builders, then falls back to Sinister Strike. Mutilate requires two confirmed daggers. Backstab remains a Stealth opener because general usability does not prove rear position.")
+	Check(builders, "mutilate", "Use Mutilate", "Mutilate",
+		"When learned and both equipped weapons are confirmed daggers, use Mutilate as the primary two-point builder.")
+	Check(builders, "hemorrhage", "Use Hemorrhage", "Hemorrhage",
+		"When learned and usable in melee range, use Hemorrhage ahead of Sinister Strike.")
+	Check(builders, "ghostlyStrike", "Use Ghostly Strike", "Ghostly Strike",
+		"When learned, ready and usable in melee range, use Ghostly Strike as a cooldown builder.")
 	Check(builders, "shank", "Use Shank", "Shank",
-		"Learned at level 24 and requires an off-hand weapon. Uses the live five-Energy cost and ten-second cooldown, including Flash of Steel's reduction. It is recommended after required finishers and before the ordinary builder. Max-rank Boot Knife's guaranteed two combo points are tracked; lower probabilistic ranks rely on readable points.")
+		"Learned at level 24 and requires an off-hand weapon. It is used with three or fewer combo points and at most 60 Energy, leaving room for its Energy gain and a possible two-point Boot Knife proc.")
 	Slider(builders, "sinisterMinEnergy", "Sinister Strike", 20, 100, 45, " energy",
 		{ en = "Minimum energy before suggesting Sinister Strike.", fr = "Energie minimale avant de proposer Sinister Strike.", pt = "Energia mínima antes de sugerir Sinister Strike.", es = "Energía mínima antes de sugerir Sinister Strike.", de = "Minimale Energie, bevor Sinister Strike vorgeschlagen wird.", zh = "建议 Sinister Strike 前所需的最低能量。" })
 	Slider(builders, "backstabMinEnergy", "Backstab", 20, 100, 60, " energy",
@@ -188,11 +126,13 @@ local function BuildRogueUI(page, ui)
 	local finishers = ui.Card(stack,
 		Text({ en = "FINISHERS", fr = "COUPS DE GRACE", pt = "FINALIZADORES", es = "REMATES", de = "FINISHER", zh = "终结技" }), nil, { id="finishers", group="damage" })
 	Check(finishers, "snd", "Slice and Dice", "Slice and Dice",
-		{ en = "Only while its player buff is absent. Leveling uses exactly one point; Combat/Subtlety/Assassination can establish a missing buff at 1+ points. Slice and Dice is a player buff, not an enemy debuff." })
-	ui.Help(finishers, "Leveling: Slice and Dice at exactly one point, only while its player buff is missing. Combat/Subtlety/Assassination: apply a missing buff at 1+ points, including after a multi-point opener. All modes preserve an active buff.")
+		{ en = "Only while its player buff is absent. Leveling uses exactly one combo point. Slice and Dice is a player buff, not an enemy debuff." })
+	ui.Help(finishers, "Slice and Dice is used at exactly one combo point and only while its player buff is missing.")
+	Check(finishers, "deathMark", "Death Mark", "Death Mark",
+		"When learned, uses five combo points on rare, elite, rare-elite, or world-boss targets above 50% health so its delayed six-second damage can finish. Other targets keep the normal Eviscerate rules.")
 
 	Check(finishers, "rupture", "Rupture", "Rupture",
-		{ en = "Leveling/Combat/Assassination fallback for durable targets. Subtlety uses its separate Maintain own Rupture checkbox and sliders above." })
+		{ en = "Optional leveling fallback for durable targets when Eviscerate is unavailable." })
 	ComboSlider(finishers, "ruptureMinCP",
 		{ en = "Rupture combo points", fr = "Points de combo Rupture", pt = "Pontos de combo Rupture", es = "Puntos de combo Rupture", de = "Combopunkte für Rupture", zh = "Rupture 连击点" }, 4)
 
@@ -204,8 +144,8 @@ local function BuildRogueUI(page, ui)
 
 
 	ui.Divider(finishers)
-	ui.Help(finishers, "Leveling: Eviscerate at or below 50% target health, with 1+ points on normal targets or five on rare/elite targets. Combat also spends five points above 50%; Subtlety uses its own point slider above 50% on normal targets. At zero points, build first.")
-	ui.Help(finishers, "Optional Rupture/Expose Armor require Eviscerate to be unavailable or disabled, the selected combo-point minimum, and no active debuff. Leveling uses them at or below 50% target health; Use Combat also allows them at five points above 50%.")
+	ui.Help(finishers, "Eviscerate is used at or below 50% target health, with 1+ points on normal targets or five on rare/elite targets. At zero points, the rotation builds first.")
+	ui.Help(finishers, "Optional Rupture and Expose Armor require Eviscerate to be unavailable or disabled, the selected combo-point minimum, and no active matching debuff.")
 
 	local control = ui.Card(stack,
 		Text({ en = "CONTROL & SURVIVAL", fr = "CONTROLE ET SURVIE", pt = "CONTROLE E SOBREVIVÊNCIA", es = "CONTROL Y SUPERVIVENCIA", de = "KONTROLLE & ÜBERLEBEN", zh = "控制与生存" }), nil, { id="control", group="survival" })
@@ -237,7 +177,7 @@ local function BuildRogueUI(page, ui)
 	Slider(aoe, "aoeMinEnemies",
 		{ en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Enemigos mínimos", de = "Mindestanzahl Gegner", zh = "最少敌人数" }, 2, 5, 2, "")
 	Check(aoe, "bladeFlurry", "Blade Flurry", "Blade Flurry",
-		{ en = "Requires AoE On and the selected confirmed melee enemy count. Combat mode keeps this independent of Burst and its target-health slider." })
+		{ en = "AoE use requires AoE On and the selected confirmed melee enemy count, independent of the Burst health slider. Burst On may also use it against a target above the Burst health threshold." })
 	local burstLimits=ui.Card(stack,"BURST LIMITS",nil,{id="burst-limits",group="burst"})
 	Slider(burstLimits, "burstMinTargetHP",
 		{ en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Min. Zielgesundheit für Burst", zh = "Burst 最低目标生命值" }, 0, 100, 40, " %")

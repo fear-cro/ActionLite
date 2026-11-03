@@ -180,6 +180,27 @@ end
 
 local drinkReminder = CreateDrinkReminder(hud)
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local spellReadabilityWarning = hud:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+spellReadabilityWarning:SetPoint("BOTTOM", f, "TOP", 0, 24)
+spellReadabilityWarning:SetJustifyH("CENTER")
+spellReadabilityWarning:SetWidth(360)
+pcall(spellReadabilityWarning.SetWordWrap, spellReadabilityWarning, false)
+spellReadabilityWarning:SetTextColor(1, 0.32, 0.18, 1)
+spellReadabilityWarning:SetShadowColor(0, 0, 0, 1)
+spellReadabilityWarning:SetShadowOffset(1, -1)
+spellReadabilityWarning:Hide()
+
+local function UpdateSpellReadabilityWarning()
+	spellReadabilityWarning:Hide()
+	if type(AL.GetSpellReadabilityWarning) ~= "function" then return end
+	local ok, text = pcall(AL.GetSpellReadabilityWarning)
+	if not ok or type(text) ~= "string" or text == ""
+		or (issecretvalue and issecretvalue(text)) then return end
+	spellReadabilityWarning:SetText(text)
+	spellReadabilityWarning:Show()
+end
+
 -- A reminder is independent of the recommendation. It cannot consume an
 -- action, hide a combat opener, or replace either driven A icon (A[3] or A[6]).
 local function UpdateDrinkReminder()
@@ -552,8 +573,12 @@ local function UpdateRogueSecretVisual(spell, reason)
 	for index, decision in ipairs(plan.rows) do
 		local output = A[AL.SlotFor(decision.spell)]
 		local main, small = RogueVisualRow(index, f, false), RogueVisualRow(index, output, true)
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- Protected Priest self-heal plans can include Ready/No target bands.
+		-- Keep those bands visually identical to the ordinary Leveling idle state:
+		-- idle artwork on the main icon and no false suggestion on A[3].
 		local texture = decision.spell and (AL.IconFor(decision.spell) or AL.SpellTexture(decision.spell))
-			or "Interface\\Icons\\INV_Stone_WeightStone_07"
+			or decision.idle and idleIcon or "Interface\\Icons\\INV_Stone_WeightStone_07"
 		local r, g, b = 1, 1, 1
 		if decision.spell and not AL.S().norange and AL.InRange(decision.spell) == false then r, g, b = 1, 0.25, 0.25 end
 		SetSharpTexture(main.tex, texture); SetSharpTexture(small.tex, texture)
@@ -562,7 +587,8 @@ local function UpdateRogueSecretVisual(spell, reason)
 		main.key:SetText(key or ""); main.key:SetShown(key ~= nil and key ~= false)
 		rotation.ApplyVisualRow(main.nodes, decision, values)
 		rotation.ApplyVisualRow(small.nodes, decision, values)
-		main.root:Show(); small.root:Show()
+		main.root:Show()
+		if decision.idle then small.root:Hide() else small.root:Show() end
 	end
 	-- Base and conditional rows share the same masks, so icons, keys and action
 	-- highlights cannot disagree about a higher-priority defensive cooldown.
@@ -626,6 +652,8 @@ driver:SetScript("OnUpdate", function(_, dt)
 		end
 	end
 	UpdateDrinkReminder()
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	UpdateSpellReadabilityWarning()
 
 	-- Legacy Priest healing still uses protected health masks. Its Unit1
 	-- overlay must also mask A[3]'s underlying damage suggestion.

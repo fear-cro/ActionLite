@@ -6,8 +6,8 @@ This guide describes the v1.1.5 class-rotation and HealingEngine contracts for W
 
 | Path | Purpose |
 | --- | --- |
-| `ActionLITE/rotation/<Class>.lua` | Combat decisions, spell list, defaults, build selection and debug state |
-| `ActionLITE/<Class>_UI.lua` | Checkboxes, sliders, help text and build controls |
+| `ActionLITE/rotation/<Class>.lua` | Leveling decisions, spell list, defaults and debug state |
+| `ActionLITE/<Class>_UI.lua` | Checkboxes, sliders and help text |
 | `ActionLITE/Core.lua` | Shared spellbook, cooldown, cast, resource and saved-profile services |
 | `ActionLITE/HealingEngine.lua` | Friendly roster eligibility, protected-health masks and target-pixel output |
 | `ActionLITE/ProtocolPixels.lua` | Universal colors and Action-compatible protocol pixels |
@@ -60,7 +60,7 @@ Declarative class pages use controls such as:
 
 Dedicated class pages use `ui.SettingCheck` and `ui.Slider`. Always bind the UI and rotation to the same profile key. The integrated debugger records registered controls and their saved/effective values automatically.
 
-Leveling Rotation remains the default build. Build checkboxes are mutually exclusive, and turning the active optional build off returns the profile to Leveling Rotation. A new build must preserve the user's spell permissions, icon assignments and unrelated settings.
+Version 1.1.5 exposes one combat path: **Leveling Rotation**. It must select only spells confirmed learned in the live spellbook, while respecting each spell permission, cooldown, resource requirement and range result. Level-60 preset implementations may remain dormant in source for later validation, but they must not render in the UI or receive public dispatch. Future public build selectors must preserve the user's spell permissions, icon assignments and unrelated settings.
 
 ## Protected values in WoW Forever
 
@@ -80,23 +80,23 @@ The Druid, Paladin, Priest and Shaman profiles include these shared settings:
 
 | Key | Default | Meaning |
 | --- | ---: | --- |
-| `healingEngine` | `false` | **Enable Healing Rotation** gate for grouped healing, healer damage rules and focus-pixel selection |
+| `healingEngine` | `false` | **Enable Healing Rotation** gate for five-player dungeon healing, healer damage rules and focus-pixel selection |
 | `healingInitiateHP` | `80` | Routine threshold for efficient direct heals and HoTs |
 | `healingEmergencyHP` | `30` | Emergency threshold for the largest heals and cooldowns |
 
 The effective emergency threshold is capped at the initiate threshold. Known `DAMAGER` members use a hard-coded threshold ten percentage points below each selected slider; for example, 80% becomes 70%. Tanks, the healer/player and unassigned roles use the selected values. This offset is part of the engine and has no additional UI setting.
 
-The shared healing path only becomes active while the character is in a party or raid. When solo, the checkbox is bypassed and the selected leveling or damage build runs unchanged. With Healing Rotation disabled, its visual rows are cleared and the healing target pixel is Universal Color 0 (black).
+The shared healing path becomes active only after the client confirms a `party` instance with two to five members. Raids, battlegrounds, arenas, world groups, solo play and protected or unknown instance states fail closed to Leveling Rotation. With Healing Rotation disabled, its visual rows are cleared and the healing target pixel is Universal Color 0 (black).
 
 ## Shared Healing Rotation rules
 
 The framework applies these rules before a class provider adds its detailed healing priorities:
 
-1. Selecting a living, friendly party or raid member is an explicit distress signal. The engine immediately emits the provider's `manual` or `strongest` direct heal on A[3] and emits that unit's focus color. If the provider has not defined one yet, the framework uses the class's strongest available normal direct heal. This request does not inspect the selected unit's protected health.
+1. Selecting a living, friendly dungeon-party member is an explicit distress signal. The engine immediately emits the provider's `manual` or `strongest` direct heal on A[3] and emits that unit's focus color. If the provider has not defined one yet, the framework uses the class's strongest available normal direct heal. This request does not inspect the selected unit's protected health.
 2. Returning to an enemy or clearing the target ends the selected-ally override.
 3. With a living enemy selected in combat, a healer with a wand equipped uses `Shoot`. The shared wand timer still controls shot and recovery timing.
 4. A healer without a usable wand applies an available periodic-damage spell only while mana is above 80%. Protected mana is evaluated as a display mask and is never compared in Lua. A class can replace or suppress the shared damage request with `HealingEngineDamagePlan`.
-5. Automatic party-healing rows are drawn above the damage recommendation. Their spell art, A[3] output and focus pixel use one protected health alpha, so a visible heal always takes priority over Shoot or periodic damage.
+5. Automatic dungeon-healing rows are drawn above the damage recommendation. Their spell art, A[3] output and focus pixel use one protected health alpha, so a visible heal always takes priority over Shoot or periodic damage.
 6. Once predicted health no longer matches a healing band, the healing row and focus color disappear together and the damage recommendation becomes visible again.
 7. A confirmed healing/support cast starts the shared five-second mana rule. Shoot and periodic-damage recommendations pause until that timer expires. Required healing remains available during the timer, but no health-based heal becomes visible unless its protected health band is below the selected slider threshold.
 
@@ -182,7 +182,6 @@ The engine validates friendly roster units, excludes confirmed dead, disconnecte
 
 | Unit | Universal color index |
 | --- | ---: |
-| `raid1` … `raid40` | 1 … 40 |
 | `party1` … `party4` | 41 … 44 |
 | `player` | 45 |
 
@@ -215,11 +214,11 @@ The Druid provider implements the first class-specific Healing Rotation:
 - Successful Rejuvenation, Regrowth, Thorns and Mark of the Wild casts create per-unit expiration timers. Swiftmend requires one of the casting Druid's own qualifying HoTs; because the consumed effect may be secret, a confirmed Swiftmend conservatively clears both tracked HoT timers on that member.
 - The tank receives tracked Thorns at the start of combat. A selected friendly group member can receive Mark of the Wild out of combat, then a health-masked Healing Touch top-off only above 80% readable mana and while the Druid is not eating or drinking.
 - A living selected elite enemy receives timed Faerie Fire, followed by timed Moonfire. These requests use the shared strict-above-80% mana mask and are suppressed during the mana-recovery window.
-- Dispel, Entangling Roots and Hibernate decisions remain manual because the required combat conditions are not safely observable. Tranquility remains manually queued. Wild Growth uses paired protected health masks for two eligible injured members in the same party or raid subgroup, with a 50% mana floor; its learned live cast time includes Naturalist.
+- Dispel, Entangling Roots and Hibernate decisions remain manual because the required combat conditions are not safely observable. Tranquility remains manually queued. Wild Growth uses paired protected health masks for two eligible injured dungeon-party members, with a 50% mana floor; its learned live cast time includes Naturalist.
 
 ## Priest Healing Rotation providers
 
-The Priest healing card offers mutually exclusive **Discipline Priest** and **Holy Priest** checkboxes. Both remain gated by **Enable Healing Rotation** and grouped play. With either provider selected, a living enemy selected in combat uses the shared timed `Shoot` recommendation. The shared five-second rule pauses Shoot after a successful healing/support cast.
+The Priest healing card offers mutually exclusive **Discipline Priest** and **Holy Priest** checkboxes. Both remain gated by **Enable Healing Rotation** and an eligible five-player dungeon. With either provider selected, a living enemy selected in combat uses the shared timed `Shoot` recommendation. The shared five-second rule pauses Shoot after a successful healing/support cast.
 
 - Discipline maintains a per-target 30-second Power Word: Shield timer, shields an injured member before its filler, and uses Penance at the initiate-healing slider minus 20 percentage points. Flash Heal is the filler; the Holy Binding passive supplies its self-heal when another member is healed. Power Infusion is limited to a readable friendly caster assigned the Damager role. Emergency group care sequences Inner Focus into Prayer of Healing; Prayer of Healing is otherwise manual.
 - Holy tracks Renew for 15 seconds, uses Heal for routine damage, and uses Flash Heal with the Holy Binding passive for the larger-heal band halfway between the initiate and emergency thresholds. Emergency care prefers learned Prayer of Mending, then sequences Inner Focus into Greater Heal.
@@ -235,7 +234,7 @@ The Shaman healing card provides one Call of the Elements selection for each ele
 - Water Shield is tracked for ten minutes from a confirmed cast and reconciled with a readable player aura outside protected conditions.
 - Call of the Elements seeds conservative timers for each selected learned totem. Most selected support totems use a five-minute fallback, while Searing Totem uses 30 seconds.
 - Mana Tide Totem is recommended below 70% mana, tracked for its five-minute cooldown and 12-second Water-slot duration, and prevents Call from replacing it early. The selected Water totem is restored after Mana Tide ends.
-- Riptide is tracked as a HoT-only heal per member for 15 seconds with a twelve-second fallback cooldown. A Chain Heal row is generated for each eligible second injured member while the primary still has tracked Riptide. Raid pairing stays within the primary member's five-player raid subgroup, which also reflects Chain Heal's practical proximity requirement and bounds protected display rows.
+- Riptide is tracked as a HoT-only heal per member for 15 seconds with a twelve-second fallback cooldown. A Chain Heal row is generated for each eligible second injured dungeon-party member while the primary still has tracked Riptide.
 - The Chain Heal row combines three protected client-side masks: primary health, secondary health and mana strictly above 50%. Lua never reads, compares, multiplies or branches on those secret alpha values.
 - Lesser Healing Wave handles routine injuries. Healing Wave handles larger injuries and receives tank-role priority. Ancestral Healing is a passive armor proc after a critical heal and is never returned as a castable spell.
 - Emergency care uses a confirmed-cast sequence: learned Blood Fury or Berserking, Nature's Swiftness, then Chain Heal. If Chain Heal is not learned, Healing Wave is the Nature's Swiftness consumer.
@@ -252,7 +251,7 @@ The Paladin healing card adds a dedicated aura selector beneath the shared healt
 - Flash of Light is the routine small heal. Holy Shock is the instant emergency heal. Holy Light is limited to the emergency band, the explicit selected-friendly distress override, or a confirmed Infusion of Light proc.
 - Infusion of Light is never inferred from an ordinary successful cast. It is accepted only from a readable player aura or an observed critical Holy Shock/Flash of Light combat-log event, then tracked for at most 15 seconds and consumed by Holy Light. If both signals are unavailable, Holy Light remains emergency-only.
 - Divine Favor is sequenced from a confirmed activation into Holy Shock when available, otherwise Holy Light. The next successful Flash of Light, Holy Light or Holy Shock clears the tracked activation. The provider owns the two-minute fallback cooldown so protected spell cooldowns cannot loop it.
-- Light's Vigil is reserved for group emergencies because its current ranks cost 730–1340 mana. It requires two members of the same five-player party or raid subgroup to cross their emergency thresholds and player mana to remain above 50%. A confirmed mark is tracked on its exact member for 30 seconds; the next Holy Shock on that member is allowed through the mark's no-cooldown rule and clears the timer.
+- Light's Vigil is reserved for dungeon-party emergencies because its current ranks cost 730–1340 mana. It requires two members to cross their emergency thresholds and player mana to remain above 50%. A confirmed mark is tracked on its exact member for 30 seconds; the next Holy Shock on that member is allowed through the mark's no-cooldown rule and clears the timer.
 - The provider does not automate Paladin racials. All Holy maintenance, direct heals and setup spells remain independently disableable in the Spells menu.
 
 Blessing, aura, seal, Judgement, Light's Vigil and direct-heal successes all enter the shared five-second mana rule while Healing Rotation is active. Static maintenance is withheld during that window; protected health requests remain available below their configured thresholds.
@@ -267,10 +266,10 @@ Do not create borders around A frames or protocol pixels. The protocol column im
 
 Before submitting a rotation:
 
-- Load with all optional build boxes off and confirm Leveling Rotation remains selected.
+- Load each class and confirm Leveling Rotation is selected and no retired level-60 build selector is shown.
 - Confirm new checkboxes and sliders persist after `/reload`.
 - Test every recommendation with the spell learned, unlearned, disabled, cooling down, unaffordable and out of range.
-- Test solo, five-player party/follower dungeon and raid rosters when available.
+- Test solo and world-party fallback, then a client-confirmed five-player dungeon. Confirm raids, battlegrounds and arenas do not activate Healing Rotation.
 - Start ActionLiteDebug outside combat, reproduce the case, wait five seconds after combat and copy Results.
 - Confirm no `attempt to compare`, `perform arithmetic`, or `boolean test` error references a secret value.
 - Confirm solo play bypasses Healing Rotation even when its checkbox is saved on.

@@ -100,10 +100,12 @@ M.spells = {
 	{ 2008, "Ancestral Spirit" },
 	{ 556, "Astral Recall" },
 	{ 526, "Cure Poison" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 421, "Chain Lightning" },
 	{ 8042, "Earth Shock" },
 	{ 2484, "Earthbind Totem" },
 	{ 6196, "Far Sight" },
-	{ 1535, "Fire Nova Totem" },
+	{ 408341, "Fire Nova" },
 	{ 8184, "Fire Resistance Totem" },
 	{ 8050, "Flame Shock" },
 	{ 8227, "Flametongue Totem" },
@@ -116,6 +118,8 @@ M.spells = {
 	{ 331, "Healing Wave" },
 	{ 8004, "Lesser Healing Wave" },
 	{ 403, "Lightning Bolt" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 16166, "Lightning Mastery" },
 	{ 324, "Lightning Shield" },
 	{ 8190, "Magma Totem" },
 	{ 5675, "Mana Spring Totem" },
@@ -150,7 +154,6 @@ local REFERENCE_LEVELS = {
 	["Searing Totem"] = 10,
 	["Strength of Earth Totem"] = 10,
 	["Ancestral Spirit"] = 12,
-	["Fire Nova Totem"] = 12,
 	["Purge"] = 12,
 	["Cure Poison"] = 16,
 	["Tremor Totem"] = 18,
@@ -207,7 +210,7 @@ local WEAPON_ENCHANT_IDS = {
 	},
 }
 local TOTEM_GROUPS = {
-	FIRE = { "Searing Totem", "Magma Totem", "Fire Nova Totem", "Fire Resistance Totem" },
+	FIRE = { "Searing Totem", "Magma Totem", "Fire Resistance Totem" },
 	EARTH = { "Strength of Earth Totem", "Stoneskin Totem", "Stoneclaw Totem", "Earthbind Totem", "Tremor Totem" },
 	WATER = { "Healing Stream Totem", "Mana Spring Totem", "Poison Cleansing Totem", "Frost Resistance Totem" },
 }
@@ -219,20 +222,20 @@ end
 -- LIKELY fallback durations: GetTotemInfo always takes priority. These
 -- deliberately conservative values prevent repeated suggestions when
 -- Forever temporarily protects totem state.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 local TOTEM_FALLBACK = {
 	["Searing Totem"] = 30,
 	["Magma Totem"] = 20,
-	["Fire Nova Totem"] = 5,
-	["Fire Resistance Totem"] = 120,
-	["Strength of Earth Totem"] = 120,
-	["Stoneskin Totem"] = 120,
+	["Fire Resistance Totem"] = 300,
+	["Strength of Earth Totem"] = 300,
+	["Stoneskin Totem"] = 300,
 	["Stoneclaw Totem"] = 15,
 	["Earthbind Totem"] = 45,
-	["Tremor Totem"] = 120,
-	["Healing Stream Totem"] = 60,
-	["Mana Spring Totem"] = 60,
-	["Poison Cleansing Totem"] = 120,
-	["Frost Resistance Totem"] = 120,
+	["Tremor Totem"] = 300,
+	["Healing Stream Totem"] = 300,
+	["Mana Spring Totem"] = 300,
+	["Poison Cleansing Totem"] = 300,
+	["Frost Resistance Totem"] = 300,
 }
 
 local trackedTotems, localCooldowns = {}, {}
@@ -251,7 +254,7 @@ local WEAPON_ENCHANT_FALLBACK_DURATION = 60 * 60
 
 AL.selfCastSpells = AL.selfCastSpells or {}
 for _, name in ipairs({ "Lightning Shield", "Healing Wave", "Lesser Healing Wave", "Rockbiter Weapon",
-    "Flametongue Weapon", "Windfury Weapon", "Blood Fury", "Berserking" }) do AL.selfCastSpells[name] = true end
+	"Flametongue Weapon", "Windfury Weapon", "Fire Nova", "Blood Fury", "Berserking" }) do AL.selfCastSpells[name] = true end
 for name in pairs(TOTEM_ELEMENT) do AL.selfCastSpells[name] = true end
 -- Shared native gates keep opaque percentages in native display alpha only.
 local lastRotation
@@ -284,6 +287,13 @@ end
 local function LearnedID(name)
     local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[name]
     return ref and Number(ref.id)
+end
+local function TotemFallbackDuration(name)
+	if name == "Searing Totem" then
+		return ({ [3599] = 30, [6363] = 35, [6364] = 40,
+			[6365] = 45, [10437] = 50, [10438] = 55 })[LearnedID(name)] or 30
+	end
+	return TOTEM_FALLBACK[name] or 10
 end
 local function SpellUsability(name)
     local usable, shortage = SafeCall(IsUsableSpell or (C_Spell and C_Spell.IsSpellUsable), LearnedID(name) or name)
@@ -750,16 +760,17 @@ local function UnitWithin(unit, radius)
     if radius >= 10 then return Bool((SafeCall(CheckInteractDistance, unit, 3))) end
 end
 
-local function EnemyCount(limit)
+local function EnemyCount(limit, radius)
+	radius = Number(radius) or 8
     local count
     local function Accept(value)
         value = Number(value)
         if value and value >= 0 and value <= 40 and value == math.floor(value) then count = math.max(count or 0, value) end
     end
-    Accept((SafeCall(AL.EnemyCount, 8)))
+	Accept((SafeCall(AL.EnemyCount, radius)))
     if A and A.MultiUnits then
-        Accept((SafeCall(A.MultiUnits.GetByRangeInCombat, A.MultiUnits, 8, limit or 5)))
-        Accept((SafeCall(A.MultiUnits.GetActiveEnemies, A.MultiUnits, 8)))
+		Accept((SafeCall(A.MultiUnits.GetByRangeInCombat, A.MultiUnits, radius, limit or 5)))
+		Accept((SafeCall(A.MultiUnits.GetActiveEnemies, A.MultiUnits, radius)))
     end
     local seen, visible = {}, 0
     local function Count(unit)
@@ -767,7 +778,7 @@ local function EnemyCount(limit)
         if Bool((SafeCall(UnitExists, unit))) ~= true or Bool((SafeCall(UnitCanAttack, "player", unit))) ~= true
             or Bool((SafeCall(UnitIsDeadOrGhost, unit))) ~= false or Bool((SafeCall(UnitAffectingCombat, unit))) ~= true then return end
         local guid = SafeCall(UnitGUID, unit)
-        if not SafeValue(guid) or type(guid) ~= "string" or seen[guid] or UnitWithin(unit, 8) ~= true then return end
+		if not SafeValue(guid) or type(guid) ~= "string" or seen[guid] or UnitWithin(unit, radius) ~= true then return end
         seen[guid], visible = true, visible + 1
     end
     Count("target")
@@ -991,7 +1002,7 @@ local function TotemSnapshot()
                 trackedTotems[element] = { name=name, at=trackedTotems[element] and trackedTotems[element].at or -math.huge,
                     expires=start + duration }
             elseif name and TOTEM_ELEMENT[name] and (not trackedTotems[element] or trackedTotems[element].name ~= name) then
-                trackedTotems[element] = { name=name, at=-math.huge, expires=GetTime()+(TOTEM_FALLBACK[name] or 10) }
+				trackedTotems[element] = { name=name, at=-math.huge, expires=GetTime()+TotemFallbackDuration(name) }
             end
         end
     end
@@ -1088,13 +1099,20 @@ local function MaintainCombatTotems(s, role, targetHP, snapshot)
     if Enabled(s,"searing") and not ActiveTotemFrom("FIRE",snapshot) then Offer("Searing Totem", "Fire totem", gates) end
 end
 
-local function AoETotem(s, mana, count, snapshot, targetHP)
+local function AoEDamage(s, role, mana, count, snapshot, targetHP, moving)
     if not Enabled(s,"aoe") or not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
-    local gates = { ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false),
-        HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
-    if Enabled(s,"firenova") and not snapshot["Fire Nova Totem"] and not snapshot["?FIRE"] then Offer("Fire Nova Totem", "AoE", gates) end
-    if Enabled(s,"magma") and not snapshot["Magma Totem"] and not snapshot["Fire Nova Totem"] and not snapshot["?FIRE"] then
-        Offer("Magma Totem", "AoE", gates)
+	local manaGate = ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false)
+	local damageGates = { manaGate }
+	local totemGates = { manaGate,
+		HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Fire Nova is now the direct learned spell. Chain Lightning belongs only
+	-- to the caster Leveling path and requires AoE On, a confirmed count and a
+	-- stationary cast. Enhancement keeps its conservative melee priorities.
+	if Enabled(s,"firenova") and InMelee() then Offer("Fire Nova", "Close-range AoE", damageGates) end
+	if role == "ELEMENTAL" and not moving then Offer("Chain Lightning", "Ranged AoE", damageGates) end
+	if InMelee() and Enabled(s,"magma") and not snapshot["Magma Totem"] and not snapshot["?FIRE"] then
+		Offer("Magma Totem", "AoE", totemGates)
     end
 end
 
@@ -1103,6 +1121,10 @@ local function Burst(s, role, targetHP)
     if role == "ENHANCEMENT" and not InMelee() then return end
     if role == "ELEMENTAL" and Bool((SafeCall(AL.InRange,"Lightning Bolt"))) ~= true then return end
     local gates = { HealthGate("target",targetHP,SettingNumber(s,"burstMinTargetHP",40,0,100),false) }
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- Lightning Mastery replaced Elemental Mastery. It is talent/learned
+    -- gated by Offer and remains strictly behind the global Burst toggle.
+    Offer("Lightning Mastery", "Burst", gates)
     if role == "ENHANCEMENT" then Offer("Blood Fury", "Burst", gates) end
     Offer("Berserking", "Burst", gates)
 end
@@ -1154,8 +1176,9 @@ function M.NextSpell(s, inCombat, hostile)
             else
                 Burst(s,role,targetHP)
                 local snapshot = TotemSnapshot()
-                local count = Enabled(s,"aoe") and EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5)) or nil
-                AoETotem(s,mana,count,snapshot,targetHP)
+				local radius = role == "ELEMENTAL" and 36 or 8
+				local count = Enabled(s,"aoe") and EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5), radius) or nil
+				AoEDamage(s,role,mana,count,snapshot,targetHP,moving)
                 MaintainCombatTotems(s,role,targetHP,snapshot)
                 Damage(s,role,mana,targetHP,moving)
             end
@@ -1182,9 +1205,13 @@ function M.OnCastResult(name, result)
     if SHOCKS[name] then
         local _, ending = ReadableCooldown(name)
         shockLockUntil, shockCastAt = ending and ending > now+1.5 and ending or now+6, now
-    elseif name == "Fire Nova Totem" then
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	elseif name == "Fire Nova" then
         local _, ending = ReadableCooldown(name)
-        localCooldowns[name] = { at=now, ends=ending and ending > now+1.5 and ending or now+15 }
+		localCooldowns[name] = { at=now, ends=ending and ending > now+1.5 and ending or now+10 }
+	elseif name == "Chain Lightning" then
+		local _, ending = ReadableCooldown(name)
+		localCooldowns[name] = { at=now, ends=ending and ending > now+1.5 and ending or now+6 }
     end
     if WEAPON_ENCHANTS[name] then
         trackedWeapon, trackedWeaponUntil, trackedWeaponCastAt, trackedWeaponIdentity = name,
@@ -1194,7 +1221,7 @@ function M.OnCastResult(name, result)
         SaveTrackedWeapon()
     end
     local element = TOTEM_ELEMENT[name]
-    if element then trackedTotems[element] = { name=name, at=now, expires=now+(TOTEM_FALLBACK[name] or 10) } end
+	if element then trackedTotems[element] = { name=name, at=now, expires=now+TotemFallbackDuration(name) } end
 end
 
 function M.GetUIState()
@@ -1208,7 +1235,7 @@ function M.GetUIState()
     return { role=role, level=Number((SafeCall(UnitLevel,"player"))), health=HealthPercent("player"), mana=GateManaPercent(),
         knownCount=known, lightningShield=Bool((SafeCall(AL.HasBuff,"player","Lightning Shield"))) == true,
         weaponEnchant=weapon, earthTotem=ActiveTotemFrom("EARTH",snapshot), waterTotem=ActiveTotemFrom("WATER",snapshot),
-        fireTotem=ActiveTotemFrom("FIRE",snapshot), enemyCount=EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5)),
+		fireTotem=ActiveTotemFrom("FIRE",snapshot), enemyCount=EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5), role == "ELEMENTAL" and 36 or 8),
         shockLocked=GetTime()<shockLockUntil }
 end
 
@@ -1464,37 +1491,18 @@ local M = {
 -- Exactly one rotation stays selected. Leveling is the default and the
 -- fallback when a selected specialization is switched off or saved flags
 -- conflict. A valid saved specialization takes priority during migration.
-M.buildKeys = { "leveling", "elemental", "enhancement" }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+M.buildKeys = { "leveling" }
 function M.NormalizeBuild(s)
-    if type(s) ~= "table" then return end
-    local selected, count = nil, 0
-    for _, key in ipairs(M.buildKeys) do
-        if key ~= "leveling" then
-            local value = s[key]
-            local checked = not (issecretvalue and issecretvalue(value)) and value == true
-            s[key] = checked
-            if checked then selected, count = key, count + 1 end
-        end
-    end
-    if count ~= 1 then
-        for _, key in ipairs(M.buildKeys) do s[key] = false end
-        selected = "leveling"
-    end
-    s.leveling = selected == "leveling"
-    return selected
+    if type(s) ~= "table" then return "leveling" end
+    -- v1.1.5 Leveling-only release: retire saved level-60 selections and
+    -- keep the original finalized rotation active for every character.
+    for _, key in ipairs({ "elemental", "enhancement" }) do s[key] = false end
+    s.leveling = true
+    return "leveling"
 end
-function M.SetBuild(key, enabled, s)
-    if (issecretvalue and issecretvalue(enabled)) or type(enabled) ~= "boolean" then return end
-    local valid = false
-    for _, candidate in ipairs(M.buildKeys) do if candidate == key then valid = true; break end end
-    if not valid then return end
+function M.SetBuild(_, _, s)
     s = s or AL.Profile("SHAMAN")
-    if type(s) ~= "table" then return end
-    if enabled then
-        for _, candidate in ipairs(M.buildKeys) do s[candidate] = candidate == key end
-    else
-        s[key] = false
-    end
     local selected = M.NormalizeBuild(s)
     if AL.UI and type(AL.UI.Repaint) == "function" then AL.UI.Repaint() end
     return selected
@@ -1512,7 +1520,7 @@ M.spells = {
 	{ 8042, "Earth Shock" },
 	{ 2484, "Earthbind Totem" },
 	{ 6196, "Far Sight" },
-	{ 1535, "Fire Nova Totem" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	{ 408341, "Fire Nova" },
 	{ 8184, "Fire Resistance Totem" },
 	{ 8050, "Flame Shock" },
@@ -1528,7 +1536,7 @@ M.spells = {
 	{ 8004, "Lesser Healing Wave" },
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	-- Lightning Mastery is active; Call of Thunder is passive and is not queued.
-	{ 0, "Lightning Mastery" },
+	{ 16166, "Lightning Mastery" },
 	{ 403, "Lightning Bolt" },
 	{ 324, "Lightning Shield" },
 	{ 8190, "Magma Totem" },
@@ -1547,7 +1555,7 @@ M.spells = {
 	{ 8075, "Strength of Earth Totem" },
 	{ 8143, "Tremor Totem" },
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	{ 0, "Totemic Call" },
+	{ 437009, "Totemic Call" },
 	{ 131, "Water Breathing" },
 	{ 546, "Water Walking" },
 	{ 408510, "Water Shield" },
@@ -1572,7 +1580,6 @@ local REFERENCE_LEVELS = {
 	["Searing Totem"] = 10,
 	["Strength of Earth Totem"] = 10,
 	["Ancestral Spirit"] = 12,
-	["Fire Nova Totem"] = 12,
 	["Purge"] = 12,
 	["Cure Poison"] = 16,
 	["Tremor Totem"] = 18,
@@ -1628,8 +1635,9 @@ local WEAPON_ENCHANT_IDS = {
 		[2633] = true,
 	},
 }
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 local TOTEM_GROUPS = {
-	FIRE = { "Searing Totem", "Magma Totem", "Fire Nova Totem", "Fire Resistance Totem" },
+	FIRE = { "Searing Totem", "Magma Totem", "Fire Resistance Totem" },
 	EARTH = { "Strength of Earth Totem", "Stoneskin Totem", "Stoneclaw Totem", "Earthbind Totem", "Tremor Totem" },
 	WATER = { "Healing Stream Totem", "Mana Spring Totem", "Poison Cleansing Totem", "Frost Resistance Totem" },
 	AIR = { "Windfury Totem", "Grace of Air Totem", "Windwall Totem", "Nature Resistance Totem", "Tranquil Air Totem" },
@@ -1645,17 +1653,16 @@ end
 local TOTEM_FALLBACK = {
 	["Searing Totem"] = 30,
 	["Magma Totem"] = 20,
-	["Fire Nova Totem"] = 5,
-	["Fire Resistance Totem"] = 120,
-	["Strength of Earth Totem"] = 120,
-	["Stoneskin Totem"] = 120,
+	["Fire Resistance Totem"] = 300,
+	["Strength of Earth Totem"] = 300,
+	["Stoneskin Totem"] = 300,
 	["Stoneclaw Totem"] = 15,
 	["Earthbind Totem"] = 45,
-	["Tremor Totem"] = 120,
-	["Healing Stream Totem"] = 60,
-	["Mana Spring Totem"] = 60,
-	["Poison Cleansing Totem"] = 120,
-	["Frost Resistance Totem"] = 120,
+	["Tremor Totem"] = 300,
+	["Healing Stream Totem"] = 300,
+	["Mana Spring Totem"] = 300,
+	["Poison Cleansing Totem"] = 300,
+	["Frost Resistance Totem"] = 300,
 	["Windfury Totem"] = 300,
 	["Grace of Air Totem"] = 300,
 }
@@ -2235,27 +2242,43 @@ local ENH_COOLDOWNS = { ["Lightning Mastery"]=180, ["Stormstrike"]=6, ["Fire Nov
     ["Water Shield"]=15,
     ["Rage of the Farseer"]=180, ["Blood Fury"]=120, ["Berserking"]=180 }
 
-local function EnhancementTalent(name)
-    if not enh.talentWarm then
-        enh.talentWarm=true
-        local localized={ ["Maelstrom Weapon"]=SafeCall(C_Spell and C_Spell.GetSpellName,408498),
-            ["Improved Fire Nova"]=SafeCall(C_Spell and C_Spell.GetSpellName,16086),
-            ["Call of Flame"]=SafeCall(C_Spell and C_Spell.GetSpellName,16038),
-            ["Reverberation"]=SafeCall(C_Spell and C_Spell.GetSpellName,16040) }
-        for tab=1,3 do for index=1,40 do
-            local talent,_,_,_,rank=SafeCall(GetTalentInfo,tab,index,false,false)
-            rank=Number(rank)
-            if SafeValue(talent) and type(talent)=="string" and rank and rank>=0 then
-                local canonical=(AL.englishNames and AL.englishNames[talent]) or talent
-                for english,native in pairs(localized) do
-                    if SafeValue(native) and type(native)=="string" and talent==native then canonical=english;break end
-                end
-                if canonical=="Trial By Fire" then canonical="Improved Fire Nova" end
-                enh.talents[canonical]=rank
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function RefreshEnhancementTalents()
+    local nextTalents,readableRows={},0
+    local localized={ ["Maelstrom Weapon"]=SafeCall(C_Spell and C_Spell.GetSpellName,408498),
+        ["Improved Fire Nova"]=SafeCall(C_Spell and C_Spell.GetSpellName,16086),
+        ["Call of Flame"]=SafeCall(C_Spell and C_Spell.GetSpellName,16038),
+        ["Reverberation"]=SafeCall(C_Spell and C_Spell.GetSpellName,16040) }
+    for tab=1,3 do for index=1,40 do
+        local talent,_,_,_,rank=SafeCall(GetTalentInfo,tab,index,false,false)
+        rank=Number(rank)
+        if SafeValue(talent) and type(talent)=="string" and rank and rank>=0 then
+            readableRows=readableRows+1
+            local canonical=(AL.englishNames and AL.englishNames[talent]) or talent
+            for english,native in pairs(localized) do
+                if SafeValue(native) and type(native)=="string" and talent==native then canonical=english;break end
             end
-        end end
+            if canonical=="Trial By Fire" then canonical="Improved Fire Nova" end
+            nextTalents[canonical]=rank
+        end
+    end end
+    -- A protected in-combat talent scan is not an empty build. Retain the
+    -- last readable snapshot so Call of Flame keeps its correct duration.
+    if readableRows>0 then
+        enh.talents,enh.talentWarm=nextTalents,true
+        return true
     end
+    return false
+end
+
+local function EnhancementTalent(name)
+    if not enh.talentWarm then RefreshEnhancementTalents() end
     return enh.talents[name]
+end
+
+function M.RefreshTalentCache()
+    if not enh.talentWarm then return RefreshEnhancementTalents() end
+    return true
 end
 
 function M.FlameShockDuration()
@@ -2664,12 +2687,9 @@ local function AoETotem(s, mana, count, snapshot, targetHP)
     if not Enabled(s,"aoe") or not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
     local gates = { ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false),
         HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
-    if AL.DPS60 and AL.DPS60.Active() then
-        if Enabled(s,"firenova") then Offer("Fire Nova", "AoE Fire Nova", gates) end
-        if not PlayerMoving() then Offer("Chain Lightning", "AoE chain", gates) end
-    end
-    if Enabled(s,"firenova") and not snapshot["Fire Nova Totem"] and not snapshot["?FIRE"] then Offer("Fire Nova Totem", "AoE", gates) end
-    if Enabled(s,"magma") and not snapshot["Magma Totem"] and not snapshot["Fire Nova Totem"] and not snapshot["?FIRE"] then
+    if Enabled(s,"firenova") then Offer("Fire Nova", "AoE Fire Nova", gates) end
+    if AL.DPS60 and AL.DPS60.Active() and not PlayerMoving() then Offer("Chain Lightning", "AoE chain", gates) end
+	if Enabled(s,"magma") and not snapshot["Magma Totem"] and not snapshot["?FIRE"] then
         Offer("Magma Totem", "AoE", gates)
     end
 end
@@ -3039,9 +3059,6 @@ function M.OnCastResult(name, result, sent)
     if SHOCKS[name] then
         local _, ending = ReadableCooldown(name)
         shockLockUntil, shockCastAt = ending and ending > now+1.5 and ending or now+6, now
-    elseif name == "Fire Nova Totem" then
-        local _, ending = ReadableCooldown(name)
-        localCooldowns[name] = { at=now, ends=ending and ending > now+1.5 and ending or now+15 }
     end
     if WEAPON_ENCHANTS[name] then
         trackedWeapon, trackedWeaponUntil, trackedWeaponCastAt, trackedWeaponIdentity = name,
@@ -3144,7 +3161,7 @@ for _, event in ipairs({ "UNIT_AURA", "SPELLS_CHANGED", "CHARACTER_POINTS_CHANGE
 end
 tracker:SetScript("OnEvent", function(_, event, unit, token)
     if event=="SPELLS_CHANGED" or event=="CHARACTER_POINTS_CHANGED" or event=="PLAYER_TALENT_UPDATE" then
-        enh.talentWarm,enh.talents,enh.procBlocked=nil,{},nil
+        enh.talentWarm,enh.procBlocked=false,nil
     elseif event=="UNIT_AURA" then
         if SafeValue(unit) and unit=="player" then enh.procBlocked=nil;enh.clearBlocked=nil end
         if SafeValue(unit) and unit=="target" then enh.flameBlocked=nil end
@@ -3155,7 +3172,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
         enh.masteryAt,enh.masteryUntil=nil,0
         enh.clearBlocked,enh.clearConsumeAt=nil,nil
         enh.flames,enh.procBlocked,enh.flameBlocked,enh.boltAt={},nil,nil,-math.huge
-        enh.talentWarm,enh.talents=nil,{}
+        enh.talentWarm=false
         trackedMana, trackedManaMax, trackedManaUpdatedAt, trackedLastSpendAt = nil, nil, nil, nil
         trackedCostsKnown, trackedSource = true, "uninitialized"
         trackedLastSpell, trackedLastCost, eventManaPct, eventManaAt = nil, 0, nil, nil
@@ -3170,7 +3187,10 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
             local identity = MainHandIdentity()
             if not identity or not trackedWeaponIdentity or identity ~= trackedWeaponIdentity then ClearTrackedWeapon(true) end
         end
-    elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then enh.shieldBlocked,enh.clearBlocked=nil,nil;M.RefreshManaCache()
+    elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+        enh.shieldBlocked,enh.clearBlocked=nil,nil
+        M.RefreshManaCache()
+        if event == "PLAYER_REGEN_ENABLED" then RefreshEnhancementTalents() end
     elseif SafeValue(unit) and unit == "player" and (not SafeValue(token) or token == nil or token == "MANA") then RefreshManaSensor() end
 end)
 function M.ManaPercent() return GateManaPercent(), lastManaSource end
@@ -3304,6 +3324,13 @@ AL.RegisterRotation("SHAMAN", M)
     function advanced.NextSpell(profile, ...)
         if UsesLeveling(profile) then
             wasLeveling = true
+            -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+            -- Core's Flame Shock timer is supplied by the full module even
+            -- while the original Leveling priority is active. Cache Call of
+            -- Flame while talent rows are readable outside combat.
+            if select(1, ...) ~= true and advanced.RefreshTalentCache then
+                advanced.RefreshTalentCache()
+            end
             return leveling.NextSpell(profile, ...)
         end
         if wasLeveling and advanced.OnRotationActivated then advanced.OnRotationActivated() end
@@ -3381,6 +3408,7 @@ AL.RegisterRotation("SHAMAN", M)
     local shamanHealing = {
         effects = {}, cooldowns = {}, totems = {}, flameShock = {},
         natureUntil = 0, manaTideUntil = 0,
+        friendlyDetourUntil = 0,
         lastHeal = nil, lastRacial = nil, lastCall = nil,
     }
     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -3443,22 +3471,14 @@ AL.RegisterRotation("SHAMAN", M)
         return SHBool(UnitExists, unit) == true
     end
     local function SHRosterUnits()
-        local units, raid = {}, false
-        for index = 1, 40 do
-            if SHExists("raid" .. index) then raid = true; break end
+        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+        -- Healing Rotation is dungeon-only; party tokens never include player.
+        local units = {}
+        for index = 1, 4 do
+            local unit = "party" .. index
+            if SHExists(unit) then units[#units + 1] = unit end
         end
-        if raid then
-            for index = 1, 40 do
-                local unit = "raid" .. index
-                if SHExists(unit) then units[#units + 1] = unit end
-            end
-        else
-            for index = 1, 4 do
-                local unit = "party" .. index
-                if SHExists(unit) then units[#units + 1] = unit end
-            end
-            units[#units + 1] = "player"
-        end
+        units[#units + 1] = "player"
         return units
     end
     local function SHGroupUnitFor(source)
@@ -3471,7 +3491,10 @@ AL.RegisterRotation("SHAMAN", M)
         end
     end
     local function SHHealingUnit()
-        return SHGroupUnitFor("target") or SHGroupUnitFor("focus")
+        -- Match the published healer macros exactly: mouseover, focus, self.
+        -- The focus pixel is normally updated before the cast; a live
+        -- mouseover still takes precedence when the user intervenes manually.
+        return SHGroupUnitFor("mouseover") or SHGroupUnitFor("focus") or "player"
     end
     local function SHUnitKey(unit)
         if type(unit) ~= "string" then return nil end
@@ -3501,27 +3524,6 @@ AL.RegisterRotation("SHAMAN", M)
         if not ok or SHSecret(role) or type(role) ~= "string" then return "NONE" end
         if role == "TANK" or role == "HEALER" or role == "DAMAGER" then return role end
         return "NONE"
-    end
-    local function SHRaidSubgroup(unit)
-        local index = type(unit) == "string" and tonumber(unit:match("^raid(%d+)$")) or nil
-        if not index then return nil end
-        if type(GetRaidRosterInfo) == "function" then
-            local values = { pcall(GetRaidRosterInfo, index) }
-            local ok, subgroup = values[1], values[4]
-            subgroup = ok and SHNumber(subgroup) or nil
-            if subgroup then return subgroup end
-        end
-        -- Raid unit order normally follows five-player raid groups. This public
-        -- fallback limits the protected pair masks if roster metadata is absent.
-        return math.floor((index - 1) / 5) + 1
-    end
-    local function SHChainNeighbor(primary, secondary)
-        local primaryGroup = SHRaidSubgroup(primary)
-        local secondaryGroup = SHRaidSubgroup(secondary)
-        if primaryGroup or secondaryGroup then
-            return primaryGroup ~= nil and primaryGroup == secondaryGroup
-        end
-        return true
     end
     local function SHEffectActive(unit, spell)
         local key = SHUnitKey(unit)
@@ -3578,10 +3580,25 @@ AL.RegisterRotation("SHAMAN", M)
         end
         return selected
     end
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
     local function SHTotemDuration(spell)
-        if spell == "Searing Totem" then return 30 end
+        if spell == "Searing Totem" then
+            local ref = root.rangeSpellRefs and root.rangeSpellRefs[spell]
+            local id = ref and SHNumber(ref.id) or nil
+            return ({ [3599] = 30, [6363] = 35, [6364] = 40,
+                [6365] = 45, [10437] = 50, [10438] = 55 })[id] or 30
+        end
         if spell == "Mana Tide Totem" then return 12 end
-        return 300
+        return ({
+			["Magma Totem"] = 20,
+			["Fire Resistance Totem"] = 300,
+			["Strength of Earth Totem"] = 300, ["Stoneskin Totem"] = 300,
+            ["Stoneclaw Totem"] = 15, ["Earthbind Totem"] = 45,
+			["Tremor Totem"] = 300, ["Healing Stream Totem"] = 300,
+			["Mana Spring Totem"] = 300, ["Poison Cleansing Totem"] = 300,
+			["Frost Resistance Totem"] = 300, ["Windfury Totem"] = 300,
+            ["Grace of Air Totem"] = 300,
+		})[spell] or 300
     end
     local function SHTrackTotem(spell, now)
         local element = SH_TOTEM_ELEMENT[spell]
@@ -3602,8 +3619,7 @@ AL.RegisterRotation("SHAMAN", M)
         if type(GetTotemInfo) == "function" then
             for slot = 1, 4 do
                 local ok, have, name, start, duration = pcall(GetTotemInfo, slot)
-                if ok and not SHSecret(have) and not SHSecret(name)
-                    and not SHSecret(start) and not SHSecret(duration) then
+                if ok and not SHSecret(have) and not SHSecret(name) then
                     local present = have == true or have == 1
                     if type(name) == "string" then
                         name = (root.englishNames and root.englishNames[name]) or name
@@ -3675,10 +3691,11 @@ AL.RegisterRotation("SHAMAN", M)
         return SHEffectActive("player", "Water Shield")
     end
     local function SHMoving()
-        if type(GetUnitSpeed) ~= "function" then return false end
+        if type(GetUnitSpeed) ~= "function" then return nil end
         local ok, speed = pcall(GetUnitSpeed, "player")
         speed = ok and SHNumber(speed) or nil
-        return speed and speed > 0 or false
+        if speed == nil then return nil end
+        return speed > 0
     end
     local function SHManualSpell(profile)
         if SHAvailable("Healing Wave", profile) then return "Healing Wave" end
@@ -3745,6 +3762,8 @@ AL.RegisterRotation("SHAMAN", M)
 
     function advanced.HealingEngineDamagePlan(profile, context)
         if type(context) ~= "table" or not context.enemyCombat then return false end
+        if type(profile) ~= "table" or SHSecret(profile.flameshock)
+            or profile.flameshock ~= true then return false end
         if not SHAvailable("Flame Shock", profile) then return false end
         local key = SHUnitKey("target")
         local expiration = key and shamanHealing.flameShock[key]
@@ -3780,16 +3799,19 @@ AL.RegisterRotation("SHAMAN", M)
                 local sinceCall = shamanHealing.lastCall
                     and now - shamanHealing.lastCall.at or nil
                 local recentIncompleteCall = sinceCall and sinceCall >= 0.5 and sinceCall < 60
+                local callAdded = false
                 if SHKnown("Call of the Elements") and not presetMismatch
-                    and not recentIncompleteCall then
-                    if not SHMoving() and SHAvailable("Call of the Elements", profile) then
+                    and not recentIncompleteCall and SHMoving() == false then
+                    if SHAvailable("Call of the Elements", profile) then
                         maintenance[#maintenance + 1] = {
                             spell = "Call of the Elements",
                             reason = "Restoration: restore selected Call preset",
                             unit = "player", rangeUnit = "player", visibility = "always",
                         }
+                        callAdded = true
                     end
-                else
+                end
+                if not callAdded then
                     -- A confirmed different or incomplete in-game preset is
                     -- repaired with individual totems. This avoids looping
                     -- Call when a saved Totem Bar preset is empty or stale.
@@ -3833,8 +3855,8 @@ AL.RegisterRotation("SHAMAN", M)
             for _, primary in ipairs(roster) do
                 if SHUnitEligible(primary) and SHEffectActive(primary, "Riptide") then
                     for _, secondary in ipairs(roster) do
-                        if secondary ~= primary and SHUnitEligible(secondary)
-                            and SHChainNeighbor(primary, secondary) then
+                        -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+                        if secondary ~= primary and SHUnitEligible(secondary) then
                             routine[#routine + 1] = {
                                 spell = "Chain Heal",
                                 reason = "Restoration: Riptide group Chain Heal",
@@ -3946,9 +3968,31 @@ AL.RegisterRotation("SHAMAN", M)
     end
     shamanHealingEvents:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_TARGET_CHANGED" then
-            -- When a combat target GUID is protected, the timer falls back to
-            -- the public "target" token. Never carry that fallback to a new mob.
-            shamanHealing.flameShock.target = nil
+            local hostile = SHBool(UnitCanAttack, "player", "target")
+            if hostile == false or not SHExists("target") then
+                -- Keep the current hostile fallback through a brief manual
+                -- friendly-target detour used for distress healing.
+                shamanHealing.friendlyDetourUntil = SHNow() + 5
+            elseif hostile == true and shamanHealing.friendlyDetourUntil > SHNow() then
+                shamanHealing.friendlyDetourUntil = 0
+            else
+                -- A separately selected hostile target must earn its own DoT.
+                shamanHealing.flameShock.target = nil
+                shamanHealing.friendlyDetourUntil = 0
+            end
+            return
+        end
+        if event == "GROUP_ROSTER_UPDATE" then
+            -- Preserve live HoTs, cooldowns, totems and emergency sequences.
+            -- Only discard effects whose GUID/token is no longer represented.
+            local present = {}
+            for _, unit in ipairs(SHRosterUnits()) do
+                local key = SHUnitKey(unit)
+                if key then present[key] = true end
+            end
+            for key in pairs(shamanHealing.effects) do
+                if not present[key] then shamanHealing.effects[key] = nil end
+            end
             return
         end
         shamanHealing.effects = {}
@@ -3956,6 +4000,7 @@ AL.RegisterRotation("SHAMAN", M)
         shamanHealing.flameShock = {}
         shamanHealing.natureUntil = 0
         shamanHealing.manaTideUntil = 0
+        shamanHealing.friendlyDetourUntil = 0
     end)
 
     root.RegisterRotation("SHAMAN", advanced)

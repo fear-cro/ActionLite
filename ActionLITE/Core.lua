@@ -19,6 +19,19 @@ AL.defaults = {
 	healingEngine = false, healingInitiateHP = 80, healingEmergencyHP = 30,
 }
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Forever can return secret booleans from otherwise ordinary unit APIs while
+-- combat execution is tainted.  All shared state checks normalize those values
+-- to nil so callers can fail closed without attempting a Lua boolean test.
+function AL.SafeBoolean(func, ...)
+	if type(func) ~= "function" then return nil end
+	local ok, value = pcall(func, ...)
+	if not ok or (issecretvalue and issecretvalue(value)) then return nil end
+	if value == true or value == 1 then return true end
+	if value == false or value == 0 then return false end
+	return nil
+end
+
 AL.burst = false
 -- global so the "/run ActionLite_Burst()" macro can reach it
 function ActionLite_Burst()
@@ -103,6 +116,16 @@ end
 
 function AL.RegisterRotation(token, module)
 	AL.rotations[token] = module
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Retire saved level-60 selections as soon as the final class module is
+	-- registered. Rotation event frames cannot observe an old spec flag before
+	-- the first UI paint or recommendation tick. Brand-new profiles still use
+	-- the module defaults when the database is initialized later.
+	local saved = type(ActionLiteDB) == "table" and type(ActionLiteDB.profiles) == "table"
+		and ActionLiteDB.profiles[token] or nil
+	if type(saved) == "table" and type(module.NormalizeBuild) == "function" then
+		pcall(module.NormalizeBuild, saved)
+	end
 	-- Keep listed spells available for artwork selection and manual queues.
 	-- Zero is an unresolved reference: ScanSpellbook replaces it only after
 	-- the live book confirms a learned spell, never with an invented spell ID.
@@ -220,7 +243,164 @@ function AL.SetClassIcon(tex, token)
 	end
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- A cast request which the client accepts but never starts or completes can
+-- otherwise pin the rotation on one unreadable/broken action icon forever.
+-- A rejected spell stays skipped for the rest of combat, unless a later
+-- successful manual cast proves that its icon is readable again.
+local SPELL_ATTEMPT_TIMEOUT = 2
+local SPELL_WARNING_SECONDS = 5
+local spellAttemptBlacklist = {}
+local spellAttemptPending
+local spellReadabilityWarning
+
+local function PublicSpellName(value)
+	if type(value) ~= "string" or value == ""
+		or (issecretvalue and issecretvalue(value)) then return nil end
+	return (AL.englishNames and AL.englishNames[value]) or value
+end
+
+function AL.IsSpellBlacklisted(spell)
+	spell = PublicSpellName(spell)
+	if not spell then return false end
+	local expiration = spellAttemptBlacklist[spell]
+	if type(expiration) ~= "number" then return false end
+	local now = GetTime and GetTime() or 0
+	if expiration <= now then
+		spellAttemptBlacklist[spell] = nil
+		return false
+	end
+	return true
+end
+
+function AL.BlacklistSpell(spell, seconds, reason)
+	spell = PublicSpellName(spell)
+	if not spell then return false end
+	local now = GetTime and GetTime() or 0
+	local duration = type(seconds) == "number" and math.max(1, seconds) or nil
+	spellAttemptBlacklist[spell] = duration and (now + duration) or math.huge
+	spellReadabilityWarning = {
+		spell = spell,
+		text = spell .. " icon was not readable",
+		expires = now + SPELL_WARNING_SECONDS,
+	}
+	if AL.Log then
+		AL.Log("cast", "warn", spellReadabilityWarning.text, {
+			blacklistSeconds = duration or "until combat ends",
+			reason = reason or "cast did not start within two seconds",
+		})
+	end
+	return true
+end
+
+function AL.ClearSpellBlacklist(spell)
+	spell = PublicSpellName(spell)
+	if spell then
+		spellAttemptBlacklist[spell] = nil
+		if spellAttemptPending and spellAttemptPending.spell == spell then spellAttemptPending = nil end
+		return
+	end
+	for name in pairs(spellAttemptBlacklist) do spellAttemptBlacklist[name] = nil end
+	spellAttemptPending, spellReadabilityWarning = nil, nil
+end
+
+function AL.GetSpellReadabilityWarning()
+	local warning = spellReadabilityWarning
+	local now = GetTime and GetTime() or 0
+	if not warning or type(warning.expires) ~= "number" or warning.expires <= now then
+		spellReadabilityWarning = nil
+		return nil
+	end
+	return warning.text, warning.spell, warning.expires - now
+end
+
+function AL.SpellBlacklistState()
+	local active, now = {}, GetTime and GetTime() or 0
+	for spell, expiration in pairs(spellAttemptBlacklist) do
+		if type(expiration) == "number" and expiration > now then
+			active[spell] = expiration == math.huge and "combat" or (expiration - now)
+		end
+	end
+	return {
+		pending = spellAttemptPending and {
+			spell = spellAttemptPending.spell,
+			age = now - spellAttemptPending.at,
+			castGUID = spellAttemptPending.castGUID,
+		} or nil,
+		blacklisted = active,
+		warning = spellReadabilityWarning and spellReadabilityWarning.text or nil,
+	}
+end
+
+local function BeginSpellAttempt(spell, castGUID)
+	spell = PublicSpellName(spell)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Auto-repeat toggles commonly emit a redundant SENT/FAILED_QUIET while
+	-- already active. On-next-swing attacks can also remain queued for longer
+	-- than two seconds by design. Their dedicated timing modules own retry
+	-- protection, so neither case is evidence of an unreadable icon.
+	local unmanaged = {
+		["Attack"] = true, ["Auto Shot"] = true, ["Shoot"] = true,
+		["Heroic Strike"] = true, ["Cleave"] = true,
+		["Maul"] = true, ["Raptor Strike"] = true,
+	}
+	if not spell or unmanaged[spell] then return end
+	local now = GetTime and GetTime() or 0
+	-- Repeated failed key presses must not keep moving the two-second deadline.
+	if spellAttemptPending and spellAttemptPending.spell == spell
+		and now - spellAttemptPending.at < SPELL_ATTEMPT_TIMEOUT then return end
+	spellAttemptPending = { spell = spell, at = now, castGUID = castGUID }
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- A terminal failure proves that the client read and rejected the spell. It is
+-- therefore not the missing START/SUCCEEDED condition this watchdog detects.
+-- Clear only the matching attempt so an ordinary GCD, range, movement, or
+-- resource error cannot blacklist a valid learned spell for the whole fight.
+local function RejectSpellAttempt(spell, castGUID)
+	spell = PublicSpellName(spell)
+	local pending = spellAttemptPending
+	if not pending then return end
+	if castGUID and pending.castGUID and castGUID ~= pending.castGUID then return end
+	if spell and spell ~= pending.spell then return end
+	spellAttemptPending = nil
+end
+
+local function AcceptSpellAttempt(spell, castGUID)
+	spell = PublicSpellName(spell)
+	-- A successful manual retry is proof that a previously rejected spell can
+	-- be read again, even when no new pending watchdog record exists.
+	if spell then spellAttemptBlacklist[spell] = nil end
+	local pending = spellAttemptPending
+	if not pending then return end
+	if castGUID and pending.castGUID and castGUID ~= pending.castGUID then return end
+	if spell and spell ~= pending.spell then return end
+	spellAttemptPending = nil
+end
+
+function AL.PruneSpellAttempts()
+	local pending = spellAttemptPending
+	if not pending then return end
+	local now = GetTime and GetTime() or 0
+	if now - pending.at < SPELL_ATTEMPT_TIMEOUT then return end
+	spellAttemptPending = nil
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Outside combat there may be no PLAYER_REGEN_ENABLED event to clear an
+	-- indefinite blacklist. Use a short recovery window there; combat failures
+	-- remain skipped until combat ends as requested.
+	local duration
+	if type(UnitAffectingCombat) == "function" then
+		local ok, combat = pcall(UnitAffectingCombat, "player")
+		if ok and not (issecretvalue and issecretvalue(combat)) and combat == false then
+			duration = 30
+		end
+	end
+	AL.BlacklistSpell(pending.spell, duration,
+		"UNIT_SPELLCAST_SENT had no START, CHANNEL_START, or SUCCEEDED result")
+end
+
 function AL.Allowed(name, prof)
+	if AL.IsSpellBlacklisted(name) then return false end
 	local sp = (prof or AL.S()).spells
 	return not sp or sp[name] ~= false
 end
@@ -358,26 +538,33 @@ function AL.SpellCooldown(spell)
 	end
 	if GetSpellCooldown then
 		local ok, s, d = pcall(GetSpellCooldown, spell)
-		if ok then return s, d end
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- A successful API call may still contain secret fields. Never return
+		-- protected numbers to a caller which will compare or add them.
+		if ok and not (issecretvalue and (issecretvalue(s) or issecretvalue(d)))
+			and type(s) == "number" and type(d) == "number" then return s, d end
 		return nil
 	end
-	local ok, c = pcall(C_Spell.GetSpellCooldown, spell)
-	if preciseCooldownClass and (not ok or (issecretvalue and issecretvalue(c)) or type(c) ~= "table") then return nil end
-	if ok and c then return c.startTime, c.duration end
+	local reader = C_Spell and C_Spell.GetSpellCooldown
+	if type(reader) ~= "function" then return nil end
+	local ok, c = pcall(reader, spell)
+	if not ok or (issecretvalue and issecretvalue(c)) or type(c) ~= "table" then return nil end
+	local start, duration = c.startTime, c.duration
+	if (issecretvalue and (issecretvalue(start) or issecretvalue(duration)))
+		or type(start) ~= "number" or type(duration) ~= "number" then return nil end
+	return start, duration
 end
 
 -- blocked/secret usability reads count as usable; a real "no mana" still gates
 function AL.SpellUsable(spell)
 	local ok, usable, insufficient
-	if IsUsableSpell then
-		ok, usable, insufficient = pcall(IsUsableSpell, spell)
-	else
-		ok, usable, insufficient = pcall(C_Spell.IsSpellUsable, spell)
-	end
+	local reader = IsUsableSpell or (C_Spell and C_Spell.IsSpellUsable)
+	if type(reader) ~= "function" then return true end
+	ok, usable, insufficient = pcall(reader, spell)
 	if not ok then return true end
 	if issecretvalue and issecretvalue(usable) then return true end
 	if (issecretvalue and issecretvalue(insufficient)) or type(insufficient) ~= "boolean" then insufficient = nil end
-	return usable and true or false, insufficient
+	return usable == true, insufficient
 end
 
 function AL.HealthPercent(unit)
@@ -401,14 +588,19 @@ function AL.ItemCount(ids)
 end
 
 function AL.TargetCasting()
-	if not UnitExists("target") then return false end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Do not branch on UnitExists here: Forever may return a secret boolean in
+	-- combat.  The protected casting calls below already fail closed when there
+	-- is no readable target cast.
 	if UnitCastingInfo then
 		local ok, name = pcall(UnitCastingInfo, "target")
-		if ok and name and not (issecretvalue and issecretvalue(name)) then return true end
+		if ok and not (issecretvalue and issecretvalue(name))
+			and type(name) == "string" and name ~= "" then return true end
 	end
 	if UnitChannelInfo then
 		local ok, name = pcall(UnitChannelInfo, "target")
-		if ok and name and not (issecretvalue and issecretvalue(name)) then return true end
+		if ok and not (issecretvalue and issecretvalue(name))
+			and type(name) == "string" and name ~= "" then return true end
 	end
 	return false
 end
@@ -420,8 +612,14 @@ function AL.TargetHasAnyDebuff(names)
 	return false
 end
 
+local wandEquippedCache
 function AL.WandEquipped()
-	return GetInventoryItemID("player", 18) ~= nil
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local ok, itemID = pcall(GetInventoryItemID, "player", 18)
+	if ok and not (issecretvalue and issecretvalue(itemID)) then
+		wandEquippedCache = type(itemID) == "number" and itemID > 0
+	end
+	return wandEquippedCache == true
 end
 
 function AL.Ok(name)
@@ -763,7 +961,7 @@ AL.selfCastSpells = AL.selfCastSpells or {}
 -- true = in range, false = out of range, nil = unknown/no target
 function AL.InRange(spell)
 	if AL.selfCastSpells and AL.selfCastSpells[spell] then return true end
-	if not UnitExists("target") then return nil end
+	if AL.SafeBoolean(UnitExists, "target") == false then return nil end
 	local function Normalize(ok, value)
 		if not ok or (issecretvalue and issecretvalue(value)) then return nil end
 		if value == true or value == 1 then return true end
@@ -838,7 +1036,8 @@ local DEBUFF_DURATIONS = {
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	["Curse of the Elements"] = 300, ["Curse of Weakness"] = 120,
 	["Curse of Recklessness"] = 120, ["Curse of Tongues"] = 30, ["Curse of Exhaustion"] = 12,
-	["Moonfire"] = 9, ["Rake"] = 9, ["Rip"] = 12, ["Demoralizing Roar"] = 30,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Moonfire"] = 9, ["Insect Swarm"] = 12, ["Rake"] = 9, ["Rip"] = 12, ["Lacerate"] = 15, ["Demoralizing Roar"] = 30,
 	["Flame Shock"] = 12, ["Frost Shock"] = 8,
 	["Frost Nova"] = 8, ["Frostbolt"] = 5, ["Cone of Cold"] = 8,
 	["Gouge"] = 4, ["Expose Armor"] = 30, ["Rupture"] = 10,
@@ -857,7 +1056,8 @@ local BUFF_GROUPS = {
 	{ "Aspect of the Hawk", "Aspect of the Monkey", "Aspect of the Cheetah", "Aspect of the Beast" },
 	{ "Frost Armor", "Ice Armor", "Mage Armor" },
 	{ "Demon Skin", "Demon Armor" },
-	{ "Bear Form", "Dire Bear Form", "Cat Form", "Aquatic Form", "Travel Form" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ "Bear Form", "Dire Bear Form", "Cat Form", "Moonkin Form", "Aquatic Form", "Travel Form" },
 }
 local groupOf = {}
 for _, group in ipairs(BUFF_GROUPS) do
@@ -874,13 +1074,15 @@ local SELF_BUFF_DURATIONS = {
 	["Righteous Fury"] = 1800, ["Divine Protection"] = 8, ["Divine Shield"] = 12,
 	["Aspect of the Hawk"] = 3600, ["Aspect of the Monkey"] = 3600, ["Aspect of the Cheetah"] = 3600,
 	["Aspect of the Beast"] = 3600,
-	["Rapid Fire"] = 15,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Rapid Fire"] = 15, ["Trueshot Aura"] = 3600, ["Blood Fury"] = 15,
 	["Arcane Intellect"] = 1800, ["Frost Armor"] = 1800, ["Ice Armor"] = 1800, ["Mage Armor"] = 1800,
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	["Ice Block"] = 10, ["Mana Shield"] = 60, ["Berserking"] = 15,
+	["Ice Block"] = 10, ["Ice Barrier"] = 60, ["Mana Shield"] = 60, ["Berserking"] = 15,
 	["Mark of the Wild"] = 1800, ["Thorns"] = 600, ["Rejuvenation"] = 12,
 	["Nature's Swiftness"] = 10, ["Elune's Light"] = 15, ["Tiger's Fury"] = 6,
-	["Bear Form"] = 3600, ["Dire Bear Form"] = 3600, ["Prowl"] = 3600, ["Enrage"] = 10, ["Cat Form"] = 3600, ["Aquatic Form"] = 3600, ["Travel Form"] = 3600,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Bear Form"] = 3600, ["Dire Bear Form"] = 3600, ["Moonkin Form"] = 3600, ["Prowl"] = 3600, ["Enrage"] = 10, ["Cat Form"] = 3600, ["Aquatic Form"] = 3600, ["Travel Form"] = 3600,
 	["Power Word: Fortitude"] = 1800, ["Inner Fire"] = 600, ["Renew"] = 15, ["Power Word: Shield"] = 30,
 	["Stealth"] = 3600, ["Evasion"] = 15, ["Blade Flurry"] = 15, ["Slice and Dice"] = 12,
 	["Lightning Shield"] = 600, ["Water Shield"] = 600,
@@ -1032,11 +1234,19 @@ end
 -- Cooldowns are inferred from casts too: blocked/secret cooldown reads in
 -- combat made IsReady return false, so Holy Strike/Judgement never fired.
 local SPELL_COOLDOWNS = {
-	["Holy Strike"] = 6, ["Judgement"] = 10, ["Hammer of Justice"] = 60, ["Exorcism"] = 15,
+	["Holy Strike"] = 10, ["Judgement"] = 10, ["Hammer of Justice"] = 60, ["Exorcism"] = 15,
 	["Consecration"] = 8, ["Divine Protection"] = 300, ["Divine Shield"] = 300,
+	["Holy Shock"] = 10, ["Hammer of Wrath"] = 6, ["Hammer of the Righteous"] = 6,
+	["Holy Wrath"] = 60, ["Holy Shield"] = 10, ["Swift Judgement"] = 60,
+	["Templar's Bulwark"] = 300, ["Divine Favor"] = 120,
 	["Blessing of Protection"] = 300, ["Blessing of Freedom"] = 25, ["Lay on Hands"] = 3600,
 	["Arcane Shot"] = 6, ["Multi-Shot"] = 10, ["Raptor Strike"] = 6, ["Rapid Fire"] = 300, ["Disengage"] = 5,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Freezing Trap"] = 30, ["Frost Trap"] = 30, ["Immolation Trap"] = 30, ["Explosive Trap"] = 30,
 	["Fire Blast"] = 8, ["Frost Nova"] = 25, ["Cone of Cold"] = 10, ["Counterspell"] = 30,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Ice Barrier"] = 30,
+	["Arcane Wrath"] = 6,
 	["Ice Block"] = 300, ["Evocation"] = 480, ["Conjure Mana Agate"] = 30,
 	["Mind Blast"] = 8, ["Holy Fire"] = 10, ["Devouring Plague"] = 24, ["Vampiric Embrace"] = 30, ["Shadow Word: Death"] = 18,
 	["Psychic Scream"] = 30, ["Silence"] = 45, ["Desperate Prayer"] = 600, ["Fade"] = 30,
@@ -1046,9 +1256,11 @@ local SPELL_COOLDOWNS = {
 	["Gouge"] = 10, ["Kick"] = 10, ["Evasion"] = 300, ["Blade Flurry"] = 120, ["Stealth"] = 10,
 	["Vanish"] = 300, ["Riposte"] = 6,
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Ghostly Strike"] = 20,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	["Shank"] = 10, ["Death Mark"] = 10,
 	["Charge"] = 15, ["Bloodrage"] = 60, ["Bash"] = 60, ["Enrage"] = 600, ["Tiger's Fury"] = 1,
-	["Swiftmend"] = 15, ["Nature's Swiftness"] = 180, ["Tranquility"] = 300,
+	["Swiftmend"] = 15, ["Nature's Swiftness"] = 180, ["Tranquility"] = 300, ["Wild Growth"] = 6,
 	["Elune's Light"] = 180,
 	["Overpower"] = 5, ["Revenge"] = 5, ["Thunder Clap"] = 4,
 	["Mongoose Bite"] = 5, ["Concussive Shot"] = 12, ["Summon Hawk"] = 6,
@@ -1056,6 +1268,11 @@ local SPELL_COOLDOWNS = {
 	["Stormstrike"] = 6, ["Riptide"] = 12, ["Mana Tide Totem"] = 300,
 	["Lightning Mastery"] = 180, ["Totemic Call"] = 30,
 	["Blood Fury"] = 120, ["Berserking"] = 180, ["War Stomp"] = 120,
+}
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local HUNTER_TRAPS = {
+	["Freezing Trap"] = true, ["Frost Trap"] = true,
+	["Immolation Trap"] = true, ["Explosive Trap"] = true,
 }
 local cdExpires = {}
 local preciseCooldowns = {}
@@ -1149,9 +1366,10 @@ end
 AL.SweepBuffs = SweepBuffs
 
 local function SweepTargetDebuffs()
-	if UnitExists("target") then
+	local exists = AL.SafeBoolean(UnitExists, "target")
+	if exists == true then
 		debuffValid = SweepAuras("target", true, tooltipDebuffs)
-	else
+	elseif exists == false then
 		wipe(tooltipDebuffs)
 		debuffValid = true
 	end
@@ -1218,6 +1436,14 @@ end
 if not pcall(debuffFrame.RegisterUnitEvent, debuffFrame, "UNIT_SPELLCAST_INTERRUPTED", "player") then
 	pcall(debuffFrame.RegisterEvent, debuffFrame, "UNIT_SPELLCAST_INTERRUPTED")
 end
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- The shared two-second cast watchdog must see these events for every class,
+-- including rotations which do not otherwise need cast-time tracking.
+for _, event in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_FAILED_QUIET" }) do
+	if not pcall(debuffFrame.RegisterUnitEvent, debuffFrame, event, "player") then
+		pcall(debuffFrame.RegisterEvent, debuffFrame, event)
+	end
+end
 if trackedCastClass then
 	for _, event in ipairs({ "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_DELAYED" }) do
 		if not pcall(debuffFrame.RegisterUnitEvent, debuffFrame, event, "player") then
@@ -1237,6 +1463,9 @@ if type(CombatLogGetCurrentEventInfo) == "function" then
 	pcall(debuffFrame.RegisterEvent, debuffFrame, "COMBAT_LOG_EVENT_UNFILTERED")
 end
 pcall(debuffFrame.RegisterEvent, debuffFrame, "UI_ERROR_MESSAGE")
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+pcall(debuffFrame.RegisterEvent, debuffFrame, "PLAYER_REGEN_ENABLED")
+pcall(debuffFrame.RegisterEvent, debuffFrame, "PLAYER_ENTERING_WORLD")
 
 -- best-effort spell-name extraction across client arg layouts and secret values
 local function LegacyCastName(arg2, arg3, arg4)
@@ -1308,12 +1537,37 @@ local function ReadCastGUID(value)
 	end
 end
 
-local function CastTargetGUID()
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function WatchSpellAttempt(event, arg2, arg3, arg4)
+	local name = EnglishCastName(arg2, arg3, arg4)
+	local guid = ReadCastGUID(arg2)
+	if event == "UNIT_SPELLCAST_SENT" then
+		guid = ReadCastGUID(arg3)
+		-- Never substitute the displayed recommendation for a protected event.
+		-- The player may have manually cast another spell, and a HealingEngine
+		-- overlay may differ from the underlying damage suggestion.
+		BeginSpellAttempt(name, guid)
+	elseif event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START"
+		or event == "UNIT_SPELLCAST_SUCCEEDED" then
+		-- START/CHANNEL_START proves a long cast was accepted; do not punish a
+		-- three-second cast merely because SUCCEEDED arrives after two seconds.
+		AcceptSpellAttempt(name, guid)
+	elseif event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
+		or event == "UNIT_SPELLCAST_INTERRUPTED" then
+		RejectSpellAttempt(name, guid)
+	end
+end
+
+local function PublicUnitGUID(unit)
 	if type(UnitGUID) ~= "function" then return nil end
-	local ok, guid = pcall(UnitGUID, "target")
+	local ok, guid = pcall(UnitGUID, unit)
 	if ok and type(guid) == "string" and not (issecretvalue and issecretvalue(guid)) then
 		return guid
 	end
+end
+
+local function CastTargetGUID()
+	return PublicUnitGUID("target")
 end
 
 local function HasReadableCastID(arg3, arg4)
@@ -1459,11 +1713,16 @@ local function ClearCastingFor(value)
 end
 
 debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_ENTERING_WORLD" then
+		AL.ClearSpellBlacklist()
+		return
+	end
 	if event == "UI_ERROR_MESSAGE" then
 		-- old clients pass (message), new ones (messageType, message)
 		local msg = type(arg2) == "string" and arg2 or (type(unit) == "string" and unit or nil)
 		ComboRotationHook("OnUIError", msg)
-		if msg and not (issecretvalue and issecretvalue(msg))
+		if type(msg) == "string" and not (issecretvalue and issecretvalue(msg)) and msg ~= ""
 			and ERR_SPELL_UNLEARNED and msg == ERR_SPELL_UNLEARNED
 			and AL.lastSuggestion and AL.known[AL.lastSuggestion] then
 			AL.unlearned[AL.lastSuggestion] = true
@@ -1477,17 +1736,21 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		if not CombatLogGetCurrentEventInfo then return end
 		local ok, _, sub, _, srcGUID, _, _, _, destGUID, _, _, _, _, spellName, _, missType = pcall(CombatLogGetCurrentEventInfo)
 		if not ok then return end
-		if issecretvalue and (issecretvalue(sub) or issecretvalue(srcGUID) or issecretvalue(spellName) or issecretvalue(missType)) then return end
-		if sub ~= "SPELL_MISSED" or type(spellName) ~= "string" then return end
+		if issecretvalue and (issecretvalue(sub) or issecretvalue(srcGUID) or issecretvalue(destGUID)
+			or issecretvalue(spellName) or issecretvalue(missType)) then return end
+		if sub ~= "SPELL_MISSED" or type(spellName) ~= "string"
+			or type(srcGUID) ~= "string" or type(destGUID) ~= "string" then return end
 		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 		if AL.playerClass == "DRUID" or AL.playerClass == "HUNTER" or AL.playerClass == "SHAMAN" or AL.playerClass == "ROGUE" then
 			spellName = (AL.englishNames and AL.englishNames[spellName]) or spellName
 		end
-		if srcGUID ~= UnitGUID("player") then return end
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- Miss repair is optional. If combat hides either identity, skip it rather
+		-- than comparing or truth-testing a protected GUID.
+		local playerGUID, targetGUID = PublicUnitGUID("player"), PublicUnitGUID("target")
+		if not playerGUID or not targetGUID or srcGUID ~= playerGUID or destGUID ~= targetGUID then return end
 		-- ABSORB/BLOCK stop the damage but the aura still lands
 		if missType == "ABSORB" or missType == "BLOCK" then return end
-		local tguid = UnitGUID("target")
-		if tguid and not (issecretvalue and issecretvalue(destGUID)) and destGUID ~= tguid then return end
 		local restored = AL.RestoreComboPointsOnMiss(spellName)
 		if AL.Log then
 			AL.Log("combat", "info", "miss: " .. spellName .. " (" .. tostring(missType) .. ")", {
@@ -1555,6 +1818,8 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		return
 	end
 	if (issecretvalue and issecretvalue(unit)) or unit ~= "player" then return end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	WatchSpellAttempt(event, arg2, arg3, arg4)
 	local name, sent, matches, inferred
 	if trackedCastClass then
 		if event == "UNIT_SPELLCAST_SENT" then
@@ -1665,14 +1930,33 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		spentCombo = AL.TrackComboCast(name)
 	end
 	local cd = SPELL_COOLDOWNS[name]
-	-- LIKELY Forever fallback: the player reported Holy Strike roughly four
-	-- seconds early with the old six-second timer. Readable cooldowns win.
-	if AL.playerClass == "PALADIN" and name == "Holy Strike" then cd = 10 end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Base Holy Strike is ten seconds. Shieldsworn reduces it by four seconds;
+	-- prefer the live learned-rank base cooldown whenever the client exposes it.
+	if AL.playerClass == "PALADIN" and name == "Holy Strike" then
+		cd = AL.known and AL.known["Shieldsworn"] and 6 or 10
+		local reader = C_Spell and C_Spell.GetSpellBaseCooldown or GetSpellBaseCooldown
+		local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[name]
+		if type(reader) == "function" then
+			local ok, milliseconds = pcall(reader, ref and ref.id or name)
+			if ok and not (issecretvalue and issecretvalue(milliseconds))
+				and type(milliseconds) == "number" and milliseconds > 1500 and milliseconds < 600000 then
+				cd = milliseconds / 1000
+			end
+		end
+	end
 	if cd then
 		cdExpires[name] = time() + cd
 		if preciseCooldownClass then
 			preciseCooldowns[name] = { ends = GetTime() + cd, epoch = cdExpires[name] }
 		end
+	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Forever gives every trap one shared thirty-second cooldown. Propagate a
+	-- confirmed trap cast so protected cooldown data cannot suggest another.
+	if AL.playerClass == "HUNTER" and HUNTER_TRAPS[name] then
+		local expiration = time() + 30
+		for trap in pairs(HUNTER_TRAPS) do cdExpires[trap] = expiration end
 	end
 	local buffName, sdur = name, SELF_BUFF_DURATIONS[name]
 	if AL.playerClass == "PALADIN" and PALADIN_SEALS[name] then sdur = paladinSealDurations[name] or sdur end
@@ -1727,7 +2011,8 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		end)
 		if ok and type(adjusted) == "number" and adjusted >= dur and adjusted <= 60 then dur = adjusted end
 	end
-	if dur and UnitExists("target") and (not trackedCastClass or not sent or matches) then
+	local targetExists = AL.SafeBoolean(UnitExists, "target")
+	if dur and targetExists ~= false and (not trackedCastClass or not sent or matches) then
 		if AL.playerClass == "WARLOCK" and UTILITY_CURSES[name] then
 			for curse in pairs(UTILITY_CURSES) do targetDebuffs[curse] = nil end
 		end
@@ -1809,6 +2094,8 @@ function AL.DebugState()
 		playerDebuffValid = playerDebuffValid, tooltipPlayerDebuffs = tooltipPlayerDebuffs, playerDebuffs = playerDebuffs,
 		debuffValid = debuffValid, tooltipDebuffs = tooltipDebuffs, targetDebuffs = targetDebuffs,
 		cdExpires = cdExpires, inferredCp = inferredCp,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		spellBlacklist = AL.SpellBlacklistState(),
 	}
 end
 
@@ -1884,7 +2171,8 @@ function AL.IsReady(spell)
 		if precise and precise.epoch == expiration then return precise.ends <= GetTime() end
 		return not expiration or expiration <= time()
 	end
-	if start and not (issecretvalue and (issecretvalue(start) or issecretvalue(duration))) then
+	if type(start) == "number" and type(duration) == "number"
+		and not (issecretvalue and (issecretvalue(start) or issecretvalue(duration))) then
 		-- duration <= 1.5 is just the GCD
 		return start == 0 or duration <= 1.5 or (start + duration - GetTime()) <= 0.2
 	end
@@ -1902,9 +2190,12 @@ AL.unlearned = {}
 -- Highest learned rank by spell name, rebuilt with the spellbook. Display.lua
 -- uses it to render red out of range and normal color once the cast is in range.
 AL.rangeSpellRefs = AL.rangeSpellRefs or {}
-if trackedCastClass then
-	AL.castSpellNamesByID, AL.localNames, AL.englishNames = {}, {}, {}
-end
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- The two-second readability watchdog runs for every class. Keep learned-rank
+-- and localized-name maps for every class as well, including Priest/Warrior,
+-- so a localized cast event blacklists the same stable English spell key that
+-- the Leveling rotation returns.
+AL.castSpellNamesByID, AL.localNames, AL.englishNames = {}, {}, {}
 
 -- The book lists spells before they're trainable; those slots report FUTURESPELL
 local function BookItemIsFuture(i)
@@ -1926,7 +2217,9 @@ function AL.ScanSpellbook()
 	wipe(AL.known)
 	wipe(AL.rangeSpellRefs)
 	wipe(AL.futureSpells)
-	if trackedCastClass then wipe(AL.castSpellNamesByID) end
+	wipe(AL.castSpellNamesByID)
+	wipe(AL.localNames)
+	wipe(AL.englishNames)
 	local i, misses = 1, 0
 	while misses < 40 and i <= 2048 do
 		local ok, name = pcall(BookItemName, i)
@@ -1938,7 +2231,7 @@ function AL.ScanSpellbook()
 			elseif not AL.unlearned[name] then
 				AL.known[name] = true
 				local okID, spellID = pcall(BookItemSpellID, i)
-				if trackedCastClass and okID and type(spellID) == "number"
+				if okID and type(spellID) == "number"
 					and not (issecretvalue and issecretvalue(spellID)) then
 					AL.castSpellNamesByID[spellID] = name
 				end
@@ -1956,10 +2249,10 @@ function AL.ScanSpellbook()
 		end
 		i = i + 1
 	end
-	if trackedCastClass then
-		-- non-English clients list localized names; map them back through the rotation's IDs
-		wipe(AL.localNames)
-		wipe(AL.englishNames)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Non-English clients list localized names; map them back through the
+	-- rotation's stable spell IDs for both rotation gates and the watchdog.
+	do
 		local mod = AL.rotations[AL.playerClass]
 		for _, entry in ipairs(mod and mod.spells or {}) do
 			local id, english = entry[1], entry[2]
@@ -1995,6 +2288,8 @@ function AL.ScanSpellbook()
 				AL.castSpellNamesByID[id] = english
 			end
 		end
+	end
+	if trackedCastClass then
 		WarlockManaHook("RefreshManaCache")
 		RefreshRogueSliceDurations()
 	end
@@ -2013,8 +2308,11 @@ function AL.ScanSpellbook()
 end
 
 function AL.TargetInMelee()
-	local ok, r = pcall(CheckInteractDistance, "target", 3)
-	return ok and r
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- A secret interact result cannot be used in a Lua condition.  Returning nil
+	-- makes optional melee actions fail closed until the client exposes a safe
+	-- range signal.
+	return AL.SafeBoolean(CheckInteractDistance, "target", 3)
 end
 
 -- Any active player channel is normally a deliberate wait state. Drain Soul
@@ -2080,21 +2378,22 @@ function AL.PlayerChanneling()
 end
 
 function AL.Paused(s)
-	if s.p_dead and UnitIsDeadOrGhost("player") then return true end
-	if s.p_mounted and IsMounted and IsMounted() then return true end
-	if s.p_targeting and SpellIsTargeting and SpellIsTargeting() then return true end
+	if s.p_dead and AL.SafeBoolean(UnitIsDeadOrGhost, "player") == true then return true end
+	if s.p_mounted and AL.SafeBoolean(IsMounted) == true then return true end
+	if s.p_targeting and AL.SafeBoolean(SpellIsTargeting) == true then return true end
 	if s.p_vehicle and UnitInVehicle then
-		local ok, v = pcall(UnitInVehicle, "player")
-		if ok and v then return true end
+		if AL.SafeBoolean(UnitInVehicle, "player") == true then return true end
 	end
 	if s.p_loot and LootFrame and LootFrame:IsShown() then return true end
 	if s.p_eating and (AL.HasBuff("player", "Food") or AL.HasBuff("player", "Drink")) then return true end
-	if s.p_ooc and not UnitAffectingCombat("player") then return true end
+	if s.p_ooc and AL.SafeBoolean(UnitAffectingCombat, "player") == false then return true end
 	return false
 end
 
 -- Returns spell name, reason
 function AL.NextSpell()
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	AL.PruneSpellAttempts()
 	local s = AL.S()
 	if AL.Paused(s) then return nil, "Ready" end
 
@@ -2112,7 +2411,8 @@ function AL.NextSpell()
 	AL.PruneQueue()
 	while AL.queue[1] do
 		local q = AL.queue[1].spell
-		if AL.known[q] then
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		if AL.known[q] and not AL.IsSpellBlacklisted(q) then
 			local extra = #AL.queue > 1 and (" (+" .. (#AL.queue - 1) .. ")") or ""
 			return q, "queued" .. extra
 		end
@@ -2120,9 +2420,12 @@ function AL.NextSpell()
 	end
 	local mod = AL.rotations[AL.playerClass]
 	if not mod or not mod.NextSpell then return nil, "Ready" end
-	local inCombat = UnitAffectingCombat("player")
-	local hostile = UnitExists("target") and UnitCanAttack("player", "target")
-		and not (s.p_targetdead and UnitIsDeadOrGhost("target"))
+	local inCombat = AL.SafeBoolean(UnitAffectingCombat, "player") == true
+	local targetExists = AL.SafeBoolean(UnitExists, "target")
+	local targetAttackable = AL.SafeBoolean(UnitCanAttack, "player", "target")
+	local targetDead = AL.SafeBoolean(UnitIsDeadOrGhost, "target")
+	local hostile = targetExists == true and targetAttackable == true
+		and not (s.p_targetdead and targetDead ~= false)
 	local healing = AL.HealingEngine
 	if healing and type(healing.BaseSuggestion) == "function" then
 		local ok, spell, reason, handled = pcall(healing.BaseSuggestion, healing, s, inCombat, hostile)
@@ -2136,5 +2439,41 @@ function AL.NextSpell()
 			end
 		end
 	end
-	return mod.NextSpell(s, inCombat, hostile)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Most class modules already call AL.Allowed, which observes the temporary
+	-- blacklist. Older Leveling branches sometimes test AL.known directly, so
+	-- mask a rejected spell only long enough to ask for their next priority.
+	local hidden = {}
+	local hadSpellTable = type(s.spells) == "table"
+	if not hadSpellTable then s.spells = {} end
+	local function RestoreHidden()
+		for name, state in pairs(hidden) do
+			AL.known[name] = state.known
+			if state.hadSetting then s.spells[name] = state.setting else s.spells[name] = nil end
+		end
+		if not hadSpellTable and next(s.spells) == nil then s.spells = nil end
+	end
+	for _ = 1, 12 do
+		local ok, spell, reason = pcall(mod.NextSpell, s, inCombat, hostile)
+		if not ok then
+			RestoreHidden()
+			error(spell)
+		end
+		if not spell or not AL.IsSpellBlacklisted(spell) then
+			RestoreHidden()
+			return spell, reason
+		end
+		if hidden[spell] then
+			RestoreHidden()
+			return nil, spell .. " temporarily skipped"
+		end
+		hidden[spell] = {
+			known = AL.known[spell],
+			hadSetting = s.spells[spell] ~= nil,
+			setting = s.spells[spell],
+		}
+		AL.known[spell], s.spells[spell] = nil, false
+	end
+	RestoreHidden()
+	return nil, "Temporarily skipped unreadable spell icons"
 end
