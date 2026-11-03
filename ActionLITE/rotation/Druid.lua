@@ -1997,7 +1997,8 @@ B.base={['Primal Bite']=6,Growl=8,Bash=60,Enrage=60,['Feral Charge']=15,
  ['Challenging Roar']=600,['Frenzied Regeneration']=180,Barkskin=60,
  ["Elune's Light"]=180,Berserking=180}
 B.buffDuration={Barkskin=15,['Frenzied Regeneration']=10,Enrage=10,
- ["Elune's Light"]=15,Berserking=10,Rejuvenation=12,['Mark of the Wild']=1800,Thorns=600}
+ -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+ ["Elune's Light"]=15,Berserking=15,Rejuvenation=12,['Mark of the Wild']=1800,Thorns=600}
 B.dotDuration={Lacerate=15,['Demoralizing Roar']=30,['Faerie Fire']=40}
 B.ranks={}
 for name,ids in pairs({['Primal Bite']={407995,1238069,1238070},

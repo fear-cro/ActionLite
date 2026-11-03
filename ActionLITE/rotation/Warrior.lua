@@ -4353,7 +4353,8 @@ local function ArmsBurst(s,rage,targetHP,stance)
 		end
 	end
 	if s.armsBloodFury and not FuryBurstActive("Blood Fury",15) then FuryOffer("Blood Fury","Arms Burst: learned racial",rage,0,{gate}) end
-	if s.armsBerserking and not FuryBurstActive("Berserking",10) then FuryOffer("Berserking","Arms Burst: learned racial",rage,0,{gate}) end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if s.armsBerserking and not FuryBurstActive("Berserking",15) then FuryOffer("Berserking","Arms Burst: learned racial",rage,0,{gate}) end
 end
 
 local function NextArms(s,inCombat,hostile)

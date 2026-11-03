@@ -876,7 +876,8 @@ local SELF_BUFF_DURATIONS = {
 	["Aspect of the Beast"] = 3600,
 	["Rapid Fire"] = 15,
 	["Arcane Intellect"] = 1800, ["Frost Armor"] = 1800, ["Ice Armor"] = 1800, ["Mage Armor"] = 1800,
-	["Ice Block"] = 10, ["Mana Shield"] = 60, ["Berserking"] = 10,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Ice Block"] = 10, ["Mana Shield"] = 60, ["Berserking"] = 15,
 	["Mark of the Wild"] = 1800, ["Thorns"] = 600, ["Rejuvenation"] = 12,
 	["Nature's Swiftness"] = 10, ["Elune's Light"] = 15, ["Tiger's Fury"] = 6,
 	["Bear Form"] = 3600, ["Dire Bear Form"] = 3600, ["Prowl"] = 3600, ["Enrage"] = 10, ["Cat Form"] = 3600, ["Aquatic Form"] = 3600, ["Travel Form"] = 3600,

@@ -1691,7 +1691,8 @@ local combatCooldowns = { ["Adrenaline Rush"] = 300, ["Blade Flurry"] = 120,
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	["Shank"] = 10, ["Death Mark"] = 10 }
 local combatDurations = { ["Adrenaline Rush"] = 15, ["Blade Flurry"] = 15,
-	["Blood Fury"] = 15, ["Berserking"] = 10, ["Ghostly Strike"] = 7, ["Vanish"] = 10,
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	["Blood Fury"] = 15, ["Berserking"] = 15, ["Ghostly Strike"] = 7, ["Vanish"] = 10,
 	["Cold Blood"] = math.huge }
 local combatEnds, combatCastAt, combatBuffEnds, combatRetry = {}, {}, {}, {}
 local combatIDs = {}
