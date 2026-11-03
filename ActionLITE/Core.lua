@@ -79,7 +79,8 @@ AL.SpellTextureOverrides = {
 	PALADIN = {
 		["Blessing of Kings"] = 135995,
 		["Greater Blessing of Kings"] = 135995,
-		["Blessing of Light"] = 135943,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- Blessing of Light was removed; only live Paladin blessings retain overrides.
 		["Blessing of Might"] = 135906,
 		["Blessing of Wisdom"] = 135970,
 	},

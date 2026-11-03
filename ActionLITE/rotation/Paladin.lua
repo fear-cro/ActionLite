@@ -1,6 +1,7 @@
 local ADDON, AL = ...
 
--- ActionLITE Paladin v0.15.0: original Leveling, optional talent builds and Holy Healing Rotation.
+-- ActionLITE Paladin v0.15.1: original Leveling, optional talent builds and Holy Healing Rotation.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 
 -- Leveling keeps the finalized pre-simulation implementation in its own
 -- scope. Talent builds use the separate implementation below. Both observe
@@ -1181,9 +1182,8 @@ M.spells = {
 	{ 2812, "Holy Wrath" },
 	{ 20925, "Holy Shield" },
 	{ 1310994, "Swift Judgement" },
-	{ 0, "Salvation" },
-	{ 0, "Mass Salvation" },
-	{ 0, "Revoke" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Salvation, Mass Salvation and Revoke were removed from the game.
 	{ 1311015, "Templar's Bulwark" },
 	{ 20271, "Judgement" },
 	{ 633, "Lay on Hands" },
@@ -1326,6 +1326,7 @@ local favorHealIDs = {
 }
 local favorActive, favorChangedAt, favorAuraAt, favorAurasBlocked
 local controlEnds, controlCastAt, controlDurations = {}, {}, {}
+local controlBaseDurations = {}
 local controlRetryAfter = {}
 local pendingCasts, finishedCasts, lastSent = {}, {}, nil
 
@@ -1394,6 +1395,27 @@ local function CooldownEnd(info)
     if start and start > 0 and duration and duration > 1.5 and rate and rate > 0 then
         return start + duration / rate, duration / rate
     end
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Cache talent-modified base cooldowns while they are readable so protected
+-- combat cooldowns still honor Shieldsworn's four-second Holy Strike reduction.
+local function ControlFallbackDuration(name)
+    if name == "Holy Strike" and AL.known and AL.known["Shieldsworn"] then
+        controlBaseDurations[name] = 6
+        return 6
+    end
+    local cached = controlBaseDurations[name]
+    if cached then return cached end
+    local reader = C_Spell and C_Spell.GetSpellBaseCooldown or GetSpellBaseCooldown
+    if type(reader) == "function" then
+        local milliseconds = Number((SafeCall(reader, LearnedID(name) or name)))
+        if milliseconds and milliseconds > 1500 and milliseconds < 600000 then
+            cached = milliseconds / 1000
+            controlBaseDurations[name] = cached
+        end
+    end
+    return cached or controlCooldowns[name]
 end
 
 local function ControlReady(name)
@@ -1589,7 +1611,7 @@ spellTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
         tankAuraCache, tankAurasBlocked = nil, nil; return
     end
     if event == "SPELLS_CHANGED" or event == "PLAYER_TALENT_UPDATE" then
-        controlDurations, sealDurations, sealCache = {}, {}, nil
+        controlDurations, controlBaseDurations, sealDurations, sealCache = {}, {}, {}, nil
         tankAuraCache, tankAurasBlocked = nil, nil
         return
     end
@@ -1656,7 +1678,7 @@ spellTracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
         local expires, duration = CooldownEnd(CooldownInfo(name))
         if duration then controlDurations[name] = duration end
         controlCastAt[name] = GetTime()
-        controlEnds[name] = expires or GetTime() + (controlDurations[name] or controlCooldowns[name])
+        controlEnds[name] = expires or GetTime() + (controlDurations[name] or ControlFallbackDuration(name))
         controlRetryAfter[name] = nil
         -- The client shares cooldown category 2404 between these strikes.
         -- A protected cooldown must not suggest the other strike early.
@@ -2055,6 +2077,8 @@ end)
 
 local function ApplyPreparation(s, role, sealNeeded, inCombat)
     if not s.buffs then return end
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- The live mana-cost API supplies Legacy's free Righteous Fury cost.
     if role == "TANK" and s.tankRighteousFury and not TankBuff("Righteous Fury") then
         Offer("Righteous Fury", "tank threat", nil, true)
     end
@@ -2098,6 +2122,9 @@ local function Emergency(s, role, hp, mana)
 end
 
 local function Judgement(s, mana, targetHP, reason)
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- Judgement of Fury now lasts three seconds. Do not delay a ready Judgement
+    -- behind an unreadable target-aura timer; the client applies the live effect.
     if s.judgement and ActiveSeal() then
         Offer("Judgement", reason, {
             ManaGate(mana, SettingNumber(s, "judgementMinMana", 15, 0, 100), false),
@@ -2130,7 +2157,8 @@ local function TankBurst(s, role, mana, targetHP)
         LearnedID("Swift Judgement") or "Swift Judgement", "target")))
     if range == nil then range = Bool((SafeCall(AL.InRange, "Swift Judgement"))) end
     if range == false or range ~= true and UnitWithin("target", 10) ~= true then return end
-    Offer("Swift Judgement", "Burst: independent seal Judgement", {
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    Offer("Swift Judgement", "Burst: instantly unleash active seal", {
         HealthGate("target", targetHP, SettingNumber(s, "judgementMinTargetHP", 20, 0, 100), false),
         HealthGate("target", targetHP, SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false) })
 end
@@ -2879,6 +2907,9 @@ AL.RegisterRotation("PALADIN", M)
         }
     end
 
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- Light's Vigil is friendly-only. Every candidate comes from the verified
+    -- friendly party/raid roster; no hostile-target request is constructed.
     local function PLAppendVigilRequests(critical, profile, context)
         if not PLKnown("Holy Shock") or not PLPermitted("Holy Shock", profile) then return end
         local marked = PLVigilUnit()

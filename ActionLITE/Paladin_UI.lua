@@ -1,5 +1,7 @@
 local ADDON, AL = ...
-local UI_VERSION = "0.16.1"
+local UI_VERSION = "0.16.2"
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 
 -- Dedicated Paladin interface. Only UI text is localized here;
 -- internal spell names and profile keys remain unchanged.
@@ -123,7 +125,7 @@ local function BuildPaladinUI(page, ui)
 		"Tank only. Requires the learned spell and an equipped shield. Prepares for a nearby pull and maintains block protection in melee combat. Uses confirmed casts when aura or cooldown data is protected.", true)
 	Slider(tankCard, "holyShieldMinMana", "Holy Shield minimum mana", 0, 100, 10, " %")
 	Check(burstCard, "swiftJudgement", "Burst: use Swift Judgement", "Swift Judgement",
-		"Tank only and Burst On. Unleashes the active seal as an independent Judgement without consuming the seal or changing the normal Judgement cooldown. Uses its own one-minute cooldown and the configured target-health limits.", true)
+		"Tank only and Burst On. Instantly unleashes the active seal without sharing or changing the normal Judgement cooldown. Uses its own cooldown and the configured target-health limits.", true)
 	Check(tankCard, "templarsBulwark", "Use Templar's Bulwark", "Templar's Bulwark",
 		"Tank only, with emergency spells enabled. Uses the learned absorb at or below its health slider, unless Forbearance or the absorb is already active. Independent of Burst On. Tank never automatically uses Divine Protection or Divine Shield.", true)
 	Slider(tankCard, "templarsBulwarkHP", "Templar's Bulwark at or below health", 5, 80, 35, " %")
@@ -189,7 +191,7 @@ local function BuildPaladinUI(page, ui)
 		zh = "防护自动模式优先使用已学会的 Seal of Fury。Righteous Fury 仍是独立的仇恨增益。",
 	}))
 	Check(preparation, "tankRighteousFury", "Righteous Fury", "Righteous Fury",
-		{ en = "Protection only. Maintains the threat buff whenever it is learned.", fr = "Protection uniquement. Maintient le buff de menace lorsqu'il est appris.", pt = "Somente Proteção. Mantém o buff de ameaça quando aprendido.", es = "Solo Protección. Mantiene el beneficio de amenaza cuando está aprendido.", de = "Nur Schutz. Hält den Bedrohungsbuff aufrecht, sobald er erlernt ist.", zh = "仅限防护。学会后维持仇恨增益。" }, true)
+		{ en = "Protection only. Maintains the level-10 threat buff whenever it is learned. Its live mana cost includes Legacy's free-cast effect.", fr = "Protection uniquement. Maintient le buff de menace de niveau 10 lorsqu'il est appris.", pt = "Somente Proteção. Mantém o buff de ameaça de nível 10 quando aprendido.", es = "Solo Protección. Mantiene el beneficio de amenaza de nivel 10 cuando está aprendido.", de = "Nur Schutz. Hält den Bedrohungsbuff ab Stufe 10 aufrecht, sobald er erlernt ist.", zh = "仅限防护。学会后维持10级可用的仇恨增益。" }, true)
 
 	local offense = ui.Card(stack,
 		Text({ en = "OFFENSIVE PRIORITY", fr = "PRIORITE OFFENSIVE", pt = "PRIORIDADE OFENSIVA", es = "PRIORIDAD OFENSIVA", de = "OFFENSIVPRIORITÄT", zh = "进攻优先级" }), nil, { id="offense", group="damage" })
@@ -257,7 +259,7 @@ local function BuildPaladinUI(page, ui)
 	}, "CONCENTRATION")
 	Check(healingEngine, "healingOathOfLight", "Maintain Oath of Light on tank", "Oath of Light",
 		"Healing Rotation only. When learned and enabled, maintains the five-minute buff on the group member identified as the tank. Only one Oath target is tracked at a time.", true)
-	ui.Help(healingEngine, "Maintains the selected learned aura and Blessing of Kings, using Greater Blessing of Kings when learned. Automatic seal mode prefers Seal of Wisdom, then Seal of Light, before using Judgement above 80% mana. Flash of Light handles routine injuries. Holy Shock and Holy Light are reserved for urgent care, except that a confirmed Infusion of Light enables Holy Light at the normal healing threshold. Light's Vigil is reserved for multiple emergency injuries. Selecting a friendly group member requests the strongest available direct heal.")
+	ui.Help(healingEngine, "Maintains the selected learned aura and Blessing of Kings, using Greater Blessing of Kings when learned. Automatic seal mode prefers Seal of Wisdom, then Seal of Light, before using Judgement above 80% mana. Flash of Light handles routine injuries. Holy Shock and Holy Light are reserved for urgent care, except that a confirmed Infusion of Light enables Holy Light at the normal healing threshold. Light's Vigil is friendly-only and reserved for multiple emergency injuries. Selecting a friendly group member requests the strongest available direct heal.")
 
 	local survival = ui.Card(stack,
 		Text({ en = "HEALING & SURVIVAL", fr = "SOINS ET SURVIE", pt = "CURA E SOBREVIVÊNCIA", es = "SANACIÓN Y SUPERVIVENCIA", de = "HEILUNG & ÜBERLEBEN", zh = "治疗和生存" }), nil, { id="survival", group="survival" })
