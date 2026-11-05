@@ -273,6 +273,34 @@ local toggles = {}
 -- each occupy one half; role controls and compact indicators occupy thirds.
 local COMPACT_TOGGLE_PX = MAIN_SIZE / 3
 local FULL_TOGGLE_HEIGHT = MAIN_SIZE / 2
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+-- Keep the compact click areas at one third of the main icon, but render
+-- their states as softly vignetted lamps instead of saturated square fills.
+local INDICATOR_TEXTURE = "Interface\\AddOns\\ActionLITE\\Media\\ActionLiteIndicator"
+local function CompactIndicator(button)
+	local halo = button:CreateTexture(nil, "ARTWORK")
+	halo:SetTexture(INDICATOR_TEXTURE)
+	halo:SetSize(COMPACT_TOGGLE_PX, COMPACT_TOGGLE_PX)
+	halo:SetPoint("CENTER")
+	local lamp = button:CreateTexture(nil, "OVERLAY")
+	lamp:SetTexture(INDICATOR_TEXTURE)
+	lamp:SetSize(COMPACT_TOGGLE_PX - 2, COMPACT_TOGGLE_PX - 2)
+	lamp:SetPoint("CENTER")
+	local hover = button:CreateTexture(nil, "HIGHLIGHT")
+	hover:SetTexture(INDICATOR_TEXTURE)
+	hover:SetSize(COMPACT_TOGGLE_PX, COMPACT_TOGGLE_PX)
+	hover:SetPoint("CENTER")
+	hover:SetVertexColor(1, 1, 1, 0.20)
+	return function(compact, on)
+		halo:SetShown(compact)
+		lamp:SetShown(compact)
+		hover:SetShown(compact)
+		if not compact then return end
+		local r, g, blue = on and 0.39 or 0.68, on and 0.61 or 0.39, on and 0.50 or 0.39
+		halo:SetVertexColor(r, g, blue, on and 0.27 or 0.15)
+		lamp:SetVertexColor(r, g, blue, on and 0.96 or 0.78)
+	end
+end
 local function QuickToggle(index, caption, tipKey, isOn, onClick)
 	local b = CreateFrame("Button", nil, f)
 	b:SetSize(38, FULL_TOGGLE_HEIGHT)
@@ -288,6 +316,7 @@ local function QuickToggle(index, caption, tipKey, isOn, onClick)
 	hover:SetPoint("TOPLEFT", 1, -1)
 	hover:SetPoint("BOTTOMRIGHT", -1, 1)
 	hover:SetColorTexture(1, 1, 1, 0.07)
+	local paintIndicator = CompactIndicator(b)
 	-- The checkmark indicates state without depending on color.
 	local check = b:CreateTexture(nil, "OVERLAY")
 	check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
@@ -308,11 +337,12 @@ local function QuickToggle(index, caption, tipKey, isOn, onClick)
 		end
 		label:SetShown(not compact)
 		check:SetShown(not compact and on)
+		edge:SetShown(not compact)
+		bg:SetShown(not compact)
+		hover:SetShown(not compact)
+		paintIndicator(compact, on)
 		if compact then
 			b:SetSize(COMPACT_TOGGLE_PX, COMPACT_TOGGLE_PX)
-			local r, g, bl = on and 0.1 or 1, on and 0.9 or 0.125, on and 0.1 or 0.125
-			edge:SetColorTexture(r, g, bl, 1)
-			bg:SetColorTexture(r, g, bl, 1)
 		else
 			label:SetText(caption)
 			local pad = on and 14 or 0
@@ -444,6 +474,7 @@ local function RoleToggle(role)
 	hover:SetPoint("TOPLEFT", 1, -1)
 	hover:SetPoint("BOTTOMRIGHT", -1, 1)
 	hover:SetColorTexture(1, 1, 1, 0.07)
+	local paintIndicator = CompactIndicator(b)
 	local check = b:CreateTexture(nil, "OVERLAY")
 	check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
 	check:SetSize(11, 11)
@@ -463,11 +494,12 @@ local function RoleToggle(role)
 		local compact = ActionLiteDB and ActionLiteDB.togglesHidden == true or false
 		label:SetShown(not compact)
 		check:SetShown(not compact and on)
+		edge:SetShown(not compact)
+		bg:SetShown(not compact)
+		hover:SetShown(not compact)
+		paintIndicator(compact, on)
 		if compact then
 			b:SetSize(COMPACT_TOGGLE_PX, COMPACT_TOGGLE_PX)
-			local r, g, bl = on and 0.1 or 1, on and 0.9 or 0.125, on and 0.1 or 0.125
-			edge:SetColorTexture(r, g, bl, 1)
-			bg:SetColorTexture(r, g, bl, 1)
 		else
 			label:SetText(caption)
 			local pad = on and 14 or 0
