@@ -80,7 +80,7 @@ AL.RegisterSimpleClassUI("DRUID", {
                 { type="info",text="Primal Bite is Forever's renamed Mangle-style Bear attack. Lacerate is now a Feral talent and is only suggested when learned. Maintain own Lacerate stacks and refresh an expiring bleed, then queue Maul at the chosen Rage threshold. Optional Lacerate filler can repeat between primary cooldowns. Faerie Fire uses the mana pool while in Bear; Rage is never treated as mana." },
                 { key="bearMaul",label="Use queued Maul",spell="Maul" },
                 { type="slider",key="bearMaulRage",label="Tank Maul minimum Rage",min=0,max=100,step=5,default=25 },
-                { type="info",text="Maul uses the exact selected Rage threshold and its actual spell cost. It is not repeatedly queued while already active. Learned attacks continue between queued swings. The existing Bash, Enrage and preparation/healing checkboxes below also apply to Tank." },
+                { type="info",text="Maul uses the exact selected Rage threshold and its actual spell cost. It is not repeatedly queued while already active. Learned attacks continue between queued swings. The existing Bash, Enrage and preparation/healing checkboxes below also apply to Tank. A learned War Stomp is used against two or more nearby engaged enemies or a melee target that is casting." },
             },
         },
         {

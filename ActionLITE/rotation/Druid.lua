@@ -2224,13 +2224,13 @@ local B={cd={},castAt={},durations={},retry={},buffs={},dots={},pending={},done=
 B.levels={['Bear Form']=10,['Dire Bear Form']=40,Maul=10,Growl=10,Enrage=12,Bash=14,
  ['Demoralizing Roar']=10,Swipe=16,['Faerie Fire']=18,['Feral Charge']=20,
  ['Primal Bite']=1,['Challenging Roar']=28,['Frenzied Regeneration']=36,
- Lacerate=1,Barkskin=44,Rejuvenation=4,Thorns=6}
+ Lacerate=1,Barkskin=44,Rejuvenation=4,Thorns=6,['War Stomp']=1}
 -- Lacerate is no longer baseline. Its learned spellbook state is authoritative,
 -- and the level-one fallback cannot make an unlearned talent castable.
 B.ok,B.levelReady,B.learned=AL.LevelGates(B.levels)
 B.base={['Primal Bite']=6,Growl=8,Bash=60,Enrage=60,['Feral Charge']=15,
  ['Challenging Roar']=600,['Frenzied Regeneration']=180,Barkskin=60,
- ["Elune's Light"]=180,Berserking=180}
+ ["Elune's Light"]=180,Berserking=180,['War Stomp']=120}
 B.buffDuration={Barkskin=15,['Frenzied Regeneration']=10,Enrage=10,
  -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
  ["Elune's Light"]=15,Berserking=15,Rejuvenation=12,['Mark of the Wild']=1800,Thorns=600}
@@ -2242,6 +2242,7 @@ for name,ids in pairs({['Primal Bite']={407995,1238069,1238070},
  ['Faerie Fire']={770,778,9749,9907},['Bear Form']={5487},['Dire Bear Form']={9634},Growl={6795},
  ['Feral Charge']={1238122},['Challenging Roar']={5209},['Frenzied Regeneration']={22842},
  Barkskin={22812},Enrage={5229},["Elune's Light"]={1259799},Berserking={20554,26297},
+ ['War Stomp']={20549},
  Rejuvenation={774,1058,1430,2090,2091,3627,8910,9839,9840,9841,25299},
  ['Mark of the Wild']={1126,5232,6756,5234,8907,9884,9885},Thorns={467,782,1075,8914,9756,9910}})do
  for _,id in ipairs(ids)do B.ranks[id]=name;balanceRanks[id]=name end
@@ -2560,6 +2561,15 @@ function B.rotation(s,inCombat,hostile)
     end
     local enemies,loose=B.enemies()
     local aoe=inCombat and s.aoe==true and enemies>=M.BearSetting(s,'bearAoeMinEnemies')
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+    -- Tank mode has its own Bear engine, so it must carry the same learned
+    -- War Stomp defense used by Leveling: stop nearby groups or a melee cast.
+    -- Action's active-enemy count remains useful when Forever protects GUIDs.
+    local stompEnemies=math.max(enemies,ActiveEnemyCount()or 0)
+    local targetCasting=melee and Bool((SafeCall(AL.TargetCasting)))==true
+    if inCombat and(stompEnemies>=2 or targetCasting)then
+     B.offer('War Stomp',stompEnemies>=2 and'Tank: stun nearby enemies'or'Tank: interrupt nearby cast',nil,0)
+    end
     if s.bearChallengingRoar and aoe and loose>=3 then B.offer('Challenging Roar','recover 3+ allies\' attackers',nil,1,15)end
     if melee then
      if s.bash and Bool((SafeCall(AL.TargetCasting)))==true then B.offer('Bash','Bear stun interrupt',nil,1,10)end
