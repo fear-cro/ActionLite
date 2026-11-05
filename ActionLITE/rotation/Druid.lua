@@ -220,7 +220,7 @@ local lastRotation, openerBlocked, lastSuccessfulCastAt
 local levelingStarfireOpened = false
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 -- Cast success, not a protected target aura, advances the caster opener.
-local levelingWrathOpened, levelingRootsOpened, levelingRootsFailed = false, false, false
+local levelingWrathOpened, levelingRootsOpened = false, false
 local levelingNatureGraspUntil, levelingWarStompUntil, levelingRejuvenationUntil = 0, 0, 0
 local levelingTargetChangedAt = 0
 local duelActive = false
@@ -423,7 +423,7 @@ function M.OnTargetChanged()
     levelingLacerateStacks, levelingLacerateExpires = 0, 0
 	levelingStarfireOpened = false
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	levelingWrathOpened, levelingRootsOpened, levelingRootsFailed = false, false, false
+	levelingWrathOpened, levelingRootsOpened = false, false
 	levelingTargetChangedAt = GetTime()
 end
 function M.OnUIError(message)
@@ -456,12 +456,6 @@ function M.OnCastResult(name, event, sent)
 		elseif name == "Rejuvenation" then
 			levelingRejuvenationUntil = GetTime() + 12
         end
-    elseif name == "Entangling Roots" and sent and Number(sent.t)
-        and sent.t >= levelingTargetChangedAt
-        and (event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
-            or event == "UNIT_SPELLCAST_INTERRUPTED") then
-        -- A failed root is not a cast opener; use Wrath for this enemy instead.
-        levelingRootsFailed = true
     elseif name == "Shred" then openerBlocked = true end
 end
 function M.CanTrackSuggestedSpell(name)
@@ -708,6 +702,21 @@ local function CasterRotation(s, hp, form)
 		-- An active Rejuvenation must not suppress the larger heal at low HP.
 		Offer("Healing Touch", "combat self-heal", { HealthGate("player", hp, RULES.healCaster, true) }, 0, nil, false, form == "moonkin")
 	end
+	-- ActionLITE v1.1.6: keep an opener stable once its cast begins. A transient
+	-- movement/queue failure must not replace an active Roots cast with Wrath.
+	-- During the final part of the opening Wrath, pre-stage Moonfire so the
+	-- reader can queue the DoT instead of starting a second Wrath.
+	local castingName, castingLeft = AL.CastingSpell()
+	if castingName == "Entangling Roots" and not levelingRootsOpened then
+		AddAction("Entangling Roots", "finish learned caster opener")
+	elseif castingName == "Wrath" and not levelingWrathOpened then
+		if Number(castingLeft) and castingLeft <= 0.75
+			and AL.Ok("Moonfire") and not AL.HasDebuff("target", "Moonfire") then
+			AddAction("Moonfire", "queue after opening Wrath")
+		else
+			AddAction("Wrath", "finish caster opening Wrath")
+		end
+	end
 	-- Moonkin is maintained only from the ordinary caster form while a hostile
 	-- target is being handled. Travel and other utility forms remain untouched.
 	if form == "caster" and s.levelingMoonkin ~= false then
@@ -718,7 +727,7 @@ local function CasterRotation(s, hp, form)
 	-- Wrath lands before DoTs. Neither opener restarts mid-fight when its
 	-- cooldown changes; normal Wrath filler resumes after the DoTs.
 	if not levelingRootsOpened and not levelingWrathOpened then
-		if not levelingRootsFailed then Offer("Entangling Roots", "learned caster opener", nil, 0) end
+		Offer("Entangling Roots", "learned caster opener", nil, 0)
 		Offer("Wrath", "caster opening Wrath", nil, 0)
 	end
 	if s.levelingInsectSwarm ~= false and not AL.HasDebuff("target", "Insect Swarm") then
