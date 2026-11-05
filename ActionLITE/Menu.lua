@@ -93,7 +93,73 @@ local function SpellMacroName(spell)
 	return ("AL" .. spell:gsub("[%s:'%-]", "")):sub(1, 16)
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+-- Poison actions are virtual weapon applications, not castable spells. We do
+-- not know the exact item rank or localized item name in the player's bags,
+-- so never create an English-only or ActionLite_Queue native macro for them.
+local POISON_MACRO_TYPES = {
+	INSTANT = "Instant Poison", DEADLY = "Deadly Poison",
+	CRIPPLING = "Crippling Poison", MIND_NUMBING = "Mind-Numbing Poison",
+	WOUND = "Wound Poison",
+}
+local POISON_MACRO_ACTIONS = {
+	["Apply Main-Hand Poison"] = { key = "mainHandPoison", slot = 16, hand = "Main-hand", universal = 7 },
+	["Apply Off-Hand Poison"] = { key = "offHandPoison", slot = 17, hand = "Off-hand", universal = 10 },
+}
+local poisonMacroDialog
+local function ShowPoisonMacroTemplate(spell)
+	local action = POISON_MACRO_ACTIONS[spell]
+	if not action then return end
+	local profile = AL.ES()
+	local poison = profile and POISON_MACRO_TYPES[profile[action.key]]
+	if not poison then
+		AL.Say("Select a " .. action.hand:lower() .. " poison in the Rogue menu before creating its macro.")
+		return
+	end
+	if not poisonMacroDialog then
+		local frame = CreateFrame("Frame", "ActionLitePoisonMacroTemplate", UIParent)
+		frame:SetSize(510, 300)
+		frame:SetFrameStrata("FULLSCREEN_DIALOG")
+		frame:SetPoint("CENTER")
+		frame:SetClampedToScreen(true)
+		frame:EnableMouse(true)
+		UI.Fill(frame, UI.Derived.listBg)
+		UI.Border(frame, THEME.bronze)
+		frame.title = UI.Text(frame, "GameFontNormal", THEME.gold)
+		frame.title:SetPoint("TOPLEFT", 18, -16)
+		frame.detail = UI.Text(frame, "GameFontHighlightSmall", THEME.text)
+		frame.detail:SetPoint("TOPLEFT", 18, -45)
+		frame.detail:SetPoint("TOPRIGHT", -18, -45)
+		frame.detail:SetJustifyH("LEFT")
+		local copyHost = CreateFrame("Frame", nil, frame)
+		copyHost:SetPoint("TOPLEFT", 18, -143)
+		copyHost:SetPoint("BOTTOMRIGHT", -18, 53)
+		UI.Fill(copyHost, THEME.surface)
+		UI.Border(copyHost, THEME.line)
+		frame.copy = UI.CopyBox(copyHost, { editable = true })
+		local selectAll = UI.Button(frame, { label = "Select all / Ctrl+C", width = 172, height = 25 })
+		selectAll:SetPoint("BOTTOMLEFT", 18, 16)
+		selectAll:SetScript("OnClick", function() frame.copy.SelectAll() end)
+		local close = UI.Button(frame, { label = "Close", width = 90, height = 25 })
+		close:SetPoint("BOTTOMRIGHT", -18, 16)
+		close:SetScript("OnClick", function() frame:Hide() end)
+		frame:SetScript("OnHide", function() frame.copy.ClearFocus() end)
+		poisonMacroDialog = frame
+	end
+	local frame = poisonMacroDialog
+	frame.title:SetText(action.hand .. " poison macro template")
+	frame.detail:SetText("Selected: " .. poison .. ". Replace the item placeholder with the EXACT poison item name and rank from your bags, in your client's language. Copy into a native macro and bind it to Universal" .. action.universal .. " Unit1. Update that macro whenever you change this poison selection.")
+	frame.copy.SetText("#showtooltip\n/use <" .. poison .. " item name and rank from your bags>\n/use " .. action.slot)
+	frame:Show()
+	pcall(frame.Raise, frame)
+	frame.copy.SelectAll()
+end
+
 local function CreateSpellMacro(spell)
+	if POISON_MACRO_ACTIONS[spell] then
+		ShowPoisonMacroTemplate(spell)
+		return
+	end
 	if InCombatLockdown and InCombatLockdown() then
 		AL.Say(L("MACRO_COMBAT"))
 		return
@@ -346,7 +412,7 @@ local function BuildMenu()
 
 	local function ShowPage(i)
 		i = tonumber(i) or 1
-		if i < 1 or i > 5 then i = 1 end
+		if i < 1 or i > 6 then i = 1 end
 		for n, p in ipairs(pages) do p:SetShown(n == i) end
 		if tabStrip then tabStrip:SetActive(i) end
 		ActionLiteDB.lastTab = i
@@ -360,6 +426,7 @@ local function BuildMenu()
 		{ label = L("SPELLS"), onClick = function() ShowPage(3) end },
 		{ label = L("BUG_REPORT"), onClick = function() ShowPage(4) end },
 		{ label = L("THEMES"), onClick = function() ShowPage(5) end },
+		{ label = "Profile Development", onClick = function() ShowPage(6) end },
 	}, { width = NAV_W - 28, height = 36, gap = 8 })
 	tabStrip:SetPoint("TOPLEFT", 14, -84)
 
@@ -415,6 +482,15 @@ local function BuildMenu()
 	local bugReportPage = NewPage(4, L("BUG_REPORT"))
 	local themesPage = NewPage(5, L("THEMES"))
 	if AL.BuildThemesPage then AL.BuildThemesPage(themesPage) end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+	-- Reserve the sixth module for user-created profiles without adding
+	-- unfinished controls to the current rotation or class pages.
+	local profileDevelopmentPage = NewPage(6, "Profile Development")
+	local profileDevelopmentMessage = UI.Text(profileDevelopmentPage, "GameFontNormalLarge", THEME.danger)
+	profileDevelopmentMessage:SetPoint("TOPLEFT", 22, -60)
+	profileDevelopmentMessage:SetPoint("TOPRIGHT", -22, -60)
+	profileDevelopmentMessage:SetJustifyH("LEFT")
+	profileDevelopmentMessage:SetText("Profile Development Coming Soon...")
 
 	-- ------------------------------------------------------------------ footer
 	local footer = CreateFrame("Frame", nil, menu)
@@ -1125,7 +1201,9 @@ local function BuildMenu()
 			row.queueBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 			row.queueBtn:SetScript("OnClick", function(_, button)
 				if not row.spellName then return end
-				if button == "RightButton" then
+				if POISON_MACRO_ACTIONS[row.spellName] then
+					ShowPoisonMacroTemplate(row.spellName)
+				elseif button == "RightButton" then
 					ActionLite_Queue(row.spellName)
 				else
 					CreateSpellMacro(row.spellName)
@@ -1211,6 +1289,12 @@ local function BuildMenu()
 			end
 
 			local prof = ES()
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+			-- Poison applications are virtual macro actions; ensure their Unit1
+			-- defaults are assigned before the Spells tab renders their rows.
+			if token == "ROGUE" and type(mod.EnsurePoisonIcons) == "function" then
+				mod.EnsurePoisonIcons(prof)
+			end
 			local shown, known = 0, 0
 			for _, entry in ipairs(mod.spells) do
 				local id, name = entry[1], entry[2]
@@ -1224,11 +1308,22 @@ local function BuildMenu()
 					row.spellName = name
 					row.viewingOther = viewingOther
 					row.isKnown = isKnown
-					UI.Tooltip(row, name, { "Spell ID: " .. tostring(id or "?"), L("QUEUE_LEFT"), L("QUEUE_RIGHT") })
+					local poisonAction = token == "ROGUE" and
+						(name == "Apply Main-Hand Poison" or name == "Apply Off-Hand Poison")
+					UI.Tooltip(row, name, poisonAction and {
+						"Weapon poison application: use the Template button to copy a hand-specific item macro.",
+					} or { "Spell ID: " .. tostring(id or "?"), L("QUEUE_LEFT"), L("QUEUE_RIGHT") })
 					row.nameText:SetText(name)
 					row.nameText:SetTextColor(UI.Color(isKnown and THEME.text or THEME.textFaint))
-					-- Keep spell artwork recognizable; iconBtn shows its assignment.
-					row.icon:SetTexture(UI.SpellIcon(name, id))
+					-- Keep native artwork for ordinary spells; virtual poison macro
+					-- actions have no spellbook icon, so show their assigned Unit1 art.
+					row.icon:SetTexture((poisonAction and AL.IconFor(name, prof)) or UI.SpellIcon(name, id))
+					row.queueBtn.text:SetText(poisonAction and "Template" or L("MACRO"))
+					row.queueBtn.alTipTitle = poisonAction and "Weapon poison macro" or L("QUEUE_MACRO")
+					row.queueBtn.alTipLines = poisonAction and {
+						"Click for a copyable application macro for the selected poison and hand.",
+						"Right click also opens the template; poison actions cannot be queued as spells.",
+					} or { L("QUEUE_LEFT"), L("QUEUE_RIGHT") }
 					pcall(row.icon.SetDesaturated, row.icon, not isKnown)
 					if viewingOther then
 						row.normalStateText = "Other class"

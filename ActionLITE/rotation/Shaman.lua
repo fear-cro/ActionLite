@@ -64,6 +64,7 @@ local M = {
 		interrupt = true,
 		flameshock = true,
 		earthshock = true,
+		earthShockTag = false,
 		frostshock = true,
 		stormstrike = true,
 		lightningbolt = true,
@@ -258,6 +259,10 @@ for _, name in ipairs({ "Lightning Shield", "Healing Wave", "Lesser Healing Wave
 for name in pairs(TOTEM_ELEMENT) do AL.selfCastSpells[name] = true end
 -- Shared native gates keep opaque percentages in native display alpha only.
 local lastRotation
+-- A tag is an opener for the selected enemy, not another damage-shock loop.
+-- Keep confirmed casts across target changes so returning to the same enemy
+-- cannot suggest a second tag. The fallback covers protected target GUIDs.
+local taggedByGUID, taggedCurrentTarget = {}, false
 local visibilityCurves, curveFailures, curveCapabilities = {}, {}, {}
 local IntervalCurve, ReadVisualAlpha
 local curveProbe
@@ -279,6 +284,15 @@ local function SafeCall(reader, ...)
 end
 local function Bool(value)
     if SafeValue(value) and type(value) == "boolean" then return value end
+end
+local function SelectedTargetGUID()
+    local guid = SafeCall(UnitGUID, "target")
+    if SafeValue(guid) and type(guid) == "string" and guid ~= "" then return guid end
+end
+local function TargetAlreadyTagged()
+    if taggedCurrentTarget then return true end
+    local guid = SelectedTargetGUID()
+    return guid and taggedByGUID[guid] == true or false
 end
 local function Percent(value)
     value = Number(value)
@@ -1169,6 +1183,13 @@ function M.NextSpell(s, inCombat, hostile)
         if hostile then
             local melee = InMelee()
             if not inCombat then
+                -- Tagging is optional and independent of the normal Earth
+                -- Shock damage checkbox. Offer checks learned spell, cooldown,
+                -- usability, affordability and known out-of-range results.
+                if Enabled(s,"earthShockTag") and not TargetAlreadyTagged()
+                    and Bool((SafeCall(UnitIsDeadOrGhost,"target"))) ~= true then
+                    Offer("Earth Shock","Tag pull")
+                end
                 if not melee then LightningBolt(s,mana,moving,"Ranged pull")
                 else MaintainCombatTotems(s,role,targetHP,TotemSnapshot());MeleeAttack("Opener") end
             elseif role == "ENHANCEMENT" and not melee then
@@ -1197,11 +1218,22 @@ function M.CanTrackSuggestedSpell(name)
     return name == lastRotation.baseSpell and Ok(name)
 end
 
-function M.OnTargetChanged() lastRotation, AL.rotationSecretVisual = nil, nil end
+function M.OnTargetChanged()
+    taggedCurrentTarget = false
+    lastRotation, AL.rotationSecretVisual = nil, nil
+end
 
-function M.OnCastResult(name, result)
+function M.OnCastResult(name, result, sent)
     if result ~= "UNIT_SPELLCAST_SUCCEEDED" or not name then return end
     local now = GetTime()
+    if name == "Earth Shock" then
+        local guid = SafeValue(sent) and type(sent) == "table" and sent.targetGUID or nil
+        if not (SafeValue(guid) and type(guid) == "string" and guid ~= "") then
+            guid = SelectedTargetGUID()
+        end
+        if guid then taggedByGUID[guid] = true end
+        if not guid or guid == SelectedTargetGUID() then taggedCurrentTarget = true end
+    end
     if SHOCKS[name] then
         local _, ending = ReadableCooldown(name)
         shockLockUntil, shockCastAt = ending and ending > now+1.5 and ending or now+6, now
@@ -1289,13 +1321,16 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
         trackedTotems, localCooldowns, curveFailures = {}, {}, {}
         movementEventActive, curveCapabilities, visibilityCurves = nil, {}, {}
         shockLockUntil, shockCastAt, lastRotation, AL.rotationSecretVisual = 0, nil, nil, nil
+        taggedByGUID, taggedCurrentTarget = {}, false
     elseif event == "PLAYER_LOGIN" then RestoreTrackedWeapon()
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         if Number(unit) == 16 then
             local identity = MainHandIdentity()
             if not identity or not trackedWeaponIdentity or identity ~= trackedWeaponIdentity then ClearTrackedWeapon(true) end
         end
-    elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then M.RefreshManaCache()
+    elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+        if event == "PLAYER_REGEN_ENABLED" then taggedByGUID, taggedCurrentTarget = {}, false end
+        M.RefreshManaCache()
     elseif SafeValue(unit) and unit == "player" and (not SafeValue(token) or token == nil or token == "MANA") then RefreshManaSensor() end
 end)
 function M.ManaPercent() return GateManaPercent(), lastManaSource end

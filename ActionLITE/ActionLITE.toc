@@ -2,8 +2,8 @@
 ## Title: ActionLITE
 ## Notes: WoW Forever rotation assistant
 ## Author: Fear-Cro
-## Version: 1.1.5
-## X-Hotfix: Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+## Version: 1.1.6
+## X-Hotfix: Leveling and reliability update v1.1.6
 ## SavedVariables: ActionLiteDB, ActionLiteLanguage
 
 Debug.lua

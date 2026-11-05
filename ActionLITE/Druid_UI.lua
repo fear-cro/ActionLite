@@ -29,10 +29,23 @@ AL.RegisterSimpleClassUI("DRUID", {
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				{ key="levelingMoonkin", label="Leveling: maintain learned Moonkin Form", spell="Moonkin Form", half=false },
 				{ key="levelingInsectSwarm", label="Leveling: maintain learned Insect Swarm", spell="Insect Swarm", half=false },
-				{ key="levelingStarfire", label="Leveling: use learned Starfire opener", spell="Starfire", half=false },
-				{ type="info", text="Caster leveling uses learned Balance talents without selecting a level-60 preset. Moonkin Form is maintained only from caster form while engaging a hostile target; travel and utility forms are preserved. A stationary Starfire opens once per target, then Insect Swarm and Moonfire are maintained before the original Wrath filler." },
+				{ key="levelingStarfire", label="Leveling: use learned Starfire", spell="Starfire", half=false },
+				{ type="info", text="Caster leveling opens with learned Entangling Roots when ready; otherwise one Wrath. Insect Swarm and Moonfire follow; Wrath remains the filler. Learned stationary Starfire is available after the opener and DoTs. Nature's Grasp protects unshifted low-level Druids against nearby enemies when learned." },
             },
         },
+		{
+			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+			title="CAT PVP STEALTH OPENER", id="cat-pvp-stealth-opener", build="leveling", group="damage",
+			controls={
+				{ type="dropdown", key="pvpCatOpener", label="PvP cat opener", default="NONE", options={
+					{label="None (normal rotation)",value="NONE"},
+					{label="Pounce",value="Pounce"},
+					{label="Ravage",value="Ravage"},
+					{label="Shred",value="Shred"},
+				} },
+				{type="info",text="Against an attackable player or duel opponent, the selected learned opener is prioritized while Prowl is active and the target is in range. PvP also enables the normal learned Burst options automatically. PvE retains the standard leveling rotation."},
+			},
+		},
 		{
 			title = "HEALING ROTATION",
 			id = "healing-engine", group = "survival",
@@ -210,7 +223,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 				{ key = "thorns", label = { en = "Thorns upkeep", fr = "Maintenir Thorns", pt = "Manter Thorns", es = "Mantener Thorns", de = "Thorns halten", zh = "保持Thorns" }, spell = "Thorns" },
 				{ key = "heal", label = { en = "Healing reminders", fr = "Rappels de soins", pt = "Lembretes de cura", es = "Recordatorios de sanación", de = "Heil-Erinnerungen", zh = "治疗提醒" }, spell = "Rejuvenation" },
 				{ key = "drink", label = { en = "Drink reminder", fr = "Rappel de boisson", pt = "Lembrete de bebida", es = "Recordatorio de bebida", de = "Trink-Erinnerung", zh = "喝水提醒" } },
-				{ type = "info", text = { en = "Heal at or below 60% HP out of combat, 50% in caster combat, and 25% for an emergency in form. Drink at or below 30% mana in caster form." } },
+				{ type = "info", text = { en = "Self-healing takes priority over combat damage: Rejuvenation then Healing Touch below 50% HP in caster form; below 25% HP in form, shift out to heal. Heal below 60% HP out of combat. Drink at or below 30% mana in caster form. War Stomp protects against nearby groups or a melee caster when learned." } },
 			},
 		},
 		{

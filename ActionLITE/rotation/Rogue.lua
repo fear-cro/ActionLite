@@ -54,6 +54,9 @@ local M = {
 	defaults = {
 		stealth = true,
 		openerMode = "BACKSTAB",
+		pvpOpenerMode = "NONE",
+		mainHandPoison = "NONE",
+		offHandPoison = "NONE",
 		builderMode = "SINISTER",
 		riposte = true,
 		kick = true,
@@ -88,6 +91,8 @@ local M = {
 -- Rank-one IDs for scans, icons and the Spells menu.
 M.spells = {
 	{ 8676, "Ambush" },
+	{ 0, "Apply Main-Hand Poison" },
+	{ 0, "Apply Off-Hand Poison" },
 	{ 53, "Backstab" },
 	{ 13877, "Blade Flurry" },
 	{ 1833, "Cheap Shot" },
@@ -111,7 +116,7 @@ M.spells = {
 	{ 1943, "Rupture" },
 	{ 6770, "Sap" },
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	{ 0, "Shank" },
+	{ 1329283, "Shank" },
 	{ 1752, "Sinister Strike" },
 	{ 5171, "Slice and Dice" },
 	{ 2983, "Sprint" },
@@ -445,6 +450,10 @@ local AddAction, FinishDecision, EnergyGate, EnergyCost
 -- can protect the cooldown payload in combat, so successful casts provide the
 -- fallback while readable cooldown data always wins.
 local levelingShankEnd, levelingShankRetry = 0, 0
+-- The poison actions are player-bound macros, not class spells. A readable
+-- weapon-enchant flag determines whether a suggestion is needed; unknown is
+-- deliberately not interpreted as an absent poison.
+local vanishRecoveryUntil, sapHoldUntil, sapHoldGUID = 0, 0, nil
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 local levelingGhostlyEnd, levelingGhostlyRetry = 0, 0
 local levelingTalentRanks, levelingTalentsStale = {}, true
@@ -551,6 +560,7 @@ end
 
 function M.OnTargetChanged()
 	openerBlocked = false
+	sapHoldUntil, sapHoldGUID = 0, nil
 	lastRotation, AL.rogueSecretVisual = nil, nil
 end
 
@@ -566,6 +576,12 @@ end
 function M.OnCastResult(name, event)
 	if event == "UNIT_SPELLCAST_SUCCEEDED" then
 		lastSuccessfulCastAt = GetTime()
+		if name == "Vanish" then vanishRecoveryUntil = GetTime() + 2 end
+		if name == "Sap" then
+			sapHoldUntil = GetTime() + 10
+			local guid = SafeCall(UnitGUID, "target")
+			sapHoldGUID = SafeValue(guid) and type(guid) == "string" and guid or nil
+		end
 		if name == "Backstab" then openerBlocked = false end
 		if name == "Shank" then
 			local expires = LevelingShankCooldown()
@@ -671,6 +687,7 @@ end
 
 local function TryOpener(name, s)
 	if not Ok(name) or not InMeleeRange(name) then return nil end
+	if name == "Sap" and (sapHoldUntil > GetTime() or AL.HasDebuff("target", "Sap")) then return nil end
 	if openerBlocked and (name == "Backstab" or name == "Ambush" or name == "Garrote") then return nil end
 	if name == "Backstab" or name == "Ambush" then
 		if MainHandIsDagger() == false or openerBlocked then return nil end
@@ -681,9 +698,9 @@ local function TryOpener(name, s)
 		return nil
 	end
 	local minimum = name == "Backstab" and SettingNumber(s, "backstabMinEnergy", 60, 20, 100)
-		or (name == "Cheap Shot" and 40 or (name == "Garrote" and 50 or 60))
+		or (name == "Cheap Shot" and 40 or (name == "Garrote" and 50 or (name == "Sap" and 35 or 60)))
 	local energy = ReadableNumber(AL.Power(3))
-	minimum = math.max(minimum, EnergyCost(name, name == "Cheap Shot" and 40 or (name == "Garrote" and 50 or 60)))
+	minimum = math.max(minimum, EnergyCost(name, name == "Cheap Shot" and 40 or (name == "Garrote" and 50 or (name == "Sap" and 35 or 60))))
 	if energy and energy < minimum then
 		AddAction(nil, "Pool energy for " .. name); return FinishDecision()
 	end
@@ -711,6 +728,114 @@ local function StealthOpener(s)
 		if poolReason then return nil, poolReason end
 	end
 	return nil
+end
+
+-- A hostile player is either a duel opponent or an opposing-faction player.
+-- No PvP flag is required (duels need not set it), and secret results fail
+-- closed rather than changing the opener for an ordinary NPC.
+local function HostilePlayerTarget(hostile)
+	if not hostile then return false end
+	local player = SafeCall(UnitIsPlayer, "target")
+	local attackable = SafeCall(UnitCanAttack, "player", "target")
+	return SafeValue(player) and player == true
+		and SafeValue(attackable) and attackable == true
+end
+
+local function PvPStealthOpener(s)
+	if not AL.HasBuff("player", "Stealth") then return nil end
+	local mode = SettingChoice(s, "pvpOpenerMode", {
+		NONE = true, SAP = true, BACKSTAB = true, CHEAP_SHOT = true,
+		AMBUSH = true, GARROTE = true,
+	}, "NONE")
+	local selected = {
+		SAP = "Sap", BACKSTAB = "Backstab", CHEAP_SHOT = "Cheap Shot",
+		AMBUSH = "Ambush", GARROTE = "Garrote",
+	}
+	if not selected[mode] then return nil end
+	if mode == "SAP" and sapHoldUntil > GetTime() then return nil, "Sap applied" end
+	local name = selected[mode]
+	if not Ok(name) then return nil end -- unlearned choice uses normal opener
+	local spell, reason = TryOpener(name, s)
+	if spell or reason then return spell, reason end
+	return nil, "Reposition for " .. name
+end
+
+-- Classic enchant IDs describe the poison family across ranks. Forever may
+-- add IDs; an unrecognized active enchant is deliberately left alone instead
+-- of replacing a weapon buff based on a guess.
+local POISON_ENCHANT = {
+	[7] = "DEADLY", [8] = "DEADLY", [626] = "DEADLY", [627] = "DEADLY",
+	[2630] = "DEADLY", [2642] = "DEADLY", [2643] = "DEADLY",
+	[22] = "CRIPPLING", [603] = "CRIPPLING",
+	[23] = "MIND_NUMBING", [35] = "MIND_NUMBING", [643] = "MIND_NUMBING",
+	[323] = "INSTANT", [324] = "INSTANT", [325] = "INSTANT",
+	[623] = "INSTANT", [624] = "INSTANT", [625] = "INSTANT", [2641] = "INSTANT",
+	[703] = "WOUND", [704] = "WOUND", [705] = "WOUND", [706] = "WOUND", [2644] = "WOUND",
+}
+
+local function WeaponEnchants()
+	if type(GetWeaponEnchantInfo) == "function" then
+		-- The classic return includes the off-hand flag at position five and
+		-- its enchant ID at eight. Secret payloads are never inspected.
+		local ok, main, _, _, mainID, off, _, _, offID = pcall(GetWeaponEnchantInfo)
+		if ok and SafeValue(main) and type(main) == "boolean"
+			and SafeValue(off) and type(off) == "boolean" then
+			return main, ReadableNumber(mainID), off, ReadableNumber(offID)
+		end
+	end
+	-- Forever 1.60.1 also exposes a per-weapon replacement. Permanent
+	-- enchants are ignored; any unknown active type is treated as occupied.
+	local reader = C_Item and C_Item.GetWeaponEnchantInfo
+	if type(reader) ~= "function" then return nil end
+	local function Temporary(slot)
+		local ok, entries = pcall(reader, slot)
+		if not ok or not SafeValue(entries) or type(entries) ~= "table" then return nil end
+		local occupied, enchantID = false, nil
+		local readable = pcall(function()
+			for _, enchant in pairs(entries) do
+				if not SafeValue(enchant) or type(enchant) ~= "table" then error("secret enchant") end
+				local has, kind = enchant.hasEnchant, enchant.enchantType
+				if not SafeValue(has) or not SafeValue(kind) then error("secret enchant") end
+				if has == true and kind ~= 1 then
+					occupied = true
+					enchantID = ReadableNumber(enchant.enchantID)
+					break
+				end
+			end
+		end)
+		if readable then return occupied, enchantID end
+	end
+	local main, mainID = Temporary(0)
+	local off, offID = Temporary(1)
+	return main, mainID, off, offID
+end
+
+local function PoisonAction(s)
+	local fighting = SafeCall(UnitAffectingCombat, "player")
+	if not SafeValue(fighting) or fighting ~= false then return nil end
+	local selected = {
+		NONE = true, INSTANT = true, DEADLY = true, CRIPPLING = true,
+		MIND_NUMBING = true, WOUND = true,
+	}
+	local main = SettingChoice(s, "mainHandPoison", selected, "NONE")
+	local off = SettingChoice(s, "offHandPoison", selected, "NONE")
+	if main == "NONE" and off == "NONE" then return nil end
+	local mainActive, mainID, offActive, offID = WeaponEnchants()
+	local function Missing(slot, active, enchantID, wanted)
+		if not SafeValue(active) or type(active) ~= "boolean" then return false end
+		if active and (not enchantID or not POISON_ENCHANT[enchantID]
+			or POISON_ENCHANT[enchantID] == wanted) then return false end
+		local id = SafeCall(GetInventoryItemID, "player", slot)
+		if SafeValue(id) and type(id) == "number" and id > 0 then return true end
+		local link = SafeCall(GetInventoryItemLink, "player", slot)
+		return SafeValue(link) and type(link) == "string" and link ~= ""
+	end
+	if main ~= "NONE" and Missing(16, mainActive, mainID, main) and AL.Allowed("Apply Main-Hand Poison", s) then
+		return "Apply Main-Hand Poison", "apply " .. main:lower():gsub("_", " ") .. " poison to main hand"
+	end
+	if off ~= "NONE" and Missing(17, offActive, offID, off) and AL.Allowed("Apply Off-Hand Poison", s) then
+		return "Apply Off-Hand Poison", "apply " .. off:lower():gsub("_", " ") .. " poison to off hand"
+	end
 end
 
 local function Builder(s)
@@ -971,13 +1096,28 @@ function M.NextSpell(s, inCombat, hostile)
 	local targetHP
 	if hostile then targetHP = HealthPercent("target") end
 	lastRotation = { at = GetTime(), actions = {} }
+	if GetTime() < vanishRecoveryUntil then return nil, "Vanish recovery" end
+	local pvp = HostilePlayerTarget(hostile)
+	if sapHoldUntil > 0 then
+		local guid = SafeCall(UnitGUID, "target")
+		if sapHoldGUID and SafeValue(guid) and type(guid) == "string"
+			and guid ~= sapHoldGUID then sapHoldUntil, sapHoldGUID = 0, nil end
+		local targetFighting = SafeCall(UnitAffectingCombat, "target")
+		if SafeValue(targetFighting) and targetFighting == true then sapHoldUntil, sapHoldGUID = 0, nil end
+	end
 
 	local maximum = ReadableNumber((SafeCall(UnitPowerMax, "player", 3)))
 	if maximum and maximum > 0 then energyMaximumCache = maximum end
 	lastRotation.energyMaximum = energyMaximumCache
 
 	if not inCombat then
+		local poison, poisonReason = PoisonAction(s)
+		if poison then return poison, poisonReason end
 		if hostile then
+			if pvp then
+				local opener, reason = PvPStealthOpener(s)
+				if opener or reason then return opener, reason end
+			end
 			local opener, reason = StealthOpener(s)
 			if opener or reason then return opener, reason end
 			if s.stealth and OkReady("Stealth") and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
@@ -1000,6 +1140,10 @@ function M.NextSpell(s, inCombat, hostile)
 		return nil, "Ready"
 	end
 	if not hostile then return nil, "No target" end
+	if pvp then
+		local opener, reason = PvPStealthOpener(s)
+		if opener or reason then return opener, reason end
+	end
 
 	local cp = RecoverStaleComboPoints(ReadableNumber(AL.ComboPoints()) or 0)
 	local energy = ReadableNumber(AL.Power(3))
@@ -1031,19 +1175,20 @@ function M.NextSpell(s, inCombat, hostile)
 	local enemyCount
 	if s.aoe then enemyCount = ActiveEnemyCount(aoeMin) end
 	local aoeActive = s.aoe and enemyCount ~= nil and enemyCount >= aoeMin
-	local burstGate = HealthGate("target", targetHP, SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false)
+	local burstGate = pvp and true or HealthGate("target", targetHP, SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false)
+	local burstActive = AL.burst or pvp
 	local meleeTarget = ConfirmedHostileTarget() and InMeleeRange("Sinister Strike")
 	if s.bladeFlurry and aoeActive and meleeTarget and ReadyUsable("Blade Flurry")
 		and not AL.HasBuff("player", "Blade Flurry") then
 		-- AoE On is independent of Burst and its target-health threshold.
 		AddAction("Blade Flurry", "aoe", {
 			EnergyGate(energy, EnergyCost("Blade Flurry", 25), "Blade Flurry") })
-	elseif s.bladeFlurry and AL.burst and meleeTarget and ReadyUsable("Blade Flurry")
+	elseif s.bladeFlurry and burstActive and meleeTarget and ReadyUsable("Blade Flurry")
 		and not AL.HasBuff("player", "Blade Flurry") then
 		AddAction("Blade Flurry", "burst", { burstGate,
 			EnergyGate(energy, EnergyCost("Blade Flurry", 25), "Blade Flurry") })
 	end
-	if AL.burst and meleeTarget then
+	if burstActive and meleeTarget then
 		if ReadyUsable("Blood Fury") then AddAction("Blood Fury", "burst", { burstGate }) end
 		if ReadyUsable("Berserking") then AddAction("Berserking", "burst", { burstGate }) end
 	end
@@ -1222,6 +1367,8 @@ end
 M.spells = {
 	{ 13750, "Adrenaline Rush" },
 	{ 8676, "Ambush" },
+	{ 0, "Apply Main-Hand Poison" },
+	{ 0, "Apply Off-Hand Poison" },
 	{ 53, "Backstab" },
 	{ 20554, "Berserking" },
 	{ 13877, "Blade Flurry" },
@@ -1248,7 +1395,7 @@ M.spells = {
 	{ 14251, "Riposte" },
 	{ 1943, "Rupture" },
 	{ 6770, "Sap" },
-	{ 0, "Shank" },
+	{ 1329283, "Shank" },
 	{ 1752, "Sinister Strike" },
 	{ 5171, "Slice and Dice" },
 	{ 2983, "Sprint" },
@@ -2905,9 +3052,53 @@ AL.RegisterRotation("ROGUE", M)
     -- the full spell list, UI builders and Universal icon choices stay current.
     for key, value in pairs(leveling.defaults) do advanced.defaults[key] = value end
 
+    -- These virtual actions are bound macros. Set their Unit1 defaults once
+    -- without claiming a Universal icon already reserved by another spell.
+    local poisonIconRetryAt, poisonIconConflictReported = setmetatable({}, { __mode = "k" }),
+        setmetatable({}, { __mode = "k" })
+    function advanced.EnsurePoisonIcons(profile)
+        if type(profile) ~= "table" then return end
+        local now = GetTime and GetTime() or 0
+        if not profile.roguePoisonIconsInitialized and now >= (poisonIconRetryAt[profile] or 0) then
+            local assigned = true
+            for _, item in ipairs({
+                { name = "Apply Main-Hand Poison", number = 7 },
+                { name = "Apply Off-Hand Poison", number = 10 },
+            }) do
+                if not (profile.icons and profile.icons[item.name]) then
+                    for _, choice in ipairs(root.UNIVERSAL_CHOICES or {}) do
+                        if choice.slot == 6 and choice.number == item.number then
+                            local accepted, owner = root.SetIconChoice(item.name, choice, profile)
+                            if not accepted then
+                                assigned = false
+                                if owner and not poisonIconConflictReported[profile] and root.Say then
+                                    poisonIconConflictReported[profile] = true
+                                    root.Say("Poison icon is reserved by " .. owner .. "; choose another Unit1 icon in Spells.")
+                                end
+                            end
+                            break
+                        end
+                    end
+                end
+            end
+            profile.roguePoisonIconsInitialized = assigned
+            if not assigned then poisonIconRetryAt[profile] = now + 5 end
+        end
+        if root.playerClass == "ROGUE" then
+            -- A macro is intentionally absent from the class spellbook. Keep
+            -- its two Spells-tab rows actionable after any spellbook rescan.
+            root.known["Apply Main-Hand Poison"] = true
+            root.known["Apply Off-Hand Poison"] = true
+        end
+    end
+    root.IconOverrides = root.IconOverrides or {}
+    root.IconOverrides["Apply Main-Hand Poison"] = function() return 133646 end
+    root.IconOverrides["Apply Off-Hand Poison"] = function() return 133632 end
+
     local modernNextSpell = advanced.NextSpell
     local wasLeveling = true
     function advanced.NextSpell(profile, ...)
+        advanced.EnsurePoisonIcons(profile)
         if UsesLeveling(profile) then
             wasLeveling = true
 			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5

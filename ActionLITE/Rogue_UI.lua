@@ -14,6 +14,7 @@ end
 local function BuildRogueUI(page, ui)
 	local rotation = AL.rotations and AL.rotations.ROGUE
 	if rotation and rotation.NormalizeBuild then rotation.NormalizeBuild(ui.Profile()) end
+	if rotation and rotation.EnsurePoisonIcons then rotation.EnsurePoisonIcons(ui.Profile()) end
 	local theme = ui.Theme
 	local stack = ui.Body(page)
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -62,7 +63,12 @@ local function BuildRogueUI(page, ui)
 			options = translated,
 			get = function() return ui.Profile()[key] or default end,
 			set = function(value) ui.Profile()[key] = value end,
-			onSelect = ui.Repaint,
+			onSelect = function()
+				if (key == "mainHandPoison" or key == "offHandPoison") and AL.Say then
+					AL.Say("Poison selection changed: update the corresponding poison macro to the selected item.")
+				end
+				ui.Repaint()
+			end,
 		})
 	end
 
@@ -104,6 +110,31 @@ local function BuildRogueUI(page, ui)
 			{ label = "Garrote", value = "GARROTE" },
 		}, "BACKSTAB")
 	ui.Help(opening, "Automatic tries Backstab with a dagger, then another learned opener. Backstab requires melee range and rear position. A reported positional failure selects Sinister Strike instead of trapping the rotation.")
+
+	local poison = ui.Card(stack, "WEAPON POISONS", "Outside combat only", { id="poisons", group="preparation" })
+	local poisonOptions = {
+		{ label = "None", value = "NONE" },
+		{ label = "Instant Poison", value = "INSTANT" },
+		{ label = "Deadly Poison", value = "DEADLY" },
+		{ label = "Crippling Poison", value = "CRIPPLING" },
+		{ label = "Mind-Numbing Poison", value = "MIND_NUMBING" },
+		{ label = "Wound Poison", value = "WOUND" },
+	}
+	Dropdown(poison, "mainHandPoison", "Main-hand poison", poisonOptions, "NONE")
+	Dropdown(poison, "offHandPoison", "Off-hand poison", poisonOptions, "NONE")
+	ui.Help(poison, "Bind the two Spells-tab actions to macros with Universal7 Unit1 (main hand) and Universal10 Unit1 (off hand). Example main-hand macro:\n#showtooltip\n/use Instant Poison\n/use 16\nFor off hand, use 17. Replace Instant Poison with the exact localized name and rank of your selected item in your bags.")
+	ui.Help(poison, "A missing temporary enchant is reapplied outside combat. Recognized poison IDs can be changed when your selection changes; unknown existing enchants are left untouched so another weapon buff is not overwritten.")
+
+	local pvp = ui.Card(stack, "PVP STEALTH OPENER", "Duels and hostile players", { id="pvp-opener", group="preparation" })
+	Dropdown(pvp, "pvpOpenerMode", "Preferred player-target opener", {
+		{ label = "Use normal opener", value = "NONE" },
+		{ label = "Sap", value = "SAP" },
+		{ label = "Backstab", value = "BACKSTAB" },
+		{ label = "Cheap Shot", value = "CHEAP_SHOT" },
+		{ label = "Ambush", value = "AMBUSH" },
+		{ label = "Garrote", value = "GARROTE" },
+	}, "NONE")
+	ui.Help(pvp, "Against a confirmed attackable player, the selected learned opener takes priority while stealthed, including after a Vanish. Burst abilities are considered even when the Burst button is off. After Vanish succeeds, suggestions wait two seconds.")
 
 	local builders = ui.Card(stack,
 		Text({ en = "BUILDERS & PROCS", fr = "GENERATEURS ET PROCS", pt = "GERADORES E PROCS", es = "GENERADORES Y PROCS", de = "AUFBAUER & PROCS", zh = "生成技与触发" }), nil, { id="builders", group="damage" })

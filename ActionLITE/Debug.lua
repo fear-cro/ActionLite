@@ -520,7 +520,16 @@ function D.RotationState()
 	if hasLast then
 		spell = lastSpellKey == nil and "none" or (lastSpellKey == SECRET and "<secret>" or Safe(lastSpellKey))
 	end
-	return { observed = hasLast, spell = spell, reason = lastReasonText, at = lastCallAt, calls = D.perf.calls }
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+	-- Report both the rotation's recommendation and the actual pixel watchdog
+	-- state. They may differ when a protected overlay chooses the displayed icon.
+	local watchdog
+	if type(AL.SpellBlacklistState) == "function" then
+		local ok, value = pcall(AL.SpellBlacklistState)
+		if ok and type(value) == "table" then watchdog = value end
+	end
+	return { observed = hasLast, spell = spell, reason = lastReasonText, at = lastCallAt,
+		calls = D.perf.calls, watchdog = watchdog }
 end
 
 local function PowerType()

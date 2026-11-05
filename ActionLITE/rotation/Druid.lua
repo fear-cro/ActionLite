@@ -71,6 +71,8 @@ local M = {
 		levelingShiftBelowEnergy = 40,
 		levelingMoonkin = true, levelingInsectSwarm = true,
 		levelingStarfire = true,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		pvpCatOpener = "NONE",
 	},
 }
 
@@ -100,12 +102,16 @@ M.spells = {
 	{ 16689, "Nature's Grasp" },
 	{ 5215, "Prowl" },
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 9005, "Pounce" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	{ 407995, "Primal Bite" },
 	{ 1822, "Rake" },
 	{ 8936, "Regrowth" },
 	{ 774, "Rejuvenation" },
 	{ 2782, "Remove Curse" },
 	{ 1079, "Rip" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 6785, "Ravage" },
 	{ 5221, "Shred" },
 	{ 1322605, "Shifting Power" },
 	{ 2908, "Soothe Animal" },
@@ -115,6 +121,8 @@ M.spells = {
 	{ 5225, "Track Humanoids" },
 	{ 2912, "Starfire" },
 	{ 5176, "Wrath" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 20549, "War Stomp" },
 }
 
 -- Health thresholds are inclusive; resource costs are minimum amounts.
@@ -210,6 +218,12 @@ end
 local lastRotation, openerBlocked, lastSuccessfulCastAt
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 local levelingStarfireOpened = false
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Cast success, not a protected target aura, advances the caster opener.
+local levelingWrathOpened, levelingRootsOpened, levelingRootsFailed = false, false, false
+local levelingNatureGraspUntil, levelingWarStompUntil, levelingRejuvenationUntil = 0, 0, 0
+local levelingTargetChangedAt = 0
+local duelActive = false
 local levelingLacerateStacks, levelingLacerateExpires = 0, 0
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 -- Forever can protect cooldown payloads in combat. Confirmed casts provide a
@@ -314,7 +328,9 @@ local function Offer(name, reason, gates, kind, fallbackCost, pool, shifting)
         end
         if shortage == true then gate = false end
         conditions[#conditions + 1] = gate
-    elseif usable == false then
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    -- A shift-out heal is intentionally offered despite form-only usability.
+    elseif usable == false and not shifting then
         return false
     end
     local offered = AddAction(name, reason, conditions)
@@ -343,8 +359,13 @@ local function ActiveEnemyCount()
         if unit ~= "target" and Bool((SafeCall(UnitAffectingCombat, unit))) ~= true then return end
         local guid = SafeCall(UnitGUID, unit)
         if not SafeValue(guid) or type(guid) ~= "string" or seen[guid] then return end
-        local range = unit == "target" and SafeCall(AL.InRange, "Maul")
-            or SafeCall(C_Spell and C_Spell.IsSpellInRange, reference or "Maul", unit)
+        local range
+        if unit == "target" then
+            range = SafeCall(AL.InRange, "Maul")
+            if not SafeValue(range) or range == nil then range = SafeCall(AL.TargetInMelee) end
+        else
+            range = SafeCall(C_Spell and C_Spell.IsSpellInRange, reference or "Maul", unit)
+        end
         if not SafeValue(range) or (range ~= true and range ~= 1) then return end
         seen[guid], count = true, count + 1
     end
@@ -353,26 +374,68 @@ local function ActiveEnemyCount()
     if SafeValue(plates) and type(plates) == "table" then
         for _, plate in pairs(plates) do
             if SafeValue(plate) and type(plate) == "table" then
-                Count(plate.namePlateUnitToken or (plate.UnitFrame and plate.UnitFrame.unit))
+                local unit = plate.namePlateUnitToken
+                if not SafeValue(unit) or type(unit) ~= "string" then
+                    local frame = plate.UnitFrame
+                    if SafeValue(frame) and type(frame) == "table" then unit = frame.unit end
+                end
+                Count(unit)
             end
         end
     end
     return count > 0 and count or nil
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- A solo Druid's nearby engaged enemies are the best available attacker
+-- signal when target-of-target is protected. In a group require two readable
+-- enemies actually targeting the player, so nearby ally pulls do not stun.
+local function TwoAttackers()
+    if (ActiveEnemyCount() or 0) < 2 then return false end
+    if Number((SafeCall(GetNumGroupMembers))) == 0 then return true end
+    local seen, count = {}, 0
+    local function Count(unit)
+        if not SafeValue(unit) or type(unit) ~= "string"
+            or Bool((SafeCall(UnitIsUnit, unit .. "target", "player"))) ~= true then return end
+        local guid = SafeCall(UnitGUID, unit)
+        if not SafeValue(guid) or type(guid) ~= "string" then return end
+        if not seen[guid] then seen[guid], count = true, count + 1 end
+    end
+    Count("target")
+    local plates = SafeCall(C_NamePlate and C_NamePlate.GetNamePlates)
+    if SafeValue(plates) and type(plates) == "table" then
+        for _, plate in pairs(plates) do
+            if SafeValue(plate) and type(plate) == "table" then
+                local unit = plate.namePlateUnitToken
+                if not SafeValue(unit) or type(unit) ~= "string" then
+                    local frame = plate.UnitFrame
+                    if SafeValue(frame) and type(frame) == "table" then unit = frame.unit end
+                end
+                Count(unit)
+            end
+        end
+    end
+    return count >= 2
+end
+
 function M.OnTargetChanged()
     openerBlocked, lastRotation, AL.rotationSecretVisual = false, nil, nil
     levelingLacerateStacks, levelingLacerateExpires = 0, 0
 	levelingStarfireOpened = false
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	levelingWrathOpened, levelingRootsOpened, levelingRootsFailed = false, false, false
+	levelingTargetChangedAt = GetTime()
 end
 function M.OnUIError(message)
     if not SafeValue(message) or type(message) ~= "string" then return end
     if (SPELL_FAILED_NOT_BEHIND and message == SPELL_FAILED_NOT_BEHIND)
         or (ERR_BADATTACKPOS and message == ERR_BADATTACKPOS) then openerBlocked = true end
 end
-function M.OnCastResult(name, event)
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+function M.OnCastResult(name, event, sent)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         lastSuccessfulCastAt = GetTime()
+		local sameTargetCast = not (sent and Number(sent.t) and sent.t < levelingTargetChangedAt)
         if name == "Lacerate" then
             levelingLacerateStacks = math.min(5, levelingLacerateStacks + 1)
             levelingLacerateExpires = GetTime() + 15
@@ -382,7 +445,23 @@ function M.OnCastResult(name, event)
 			levelingShiftingPowerUntil = GetTime() + 8
 		elseif name == "Starfire" then
 			levelingStarfireOpened = true
+		elseif name == "Wrath" and sameTargetCast then
+			levelingWrathOpened = true
+		elseif name == "Entangling Roots" and sameTargetCast then
+			levelingRootsOpened = true
+		elseif name == "Nature's Grasp" then
+			levelingNatureGraspUntil = GetTime() + 60
+		elseif name == "War Stomp" then
+			levelingWarStompUntil = GetTime() + 120
+		elseif name == "Rejuvenation" then
+			levelingRejuvenationUntil = GetTime() + 12
         end
+    elseif name == "Entangling Roots" and sent and Number(sent.t)
+        and sent.t >= levelingTargetChangedAt
+        and (event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
+            or event == "UNIT_SPELLCAST_INTERRUPTED") then
+        -- A failed root is not a cast opener; use Wrath for this enemy instead.
+        levelingRootsFailed = true
     elseif name == "Shred" then openerBlocked = true end
 end
 function M.CanTrackSuggestedSpell(name)
@@ -509,17 +588,45 @@ function M.ApplyVisualRow(nodes, row, values)
 end
 
 local function Heal(hp, threshold, shifting)
-    if not AL.HasBuff("player", "Rejuvenation") then
+    -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+    if GetTime() >= levelingRejuvenationUntil and not AL.HasBuff("player", "Rejuvenation") then
         Offer("Rejuvenation", shifting and "heal (shift out)" or "heal", {
             HealthGate("player", hp, threshold, true) }, 0, nil, false, shifting)
     end
 end
 
-local function CatRotation(s, targetHP, inCombat)
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- A duel opponent need not have a PvP flag. Other hostile players must be
+-- enemy players; unknown/secret unit facts never turn ordinary PvE into PvP.
+local function PvPEnemy(hostile)
+    if not hostile or Bool((SafeCall(UnitIsPlayer, "target"))) ~= true then return false end
+    return duelActive or Bool((SafeCall(UnitCanAttack, "player", "target"))) == true
+end
+
+local duelEvents = CreateFrame("Frame")
+duelEvents:RegisterEvent("DUEL_INBOUNDS")
+duelEvents:RegisterEvent("DUEL_FINISHED")
+duelEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+duelEvents:SetScript("OnEvent", function(_, event)
+    if event == "DUEL_INBOUNDS" then duelActive = true else duelActive = false end
+end)
+
+local function CatPvPOpener(s, hostile)
+    if not PvPEnemy(hostile) then return end
+    local opener = s.pvpCatOpener
+    if opener ~= "Pounce" and opener ~= "Ravage" and opener ~= "Shred" then return end
+    if not AL.HasBuff("player", "Prowl") and Bool((SafeCall(IsStealthed))) ~= true then return end
+    if openerBlocked then return end
+    if InMelee(opener) then Offer(opener, "selected PvP stealth opener", nil, 3, opener == "Pounce" and 50 or 60, true) end
+end
+
+local function CatRotation(s, targetHP, inCombat, hostile)
     local cp = Number((SafeCall(AL.ComboPoints))) or 0
     if cp < 0 or cp > 5 or cp ~= math.floor(cp) then cp = 0 end
     cp = RecoverStaleComboPoints(cp)
-    if not inCombat and AL.HasBuff("player", "Prowl") and not openerBlocked and InMelee("Shred") then
+    if not inCombat and not (PvPEnemy(hostile) and s.pvpCatOpener
+        and s.pvpCatOpener ~= "NONE")
+        and AL.HasBuff("player", "Prowl") and not openerBlocked and InMelee("Shred") then
         Offer("Shred", "stealth opener", nil, 3, 60, true)
     end
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -596,23 +703,52 @@ end
 
 local function CasterRotation(s, hp, form)
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	if s.heal then Heal(hp, RULES.healCaster, form == "moonkin") end
+	if s.heal then
+		Heal(hp, RULES.healCaster, form == "moonkin")
+		-- An active Rejuvenation must not suppress the larger heal at low HP.
+		Offer("Healing Touch", "combat self-heal", { HealthGate("player", hp, RULES.healCaster, true) }, 0, nil, false, form == "moonkin")
+	end
 	-- Moonkin is maintained only from the ordinary caster form while a hostile
 	-- target is being handled. Travel and other utility forms remain untouched.
 	if form == "caster" and s.levelingMoonkin ~= false then
 		Offer("Moonkin Form", "learned Balance form")
 	end
-	-- A long Starfire is a safe opener while stationary. Successful-cast state
-	-- prevents it from replacing the established Wrath filler for the fight.
-	if s.levelingStarfire ~= false and not levelingStarfireOpened and PlayerStationary() then
-		Offer("Starfire", "learned Balance opener", nil, 0)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Roots replaces the opening Wrath when learned and ready. Otherwise one
+	-- Wrath lands before DoTs. Neither opener restarts mid-fight when its
+	-- cooldown changes; normal Wrath filler resumes after the DoTs.
+	if not levelingRootsOpened and not levelingWrathOpened then
+		if not levelingRootsFailed then Offer("Entangling Roots", "learned caster opener", nil, 0) end
+		Offer("Wrath", "caster opening Wrath", nil, 0)
 	end
 	if s.levelingInsectSwarm ~= false and not AL.HasDebuff("target", "Insect Swarm") then
 		Offer("Insect Swarm", "learned Balance dot", nil, 0)
 	end
     if not AL.HasDebuff("target", "Moonfire") then Offer("Moonfire", "dot", nil, 0) end
+	if s.levelingStarfire ~= false and not levelingStarfireOpened and PlayerStationary() then
+		Offer("Starfire", "learned Balance cast", nil, 0)
+	end
     Offer("Wrath", "filler", nil, 0)
     AddAction(AL.Ok("Attack") and "Attack" or nil, "melee / out of mana")
+end
+
+local function NatureGrasp(form, inCombat)
+    if form ~= "caster" or not inCombat or GetTime() < levelingNatureGraspUntil
+        or AL.HasBuff("player", "Nature's Grasp") then return end
+    if InMelee("Attack") or Bool((SafeCall(AL.TargetInMelee))) == true
+        or TwoAttackers() then
+        Offer("Nature's Grasp", "caster melee defense", nil, 0)
+    end
+end
+
+local function WarStomp(form)
+    if GetTime() < levelingWarStompUntil then return end
+    local reference = form == "cat" and "Claw" or form == "bear" and "Maul" or "Attack"
+    local melee = InMelee(reference) or Bool((SafeCall(AL.TargetInMelee))) == true
+    if TwoAttackers()
+        or (melee and Bool((SafeCall(AL.TargetCasting))) == true) then
+        Offer("War Stomp", "racial melee defense", nil, 0)
+    end
 end
 
 function M.NextSpell(s, inCombat, hostile)
@@ -635,17 +771,25 @@ function M.NextSpell(s, inCombat, hostile)
         if hostile then
             if form == "cat" then
                 if not AL.HasBuff("player", "Prowl") then Offer("Prowl", "sneak in") end
-                CatRotation(s, HealthPercent("target"), false)
+                CatPvPOpener(s, hostile)
+                CatRotation(s, HealthPercent("target"), false, hostile)
             elseif form == "bear" then BearRotation(s)
             elseif form == "caster" or form == "moonkin" then CasterRotation(s, hp, form) end
         end
     elseif hostile then
-        if s.heal and form ~= "caster" then Heal(hp, RULES.healEmergency, true) end
-        if AL.burst then
+		-- Self-preservation wins before any damage option, including in forms.
+		if s.heal and form ~= "caster" then
+			Heal(hp, RULES.healEmergency, true)
+			Offer("Healing Touch", "emergency self-heal (shift out)", {
+				HealthGate("player", hp, RULES.healEmergency, true) }, 0, nil, false, true)
+		end
+		if form == "cat" then CatPvPOpener(s, hostile) end
+		NatureGrasp(form, inCombat)
+		WarStomp(form)
+		if AL.burst or PvPEnemy(hostile) then
             Offer("Berserking", "burst")
-            if InMelee(form == "cat" and "Claw" or "Maul") then Offer("War Stomp", "burst", nil, 0) end
         end
-        if form == "cat" then CatRotation(s, HealthPercent("target"), true)
+		if form == "cat" then CatRotation(s, HealthPercent("target"), true, hostile)
         elseif form == "bear" then BearRotation(s)
         elseif form == "caster" or form == "moonkin" then CasterRotation(s, hp, form) end
     end
@@ -657,7 +801,7 @@ end
 
 if AL.selfCastSpells then
     for _, name in ipairs({ "Mark of the Wild", "Thorns", "Rejuvenation", "Healing Touch", "Regrowth",
-        "Bear Form", "Dire Bear Form", "Cat Form", "Moonkin Form", "Prowl", "Enrage", "Tiger's Fury", "Dash", "Berserking" }) do
+        "Bear Form", "Dire Bear Form", "Cat Form", "Moonkin Form", "Prowl", "Enrage", "Tiger's Fury", "Dash", "Berserking", "War Stomp", "Nature's Grasp" }) do
         AL.selfCastSpells[name] = true
     end
 end

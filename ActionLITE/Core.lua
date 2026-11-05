@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-AL.buildId = "1.1.5-prelaunch-bluepost-20261103"
+AL.buildId = "1.1.6-20261105"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -217,6 +217,8 @@ local QUEUE_TIMEOUT = 20
 -- toggles: queuing an already-queued spell removes it instead
 function ActionLite_Queue(spell)
 	if type(spell) ~= "string" or spell == "" then return end
+	if issecretvalue and issecretvalue(spell) then return end
+	spell = (AL.englishNames and AL.englishNames[spell]) or spell
 	local say = not AL.S().noprint
 	for i, q in ipairs(AL.queue) do
 		if q.spell == spell then
@@ -246,6 +248,8 @@ function AL.PruneQueue()
 end
 
 function AL.PopQueue(castName)
+	if issecretvalue and issecretvalue(castName) then return end
+	castName = (AL.englishNames and AL.englishNames[castName]) or castName
 	for i, q in ipairs(AL.queue) do
 		if q.spell == castName then
 			table.remove(AL.queue, i)
@@ -446,6 +450,19 @@ local SPELL_WARNING_SECONDS = 5
 local spellAttemptBlacklist = {}
 local spellAttemptPending
 local spellReadabilityWarning
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+-- SENT cannot report a pixel the reader never clicked. The Display driver
+-- supplies the final, unambiguous A[3]/A[6] spell once per redraw.
+local spellDisplayPending
+local spellDisplayStatus
+local spellDisplayQuietUntil = 0
+local UNWATCHED_ACTIONS = {
+	["Attack"] = true, ["Auto Shot"] = true, ["Shoot"] = true,
+	["Heroic Strike"] = true, ["Cleave"] = true, ["Maul"] = true,
+	["Raptor Strike"] = true,
+	-- These are macro/item actions, not spells with UNIT_SPELLCAST_SENT.
+	["Apply Main-Hand Poison"] = true, ["Apply Off-Hand Poison"] = true,
+}
 
 local function PublicSpellName(value)
 	if (issecretvalue and issecretvalue(value))
@@ -565,10 +582,12 @@ function AL.ClearSpellBlacklist(spell)
 	if spell then
 		spellAttemptBlacklist[spell] = nil
 		if spellAttemptPending and spellAttemptPending.spell == spell then spellAttemptPending = nil end
+		if spellDisplayPending and spellDisplayPending.spell == spell then spellDisplayPending = nil end
 		return
 	end
 	for name in pairs(spellAttemptBlacklist) do spellAttemptBlacklist[name] = nil end
-	spellAttemptPending, spellReadabilityWarning = nil, nil
+	spellAttemptPending, spellDisplayPending, spellDisplayStatus, spellReadabilityWarning = nil, nil, nil, nil
+	spellDisplayQuietUntil = 0
 end
 
 function AL.GetSpellReadabilityWarning()
@@ -606,9 +625,93 @@ function AL.SpellBlacklistState()
 			combatFallback = spellAttemptPending.scope
 				and spellAttemptPending.scope.combatFallback or false,
 		} or nil,
+		displayPending = spellDisplayPending and {
+			spell = spellDisplayPending.spell,
+			age = now - spellDisplayPending.at,
+			slot = spellDisplayPending.slot,
+			targetGUID = spellDisplayPending.scope.targetGUID,
+			combatFallback = spellDisplayPending.scope.combatFallback,
+		} or nil,
+		display = spellDisplayStatus,
 		blacklisted = active,
 		warning = spellReadabilityWarning and spellReadabilityWarning.text or nil,
 	}
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+-- The display watchdog only judges a visible, immediately castable action
+-- against an engaged enemy. A protected/conditional visual, cooldown, range,
+-- insufficient resources, a cast/channel, or any observed spellcast event
+-- resets it instead of silently punishing a legitimate wait state.
+local function SpellDisplayWatchable(spell)
+	if not spell or UNWATCHED_ACTIONS[spell] then return false, "non-spell or auto-repeat action" end
+	if AL.IsSpellBlacklisted(spell) then return false, "already blacklisted" end
+	if AL.SafeBoolean(UnitAffectingCombat, "player") ~= true
+		or AL.SafeBoolean(UnitExists, "target") ~= true
+		or AL.SafeBoolean(UnitCanAttack, "player", "target") ~= true then
+		return false, "combat or hostile target unconfirmed"
+	end
+	if type(AL.CastingSpell) == "function" then
+		local ok, name = pcall(AL.CastingSpell)
+		if not ok or (issecretvalue and issecretvalue(name)) or name then return false, "casting" end
+	end
+	if type(UnitCastingInfo) == "function" then
+		local ok, name = pcall(UnitCastingInfo, "player")
+		if not ok or (issecretvalue and issecretvalue(name)) or name then return false, "casting or cast protected" end
+	end
+	if type(AL.PlayerChanneling) == "function" then
+		local ok, active = pcall(AL.PlayerChanneling)
+		if not ok or (issecretvalue and issecretvalue(active)) or active then return false, "channeling" end
+	end
+	local okReady, ready = pcall(AL.IsReady, spell)
+	if not okReady or (issecretvalue and issecretvalue(ready)) or ready ~= true then return false, "cooldown unready" end
+	local okUsable, usable, insufficient = pcall(AL.SpellUsable, spell)
+	if not okUsable or (issecretvalue and (issecretvalue(usable) or issecretvalue(insufficient)))
+		or usable ~= true or insufficient == true then return false, "spell unusable or insufficient resources" end
+	local okRange, inRange = pcall(AL.InRange, spell)
+	-- A protected/unknown range is not proof that this icon was actionable.
+	if not okRange or (issecretvalue and issecretvalue(inRange)) or inRange ~= true then
+		local outOfRange = okRange and not (issecretvalue and issecretvalue(inRange)) and inRange == false
+		return false, outOfRange and "out of range" or "range unconfirmed"
+	end
+	return true
+end
+
+function AL.ObserveDisplayedSpell(spell, slot)
+	-- Only the final driven pixel can prove what a reader was meant to see.
+	if slot ~= "A3" and slot ~= "A6" then spell = nil end
+	spell = PublicSpellName(spell)
+	local now = GetTime and GetTime() or 0
+	local watchable, reason = SpellDisplayWatchable(spell)
+	if not spell then reason = "no unambiguous A[3]/A[6] spell" end
+	if now < spellDisplayQuietUntil then reason = "recent cast event" end
+	spellDisplayStatus = { spell = spell, slot = slot, at = now, status = reason or "watching" }
+	if not spell or now < spellDisplayQuietUntil or not watchable then
+		spellDisplayPending = nil
+		return
+	end
+	local guid = BlacklistTargetGUID()
+	local pending = spellDisplayPending
+	if pending and (pending.spell ~= spell or pending.slot ~= slot
+		or pending.scope.targetGUID ~= guid) then
+		spellDisplayPending, pending = nil, nil
+	end
+	if not pending then
+		spellDisplayPending = {
+			spell = spell, slot = slot, at = now,
+			scope = {
+				captured = true, targetGUID = guid, combat = true,
+				combatFallback = guid == nil,
+			},
+		}
+		return
+	end
+	if now - pending.at < SPELL_ATTEMPT_TIMEOUT then return end
+	spellDisplayPending = nil
+	spellDisplayStatus.status = "blacklisted after no cast event"
+	AL.BlacklistSpell(spell, nil,
+		"Visible " .. slot .. " recommendation had no UNIT_SPELLCAST_SENT for two seconds",
+		pending.scope)
 end
 
 local function BeginSpellAttempt(spell, castGUID)
@@ -618,12 +721,7 @@ local function BeginSpellAttempt(spell, castGUID)
 	-- already active. On-next-swing attacks can also remain queued for longer
 	-- than two seconds by design. Their dedicated timing modules own retry
 	-- protection, so neither case is evidence of an unreadable icon.
-	local unmanaged = {
-		["Attack"] = true, ["Auto Shot"] = true, ["Shoot"] = true,
-		["Heroic Strike"] = true, ["Cleave"] = true,
-		["Maul"] = true, ["Raptor Strike"] = true,
-	}
-	if not spell or unmanaged[spell] then return end
+	if not spell or UNWATCHED_ACTIONS[spell] then return end
 	local now = GetTime and GetTime() or 0
 	-- Repeated failed key presses must not keep moving the two-second deadline.
 	if spellAttemptPending and spellAttemptPending.spell == spell
@@ -696,8 +794,38 @@ end
 
 -- API compat: 1.60 client may ship either the classic globals or the C_Spell namespace
 function AL.SpellName(spell)
-	if GetSpellInfo then return (GetSpellInfo(spell)) end
-	return C_Spell.GetSpellName and C_Spell.GetSpellName(spell)
+	if type(GetSpellInfo) == "function" then
+		local ok, name = pcall(GetSpellInfo, spell)
+		if ok and type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name ~= "" then return name end
+	end
+	if C_Spell and type(C_Spell.GetSpellName) == "function" then
+		local ok, name = pcall(C_Spell.GetSpellName, spell)
+		if ok and type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name ~= "" then return name end
+	end
+	if C_Spell and type(C_Spell.GetSpellInfo) == "function" then
+		local ok, info = pcall(C_Spell.GetSpellInfo, spell)
+		if ok and type(info) == "table" and not (issecretvalue and issecretvalue(info)) then
+			local name = info.name
+			if type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name ~= "" then return name end
+		end
+	end
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+-- Rotation/profile keys remain English; spell APIs and the action-bar scanner
+-- need the live learned-rank ID (or the client's localized name).  The ID is
+-- never guessed from a rank-one catalog entry: the spellbook owns it.
+function AL.LocalName(spell)
+	if type(spell) ~= "string" or (issecretvalue and issecretvalue(spell)) then return nil end
+	return AL.localNames and AL.localNames[spell] or spell
+end
+
+function AL.SpellIdentifier(spell)
+	if type(spell) ~= "string" or (issecretvalue and issecretvalue(spell)) then return spell end
+	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[spell]
+	local id = ref and ref.id
+	if type(id) == "number" and not (issecretvalue and issecretvalue(id)) and id > 0 then return id end
+	return AL.LocalName(spell)
 end
 
 function AL.SpellTexture(spell)
@@ -711,8 +839,15 @@ function AL.SpellTexture(spell)
 		local fixed = name and fixedTextures[name]
 		if fixed then return fixed end
 	end
-	if GetSpellTexture then return GetSpellTexture(spell) end
-	return C_Spell.GetSpellTexture(spell)
+	local identifier = AL.SpellIdentifier(spell)
+	if type(GetSpellTexture) == "function" then
+		local ok, texture = pcall(GetSpellTexture, identifier)
+		if ok and not (issecretvalue and issecretvalue(texture)) and texture then return texture end
+	end
+	if C_Spell and type(C_Spell.GetSpellTexture) == "function" then
+		local ok, texture = pcall(C_Spell.GetSpellTexture, identifier)
+		if ok and not (issecretvalue and issecretvalue(texture)) and texture then return texture end
+	end
 end
 
 -- Keep the original Universal numbers stable; 8 and 9 are no longer supported.
@@ -818,13 +953,10 @@ function AL.IconFor(spell, prof)
 end
 
 function AL.SpellCooldown(spell)
-	-- Learned ranks for the tracked cooldown classes are cached before combat; an English name can resolve the
-	-- wrong rank or fail on a localized client even while this ID is readable.
-	if preciseCooldownClass then
-		local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[spell]
-		local id = ref and ref.id
-		if type(id) == "number" and not (issecretvalue and issecretvalue(id)) then spell = id end
-	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+	-- Every class must use the learned rank or localized name, including
+	-- leveling Hunters, Druids, Rogues, Warlocks and Warriors.
+	spell = AL.SpellIdentifier(spell)
 	if GetSpellCooldown then
 		local ok, s, d = pcall(GetSpellCooldown, spell)
 		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -832,7 +964,8 @@ function AL.SpellCooldown(spell)
 		-- protected numbers to a caller which will compare or add them.
 		if ok and not (issecretvalue and (issecretvalue(s) or issecretvalue(d)))
 			and type(s) == "number" and type(d) == "number" then return s, d end
-		return nil
+		-- Some clients expose the global but only the modern API can read it.
+		-- Fall through rather than abandoning the cooldown query.
 	end
 	local reader = C_Spell and C_Spell.GetSpellCooldown
 	if type(reader) ~= "function" then return nil end
@@ -847,9 +980,14 @@ end
 -- blocked/secret usability reads count as usable; a real "no mana" still gates
 function AL.SpellUsable(spell)
 	local ok, usable, insufficient
-	local reader = IsUsableSpell or (C_Spell and C_Spell.IsSpellUsable)
-	if type(reader) ~= "function" then return true end
-	ok, usable, insufficient = pcall(reader, spell)
+	spell = AL.SpellIdentifier(spell)
+	local reader = IsUsableSpell
+	if type(reader) == "function" then ok, usable, insufficient = pcall(reader, spell) end
+	if not ok or (not (issecretvalue and issecretvalue(usable)) and type(usable) ~= "boolean") then
+		reader = C_Spell and C_Spell.IsSpellUsable
+		if type(reader) ~= "function" then return true end
+		ok, usable, insufficient = pcall(reader, spell)
+	end
 	if not ok then return true end
 	if issecretvalue and issecretvalue(usable) then return true end
 	if (issecretvalue and issecretvalue(insufficient)) or type(insufficient) ~= "boolean" then insufficient = nil end
@@ -1269,7 +1407,7 @@ function AL.InRange(spell)
 			local result = Normalize(pcall(IsSpellInRange, ref.index, BOOKTYPE_SPELL or "spell", "target"))
 			if result ~= nil then return result end
 		end
-		local name = spell
+		local name = type(spell) == "string" and AL.LocalName(spell) or spell
 		if type(name) == "number" then
 			local ok, value = pcall(AL.SpellName, name)
 			name = ok and value or nil
@@ -1280,7 +1418,7 @@ function AL.InRange(spell)
 		end
 	end
 	if C_Spell and type(C_Spell.IsSpellInRange) == "function" and not id then
-		return Normalize(pcall(C_Spell.IsSpellInRange, spell, "target"))
+		return Normalize(pcall(C_Spell.IsSpellInRange, AL.SpellIdentifier(spell), "target"))
 	end
 	return nil
 end
@@ -1828,8 +1966,20 @@ end
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 local function WatchSpellAttempt(event, arg2, arg3, arg4)
+	if event ~= "UNIT_SPELLCAST_SENT" and event ~= "UNIT_SPELLCAST_START"
+		and event ~= "UNIT_SPELLCAST_CHANNEL_START" and event ~= "UNIT_SPELLCAST_SUCCEEDED"
+		and event ~= "UNIT_SPELLCAST_FAILED" and event ~= "UNIT_SPELLCAST_FAILED_QUIET"
+		and event ~= "UNIT_SPELLCAST_INTERRUPTED" then return end
 	local name = EnglishCastName(arg2, arg3, arg4)
 	local guid = ReadCastGUID(arg2)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+	-- If an actual key press/cast event reaches the client, this is no longer a
+	-- pixel that went unseen. Unknown protected spell IDs are inconclusive, so
+	-- reset rather than blacklisting an unrelated visible recommendation.
+	if spellDisplayPending and (name == nil or name == spellDisplayPending.spell) then
+		spellDisplayPending = nil
+		spellDisplayQuietUntil = (GetTime and GetTime() or 0) + 0.35
+	end
 	if event == "UNIT_SPELLCAST_SENT" then
 		guid = ReadCastGUID(arg3)
 		-- Never substitute the displayed recommendation for a protected event.
@@ -2055,6 +2205,9 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		return
 	end
 	if event == "PLAYER_TARGET_CHANGED" then
+		spellDisplayPending = nil
+		spellDisplayStatus = nil
+		spellDisplayQuietUntil = (GetTime and GetTime() or 0) + 0.35
 		ComboRotationHook("OnTargetChanged")
 		if trackedCastClass then
 			targetEpoch = targetEpoch + 1
@@ -2503,6 +2656,15 @@ end
 AL.futureSpells = {}
 
 function AL.ScanSpellbook()
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+	-- ERR_SPELL_UNLEARNED tracks the canonical English suggestion. Preserve its
+	-- last known localized alias before rebuilding the maps, or a rescan on a
+	-- French client immediately resurrects a spell the client rejected.
+	local suppressedLocalized = {}
+	for english in pairs(AL.unlearned) do
+		local native = AL.localNames[english]
+		if type(native) == "string" then suppressedLocalized[native] = true end
+	end
 	wipe(AL.known)
 	wipe(AL.rangeSpellRefs)
 	wipe(AL.futureSpells)
@@ -2517,7 +2679,7 @@ function AL.ScanSpellbook()
 			if okF and future == true then
 				local okID, spellID = pcall(BookItemSpellID, i)
 				AL.futureSpells[#AL.futureSpells + 1] = { name = name, index = i, id = okID and spellID or nil }
-			elseif not AL.unlearned[name] then
+			elseif not AL.unlearned[name] and not suppressedLocalized[name] then
 				AL.known[name] = true
 				local okID, spellID = pcall(BookItemSpellID, i)
 				if okID and type(spellID) == "number"
@@ -2547,15 +2709,16 @@ function AL.ScanSpellbook()
 			local id, english = entry[1], entry[2]
 			if id == 0 and type(english) == "string" then
 				local ref = AL.rangeSpellRefs[english]
-				if not ref and C_Spell and type(C_Spell.GetSpellInfo) == "function" then
-					local ok, info = pcall(C_Spell.GetSpellInfo, english)
-					if ok and not (issecretvalue and issecretvalue(info)) and type(info) == "table" then
-						local native = info.name
-						if not (issecretvalue and issecretvalue(native)) and type(native) == "string" and AL.known[native] then
-							ref = AL.rangeSpellRefs[native]
-							AL.known[english], AL.rangeSpellRefs[english] = true, ref
-							AL.localNames[english], AL.englishNames[native] = native, english
-						end
+				if not ref then
+					-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+					-- A 0-ID catalog entry has no language-neutral identity. Resolve
+					-- only when the client can itself map the name to a learned book
+					-- spell; never substitute a guessed NPC/legacy spell ID.
+					local native = AL.SpellName(english)
+					if type(native) == "string" and AL.known[native] then
+						ref = AL.rangeSpellRefs[native]
+						AL.known[english], AL.rangeSpellRefs[english] = true, ref
+						AL.localNames[english], AL.englishNames[native] = native, english
 					end
 				end
 				local learnedID = ref and ref.id
@@ -2577,6 +2740,14 @@ function AL.ScanSpellbook()
 				AL.castSpellNamesByID[id] = english
 			end
 		end
+	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+	-- Rogue poison application is a macro/item recommendation, not a player
+	-- spellbook entry. It must survive rescans and has its own enchant-state
+	-- tracking in Rogue.lua; never use spell API or cast-event watchdog for it.
+	if AL.playerClass == "ROGUE" then
+		AL.known["Apply Main-Hand Poison"] = true
+		AL.known["Apply Off-Hand Poison"] = true
 	end
 	if trackedCastClass then
 		WarlockManaHook("RefreshManaCache")

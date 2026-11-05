@@ -201,8 +201,10 @@ local function UpdateSpellReadabilityWarning()
 	spellReadabilityWarning:Hide()
 	if type(AL.GetSpellReadabilityWarning) ~= "function" then return end
 	local ok, text = pcall(AL.GetSpellReadabilityWarning)
-	if not ok or type(text) ~= "string" or text == ""
-		or (issecretvalue and issecretvalue(text)) then return end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+	-- Secret values must be rejected before Lua examines their type or text.
+	if not ok or (issecretvalue and issecretvalue(text))
+		or type(text) ~= "string" or text == "" then return end
 	spellReadabilityWarning:SetText(text)
 	spellReadabilityWarning:Show()
 end
@@ -266,12 +268,15 @@ end
 
 -- AoE / Burst stay clickable while the main icon's position is locked.
 local toggles = {}
-local COMPACT_TOGGLE_PX, COMPACT_TOGGLE_GAP = 16, 4
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+-- Side controls share the recommendation's height. Full AoE/Burst controls
+-- each occupy one half; role controls and compact indicators occupy thirds.
+local COMPACT_TOGGLE_PX = MAIN_SIZE / 3
+local FULL_TOGGLE_HEIGHT = MAIN_SIZE / 2
 local function QuickToggle(index, caption, tipKey, isOn, onClick)
 	local b = CreateFrame("Button", nil, f)
-	b:SetSize(38, 24)
+	b:SetSize(38, FULL_TOGGLE_HEIGHT)
 	b:SetFrameLevel(f:GetFrameLevel() + 10)
-	b:SetPoint("LEFT", f, "RIGHT", 3, (1.5 - index) * (24 + COMPACT_TOGGLE_GAP))
 	b:RegisterForClicks("LeftButtonUp")
 	local edge = b:CreateTexture(nil, "BACKGROUND")
 	edge:SetAllPoints()
@@ -293,13 +298,13 @@ local function QuickToggle(index, caption, tipKey, isOn, onClick)
 	function b:Paint()
 		local on = isOn() and true or false
 		local compact = ActionLiteDB and ActionLiteDB.togglesHidden == true or false
-		if b.compact ~= compact then
-			b:ClearAllPoints()
-			-- Burst and AoE form one vertically centered column on the right.
-			local height = compact and COMPACT_TOGGLE_PX or 24
-			local centerY = (1.5 - index) * (height + COMPACT_TOGGLE_GAP)
-			b:SetPoint("LEFT", f, "RIGHT", 3, centerY)
-			b.compact = compact
+		b:ClearAllPoints()
+		-- Keep AoE flush with the top and Burst flush with the bottom, even
+		-- when the compact indicators leave the middle third empty.
+		if index == 1 then
+			b:SetPoint("TOPLEFT", f, "TOPRIGHT", 3, 0)
+		else
+			b:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", 3, 0)
 		end
 		label:SetShown(not compact)
 		check:SetShown(not compact and on)
@@ -312,7 +317,7 @@ local function QuickToggle(index, caption, tipKey, isOn, onClick)
 			label:SetText(caption)
 			local pad = on and 14 or 0
 			label:SetPoint("CENTER", pad / 2, 0)
-			b:SetSize(math.max(38, math.ceil((label:GetStringWidth() or 0) + 12 + pad)), 24)
+			b:SetSize(math.max(38, math.ceil((label:GetStringWidth() or 0) + 12 + pad)), FULL_TOGGLE_HEIGHT)
 			bg:SetColorTexture(0.035, 0.045, 0.065, 0.92)
 			if on then
 				local r, g, bl = AL.GlowColor()
@@ -323,7 +328,7 @@ local function QuickToggle(index, caption, tipKey, isOn, onClick)
 				label:SetTextColor(0.66, 0.68, 0.72, 1)
 			end
 		end
-		b.on = on
+		b.compact, b.on = compact, on
 	end
 	local function ShowTip(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -426,7 +431,7 @@ end
 local function RoleToggle(role)
 	local caption = ROLE_LABELS[role]
 	local b = CreateFrame("Button", nil, f)
-	b:SetSize(44, 24)
+	b:SetSize(44, COMPACT_TOGGLE_PX)
 	b:SetFrameLevel(f:GetFrameLevel() + 10)
 	b:RegisterForClicks("LeftButtonUp")
 	local edge = b:CreateTexture(nil, "BACKGROUND")
@@ -441,8 +446,8 @@ local function RoleToggle(role)
 	hover:SetColorTexture(1, 1, 1, 0.07)
 	local check = b:CreateTexture(nil, "OVERLAY")
 	check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-	check:SetSize(14, 14)
-	check:SetPoint("LEFT", 3, 0)
+	check:SetSize(11, 11)
+	check:SetPoint("LEFT", 2, 0)
 	local label = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	label:SetPoint("CENTER")
 
@@ -467,7 +472,7 @@ local function RoleToggle(role)
 			label:SetText(caption)
 			local pad = on and 14 or 0
 			label:SetPoint("CENTER", pad / 2, 0)
-			b:SetSize(math.max(44, math.ceil((label:GetStringWidth() or 0) + 12 + pad)), 24)
+			b:SetSize(math.max(44, math.ceil((label:GetStringWidth() or 0) + 12 + pad)), COMPACT_TOGGLE_PX)
 			bg:SetColorTexture(0.035, 0.045, 0.065, 0.92)
 			if on then
 				local r, g, bl = AL.GlowColor()
@@ -513,16 +518,15 @@ function LayoutRoleToggles()
 		if b.supported then visible[#visible + 1] = b end
 	end
 	local compact = ActionLiteDB and ActionLiteDB.togglesHidden == true or false
-	local gap = compact and COMPACT_TOGGLE_GAP or 4
-	local height = compact and COMPACT_TOGGLE_PX or 24
+	local height = COMPACT_TOGGLE_PX
 	local count = #visible
 	for index, b in ipairs(visible) do
 		b:ClearAllPoints()
-		local centerY = (((count + 1) / 2) - index) * (height + gap)
+		local centerY = (((count + 1) / 2) - index) * height
 		b:SetPoint("RIGHT", f, "LEFT", -3, centerY)
 	end
-	-- Keep notices above the icon and any upper overhang from the role column.
-	local noticeY = compact and 26 or 34
+	-- Neither column extends beyond the recommendation icon now.
+	local noticeY = 26
 	drinkReminder:ClearAllPoints()
 	drinkReminder:SetPoint("BOTTOM", f, "TOP", 0, noticeY)
 	spellReadabilityWarning:ClearAllPoints()
@@ -860,17 +864,33 @@ driver:SetScript("OnUpdate", function(_, dt)
 			ApplySecretHealthVisibility(A6Tex, healThreshold, true)
 		end
 	end
+	local healingVisualOK, healingActive = true, false
 	if AL.HealingEngine and AL.HealingEngine.Update then
-		local healingOK, healingError = pcall(AL.HealingEngine.Update, AL.HealingEngine, spell, reason)
+		local healingOK, healingResult = pcall(AL.HealingEngine.Update, AL.HealingEngine, spell, reason)
+		healingVisualOK, healingActive = healingOK, healingOK and healingResult == true
 		if not healingOK then
 			pcall(AL.HealingEngine.ClearVisuals, AL.HealingEngine)
-			local message = type(healingError) == "string" and not (issecretvalue and issecretvalue(healingError))
-				and healingError or "Protected HealingEngine display failure"
+			local message = type(healingResult) == "string" and not (issecretvalue and issecretvalue(healingResult))
+				and healingResult or "Protected HealingEngine display failure"
 			if message ~= lastHealingVisualError and AL.Debug and AL.Debug.CaptureError then
 				lastHealingVisualError = message
 				AL.Debug.CaptureError("HealingEngine display: " .. message, "healing engine")
 			end
 		end
+	end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+	-- Observe the actual A[3]/A[6] output once after conditional overlays.
+	-- A protected-health plan may show a different spell without Lua being
+	-- allowed to inspect that choice; it must never start a false blacklist.
+	if type(AL.ObserveDisplayedSpell) == "function" then
+		local observedSpell, observedSource
+		if visualOK and healingVisualOK and not healingActive
+			and not AL.rotationSecretVisual and not (healSpell and healThreshold)
+			and type(spell) == "string" and (slot == 3 or slot == 6)
+			and A[slot].tex:IsShown() then
+			observedSpell, observedSource = spell, slot == 3 and "A3" or "A6"
+		end
+		AL.ObserveDisplayedSpell(observedSpell, observedSource)
 	end
 	local toggleLayoutChanged
 	for _, b in ipairs(toggles) do

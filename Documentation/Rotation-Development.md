@@ -1,6 +1,6 @@
 # Writing ActionLITE rotations
 
-This guide describes the v1.1.5 class-rotation and HealingEngine contracts for WoW Forever.
+This guide describes the v1.1.6 class-rotation and HealingEngine contracts for WoW Forever.
 
 ## Repository layout
 
@@ -44,6 +44,8 @@ AL.RegisterRotation("PRIEST", M)
 
 Use stable English spell names for settings, permissions, queues and return values. Put every spell the module can recommend or manually queue in `M.spells`. The spellbook scan resolves the highest learned rank and localized name. A base spell ID may identify the spell, but learned state must still come from `AL.known`.
 
+For localized clients, pass the stable English key to shared helpers such as `AL.SpellCooldown`, `AL.SpellUsable`, `AL.InRange` and `AL.SpellTexture`. They resolve the learned rank ID or localized name through `AL.SpellIdentifier`. Do not pass an English name directly to a client spell API or guess a new spell's ID. Non-spell macro actions, such as Rogue poison applications, require a separate icon/binding and must be excluded from the spellcast watchdog.
+
 Return a spell name and a short reason from `NextSpell`. Preserve an active cast or channel before proposing another cast. Do not turn an unavailable, secret or failed API result into zero, false, full health or full resources.
 
 ## Defaults and UI settings
@@ -60,7 +62,7 @@ Declarative class pages use controls such as:
 
 Dedicated class pages use `ui.SettingCheck` and `ui.Slider`. Always bind the UI and rotation to the same profile key. The integrated debugger records registered controls and their saved/effective values automatically.
 
-Version 1.1.5 exposes one combat path: **Leveling Rotation**. It must select only spells confirmed learned in the live spellbook, while respecting each spell permission, cooldown, resource requirement and range result. Level-60 preset implementations may remain dormant in source for later validation, but they must not render in the UI or receive public dispatch. Future public build selectors must preserve the user's spell permissions, icon assignments and unrelated settings.
+Version 1.1.6 exposes one combat path: **Leveling Rotation**. It must select only spells confirmed learned in the live spellbook, while respecting each spell permission, cooldown, resource requirement and range result. Level-60 preset implementations may remain dormant in source for later validation, but they must not render in the UI or receive public dispatch. Future public build selectors must preserve the user's spell permissions, icon assignments and unrelated settings.
 
 ## Rotation role modes
 

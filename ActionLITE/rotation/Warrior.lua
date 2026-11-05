@@ -145,7 +145,8 @@ M.spells = {
 	{ 12323, "Piercing Howl" },
 	{ 6552, "Pummel" },
 	{ 1719, "Recklessness" },
-	{ 0, "Reckless Swings" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 1329555, "Reckless Swings" },
 	{ 772, "Rend" },
 	{ 20230, "Retaliation" },
 	{ 6572, "Revenge" },
@@ -2480,7 +2481,8 @@ M.spells = {
 	{ 12323, "Piercing Howl" },
 	{ 6552, "Pummel" },
 	{ 1719, "Recklessness" },
-	{ 0, "Reckless Swings" },
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	{ 1329555, "Reckless Swings" },
 	{ 772, "Rend" },
 	{ 20230, "Retaliation" },
 	{ 6572, "Revenge" },
