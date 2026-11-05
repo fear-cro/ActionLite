@@ -702,19 +702,25 @@ local function CasterRotation(s, hp, form)
 		-- An active Rejuvenation must not suppress the larger heal at low HP.
 		Offer("Healing Touch", "combat self-heal", { HealthGate("player", hp, RULES.healCaster, true) }, 0, nil, false, form == "moonkin")
 	end
-	-- ActionLITE v1.1.6: keep an opener stable once its cast begins. A transient
-	-- movement/queue failure must not replace an active Roots cast with Wrath.
-	-- During the final part of the opening Wrath, pre-stage Moonfire so the
-	-- reader can queue the DoT instead of starting a second Wrath.
-	local castingName, castingLeft = AL.CastingSpell()
+	-- ActionLITE v1.1.6: clear the active opener as soon as its cast begins so
+	-- the reader cannot press it twice. Halfway through the opening Wrath,
+	-- pre-stage Moonfire so the DoT can be queued before Wrath finishes.
+	local castingName, castingLeft, castingElapsed, castingDuration = AL.CastingSpell()
 	if castingName == "Entangling Roots" and not levelingRootsOpened then
-		AddAction("Entangling Roots", "finish learned caster opener")
+		AddAction(nil, "casting learned caster opener")
 	elseif castingName == "Wrath" and not levelingWrathOpened then
-		if Number(castingLeft) and castingLeft <= 0.75
+		local duration, elapsed = Number(castingDuration), Number(castingElapsed)
+		local stageAt = duration and duration > 0 and duration <= 2.5
+			and math.max(0.35, duration * 0.5) or 0.75
+		local stageMoonfire = elapsed and elapsed >= stageAt
+		if not stageMoonfire and not elapsed and Number(castingLeft) then
+			stageMoonfire = castingLeft <= 1.25
+		end
+		if stageMoonfire
 			and AL.Ok("Moonfire") and not AL.HasDebuff("target", "Moonfire") then
-			AddAction("Moonfire", "queue after opening Wrath")
+			AddAction("Moonfire", "queue during opening Wrath")
 		else
-			AddAction("Wrath", "finish caster opening Wrath")
+			AddAction(nil, "casting opening Wrath")
 		end
 	end
 	-- Moonkin is maintained only from the ordinary caster form while a hostile

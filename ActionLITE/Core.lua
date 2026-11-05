@@ -2098,12 +2098,17 @@ local function CastEnds()
 	if ok and type(endMs) == "number" and not (issecretvalue and issecretvalue(endMs)) then return endMs / 1000 end
 end
 
--- name, secondsLeft of the player's current cast-time spell, or nil
+-- name, secondsLeft, secondsElapsed and totalDuration of the player's current
+-- cast-time spell, or nil. Extra return values let rotations stage the next
+-- recommendation without leaving the active spell visible for a second press.
 function AL.CastingSpell()
 	if not casting then return nil end
-	local left = casting.ends - GetTime()
+	local now = GetTime()
+	local left = casting.ends - now
 	if left < -0.3 then casting = nil return nil end
-	return casting.name, math.max(0, left)
+	local started = casting.started or now
+	return casting.name, math.max(0, left), math.max(0, now - started),
+		math.max(0, casting.ends - started)
 end
 
 local lastSent
@@ -2300,8 +2305,15 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 				or (casting and (not guid or casting.castGUID == guid) and casting.name)
 			-- A readable identity corrects the inference saved on SENT.
 			if sent and actual then sent.name, sent.inferred = actual, false end
-			-- LIKELY: 3 s when the end time is secret; STOP/SUCCEEDED clear it sooner
-			if n then casting = { name = n, castGUID = guid, ends = CastEnds() or GetTime() + 3 } end
+			-- LIKELY: 3 s when the end time is secret; STOP/SUCCEEDED clear it sooner.
+			-- DELAYED updates the end time without restarting elapsed-cast tracking.
+			if n then
+				local now = GetTime()
+				local started = event == "UNIT_SPELLCAST_DELAYED" and casting
+					and casting.started or now
+				casting = { name = n, castGUID = guid, started = started,
+					ends = CastEnds() or now + 3 }
+			end
 			return
 		end
 		if event == "UNIT_SPELLCAST_STOP" then
