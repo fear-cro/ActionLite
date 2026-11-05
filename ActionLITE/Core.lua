@@ -2151,6 +2151,15 @@ local function ClearCastingFor(value)
 	end
 end
 
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
+-- Keep the display-watchdog state behind one helper: Forever's Lua 5.1
+-- limits the number of values captured by the cast event handler.
+local function ResetDisplayedSpellWatch()
+	spellDisplayPending = nil
+	spellDisplayStatus = nil
+	spellDisplayQuietUntil = (GetTime and GetTime() or 0) + 0.35
+end
+
 debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	if event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_ENTERING_WORLD" then
@@ -2205,9 +2214,7 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		return
 	end
 	if event == "PLAYER_TARGET_CHANGED" then
-		spellDisplayPending = nil
-		spellDisplayStatus = nil
-		spellDisplayQuietUntil = (GetTime and GetTime() or 0) + 0.35
+		ResetDisplayedSpellWatch()
 		ComboRotationHook("OnTargetChanged")
 		if trackedCastClass then
 			targetEpoch = targetEpoch + 1
