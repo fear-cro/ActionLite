@@ -731,7 +731,7 @@ local function TryOpener(name, s)
 	if name == "Sap" and (sapHoldUntil > GetTime() or AL.HasDebuff("target", "Sap")) then return nil end
 	if openerBlocked and (name == "Backstab" or name == "Ambush" or name == "Garrote") then return nil end
 	if name == "Backstab" or name == "Ambush" then
-		if MainHandIsDagger() == false or openerBlocked then return nil end
+		if MainHandIsDagger() ~= true or openerBlocked then return nil end
 	end
 	if name == "Backstab" or name == "Ambush" or name == "Garrote" then
 		if ReadablePositionalUsable(name) == false then return nil end
@@ -750,8 +750,35 @@ local function TryOpener(name, s)
 	return FinishDecision()
 end
 
+-- Default Combat leveling should not enter Stealth for an opener its weapon
+-- cannot use. Cheap Shot and Garrote remain deliberate non-dagger choices.
+local function StealthSetupAllowed(s, pvp)
+	if pvp then
+		local choice = SettingChoice(s, "pvpOpenerMode", {
+			NONE = true, SAP = true, BACKSTAB = true, CHEAP_SHOT = true,
+			AMBUSH = true, GARROTE = true,
+		}, "NONE")
+		local selected = { SAP = "Sap", BACKSTAB = "Backstab", CHEAP_SHOT = "Cheap Shot",
+			AMBUSH = "Ambush", GARROTE = "Garrote" }
+		local spell = selected[choice]
+		if spell then
+			return Ok(spell) and ((spell ~= "Backstab" and spell ~= "Ambush") or MainHandIsDagger() == true)
+		end
+	end
+	local mode = SettingChoice(s, "openerMode", {
+		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
+	}, "BACKSTAB")
+	if mode == "CHEAP_SHOT" then return Ok("Cheap Shot") end
+	if mode == "GARROTE" then return Ok("Garrote") end
+	if MainHandIsDagger() ~= true then return false end
+	if mode == "AMBUSH" then return Ok("Ambush") end
+	if mode == "BACKSTAB" then return Ok("Backstab") end
+	return Ok("Backstab") or Ok("Ambush")
+end
+
 local function StealthOpener(s)
 	if not AL.HasBuff("player", "Stealth") then return nil end
+	if not StealthSetupAllowed(s, false) then return nil end
 	local mode = SettingChoice(s, "openerMode", {
 		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
 	}, "BACKSTAB")
@@ -1161,7 +1188,8 @@ function M.NextSpell(s, inCombat, hostile)
 			end
 			local opener, reason = StealthOpener(s)
 			if opener or reason then return opener, reason end
-			if s.stealth and OkReady("Stealth") and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
+			if s.stealth and StealthSetupAllowed(s, pvp) and OkReady("Stealth")
+				and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
 				return "Stealth", "opener setup"
 			end
 			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -1890,7 +1918,7 @@ local function TryOpener(name, s)
 	if not Ok(name) or not InMeleeRange(name) then return nil end
 	if openerBlocked and (name == "Backstab" or name == "Ambush" or name == "Garrote") then return nil end
 	if name == "Backstab" or name == "Ambush" then
-		if MainHandIsDagger() == false or openerBlocked then return nil end
+		if MainHandIsDagger() ~= true or openerBlocked then return nil end
 	end
 	if name == "Backstab" or name == "Ambush" or name == "Garrote" then
 		if ReadablePositionalUsable(name) == false then return nil end
@@ -1909,8 +1937,21 @@ local function TryOpener(name, s)
 	return FinishDecision()
 end
 
+local function StealthSetupAllowed(s)
+	local mode = SettingChoice(s, "openerMode", {
+		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
+	}, "BACKSTAB")
+	if mode == "CHEAP_SHOT" then return Ok("Cheap Shot") end
+	if mode == "GARROTE" then return Ok("Garrote") end
+	if MainHandIsDagger() ~= true then return false end
+	if mode == "AMBUSH" then return Ok("Ambush") end
+	if mode == "BACKSTAB" then return Ok("Backstab") end
+	return Ok("Backstab") or Ok("Ambush")
+end
+
 local function StealthOpener(s)
 	if not AL.HasBuff("player", "Stealth") then return nil end
+	if not StealthSetupAllowed(s) then return nil end
 	local mode = SettingChoice(s, "openerMode", {
 		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
 	}, "BACKSTAB")
@@ -2853,7 +2894,8 @@ AssassinationRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 	if not inCombat then
 		local opener, reason = StealthOpener(s)
 		if opener or reason then return opener, reason end
-		if s.stealth and SubReady("Stealth") and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
+		if s.stealth and StealthSetupAllowed(s) and SubReady("Stealth")
+			and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
 			AddAction("Stealth", "Assassination: opener setup"); return FinishDecision()
 		end
 	end
@@ -2961,7 +3003,8 @@ function M.NextSpell(s, inCombat, hostile)
 		if hostile then
 			local opener, reason = StealthOpener(s)
 			if opener or reason then return opener, reason end
-			if s.stealth and OkReady("Stealth") and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
+			if s.stealth and StealthSetupAllowed(s) and OkReady("Stealth")
+				and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
 				return "Stealth", "opener setup"
 			end
 			if not InMeleeRange("Sinister Strike") then return nil, "Approach target" end

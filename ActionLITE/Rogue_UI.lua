@@ -109,7 +109,7 @@ local function BuildRogueUI(page, ui)
 			{ label = "Ambush", value = "AMBUSH" },
 			{ label = "Garrote", value = "GARROTE" },
 		}, "BACKSTAB")
-	ui.Help(opening, "Automatic tries Backstab with a dagger, then another learned opener. Backstab requires melee range and rear position. A reported positional failure selects Sinister Strike instead of trapping the rotation.")
+	ui.Help(opening, "Default Backstab and Automatic enter Stealth only with a confirmed main-hand dagger and a learned dagger opener. Without a dagger, the normal opener uses Sinister Strike. Choose Cheap Shot or Garrote explicitly to open from Stealth with another weapon; Garrote requires rear position.")
 
 	local poison = ui.Card(stack, "WEAPON POISONS", "Outside combat only", { id="poisons", group="preparation" })
 	local poisonOptions = {
