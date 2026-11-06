@@ -1352,7 +1352,14 @@ end
 local function RendActive()
 	local guid = TargetGUID()
 	if guid and guid ~= trackedTargetGUID then ResetTargetTrackers() end
-	return rendExpires > GetTime() or AL.HasDebuff("target", "Rend")
+	-- A confirmed cast owns Rend's lifetime. Once that timer expires, do not let
+	-- a stale protected Core aura entry suppress the second or later application.
+	if rendExpires > 0 then return rendExpires > GetTime() end
+	local entry = AL.targetDebuffs and AL.targetDebuffs["Rend"]
+	local expires = type(entry) == "table" and Number(entry.expires)
+	if expires then return expires > GetTime() end
+	local ok, active = pcall(AL.HasDebuff, "target", "Rend")
+	return ok and SafeValue(active) and active == true
 end
 
 local function MaintainHamstring(s, rage, inMelee)
