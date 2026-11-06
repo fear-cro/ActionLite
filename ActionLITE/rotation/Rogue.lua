@@ -906,7 +906,7 @@ local function PoisonAction(s)
 	end
 end
 
-local function Builder(s)
+local function Builder(s, atComboCap)
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	-- Learned talent builders are selected only when their weapon, range,
 	-- cooldown and non-resource usability requirements are confirmed. A readable
@@ -916,13 +916,13 @@ local function Builder(s)
 		local usable, shortage = SpellUsability(name)
 		return usable ~= false or shortage == true
 	end
-	if LevelingGhostlyReady() and Candidate("Ghostly Strike", s.ghostlyStrike) then
+	if not atComboCap and LevelingGhostlyReady() and Candidate("Ghostly Strike", s.ghostlyStrike) then
 		return "Ghostly Strike", 40
 	end
-	if TwoDaggers() and Candidate("Mutilate", s.mutilate) then
+	if not atComboCap and TwoDaggers() and Candidate("Mutilate", s.mutilate) then
 		return "Mutilate", 60
 	end
-	if Candidate("Hemorrhage", s.hemorrhage) then
+	if not atComboCap and Candidate("Hemorrhage", s.hemorrhage) then
 		return "Hemorrhage", 35
 	end
 	-- No reliable behind-target signal is supplied. Backstab remains a Stealth
@@ -1306,14 +1306,19 @@ function M.NextSpell(s, inCombat, hostile)
 		AddAction("Expose Armor", tostring(cp) .. " cp", { finishGate, EnergyGate(energy, EnergyCost("Expose Armor", 25), "Expose Armor") })
 		AddAction(nil, "Pool energy for Expose Armor", { finishGate })
 	end
-	if cp >= 5 and targetHP == nil and eviscerateAllowed and not CurveAvailable("health") then
-		AddAction(AL.known["Attack"] and "Attack" or nil, "Hold five combo points until target health is readable")
-		return FinishDecision()
-	end
 	if cp >= 5 then
-		-- Do not waste capped combo points on another builder. Attack remains a
-		-- usable fallback instead of leaving the display on a pooling icon.
-		AddAction(AL.known["Attack"] and "Attack" or nil, "Hold five combo points for a finisher")
+		-- At the cap, Sinister Strike still deals damage while the target is
+		-- above the execute threshold. Its extra point is wasted, but holding
+		-- Attack alone stops the leveling rotation from using Energy at all.
+		local builder, minimum = Builder(s, true)
+		if builder then
+			minimum = math.max(minimum, EnergyCost(builder, 45))
+			AddAction(builder, "five-point damage above finisher health", {
+				EnergyGate(energy, minimum, builder) })
+			AddAction(nil, "Pool energy for " .. builder)
+		else
+			AddAction(AL.known["Attack"] and "Attack" or nil, "Five points; no available builder")
+		end
 		return FinishDecision()
 	end
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5

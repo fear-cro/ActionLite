@@ -177,7 +177,7 @@ local function BuildRogueUI(page, ui)
 
 
 	ui.Divider(finishers)
-	ui.Help(finishers, "Eviscerate is used at or below 50% target health, with 1+ points on normal targets or five on rare/elite targets. At zero points, the rotation builds first.")
+	ui.Help(finishers, "Eviscerate is used at or below 50% target health, with 1+ points on normal targets or five on rare/elite targets. Above 50%, Sinister Strike remains available at five combo points rather than waiting on auto-attack.")
 	ui.Help(finishers, "Optional Rupture and Expose Armor require Eviscerate to be unavailable or disabled, the selected combo-point minimum, and no active matching debuff.")
 
 	local control = ui.Card(stack,
