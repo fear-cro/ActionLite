@@ -1293,10 +1293,11 @@ function M.NextSpell(s, inCombat, hostile)
 	-- it so a guaranteed Boot Knife proc cannot waste points at the cap.
 	if s.shank and cp <= 3 and LevelingShankReady() and ShankEligible()
 		and InMeleeRange("Shank") then
+		-- Shank is a net Energy gain. If Energy is too high to benefit from it,
+		-- fall through to the normal builder instead of pooling forever.
 		AddAction("Shank", "energy-generating strike", {
 			EnergyGate(energy, EnergyCost("Shank", 5), "Shank"),
 			EnergyAtMost(energy, 60) })
-		AddAction(nil, "Pool energy for Shank"); return FinishDecision()
 	end
 	local builder, minimumEnergy = Builder(s)
 	if builder then
