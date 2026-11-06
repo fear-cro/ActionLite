@@ -861,7 +861,22 @@ local driver = CreateFrame("Frame")
 driver:RegisterEvent("PLAYER_REGEN_DISABLED")
 driver:RegisterEvent("PLAYER_TARGET_CHANGED")
 driver:RegisterEvent("PLAYER_DEAD")
-driver:SetScript("OnEvent", function(_, event)
+
+-- Clear a dying target before the next 0.15-second recommendation tick. A
+-- readable death is sufficient; protected/unknown health never clears a live
+-- suggestion. This also closes the short window where an Attack macro could
+-- run once more and acquire a different enemy.
+if not pcall(driver.RegisterUnitEvent, driver, "UNIT_HEALTH", "target") then
+	pcall(driver.RegisterEvent, driver, "UNIT_HEALTH")
+end
+driver:SetScript("OnEvent", function(_, event, unit)
+	if event == "UNIT_HEALTH" then
+		if (issecretvalue and issecretvalue(unit)) or unit ~= "target" then return end
+		if AL.SafeBoolean(UnitIsDeadOrGhost, "target") == true then
+			AL.ClearRecommendationDisplay()
+		end
+		return
+	end
 	if event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_DEAD" then
 		AL.ClearRecommendationDisplay()
 	else

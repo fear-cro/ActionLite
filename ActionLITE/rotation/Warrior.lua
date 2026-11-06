@@ -1846,12 +1846,9 @@ local function NextDPS(s, inCombat, hostile)
 		return nil, "Casting Slam"
 	end
 
-	-- Normal Charge remains unusable in combat, but Warbringer can make it legal.
-	-- ChargeAvailable() requires SpellUsable + a positively verified range, so
-	-- this cannot create the old dungeon/out-of-range hang.
-	if ChargeAvailable() then
-		return "Charge", "in-combat Charge usable + verified range"
-	end
+	-- DPS Charge is an out-of-combat opener only. Protected usability can look
+	-- affirmative during a target swap, so it cannot authorize a second pull
+	-- immediately after the previous target dies.
 
 	local rage = WarriorRage()
 	local targetHp = AL.HealthPercent("target")
@@ -4299,12 +4296,8 @@ local function NextDPS(s, inCombat, hostile)
 
 	if not hostile then return nil, "No target" end
 
-	-- Normal Charge remains unusable in combat, but Warbringer can make it legal.
-	-- ChargeAvailable() requires SpellUsable + a positively verified range, so
-	-- this cannot create the old dungeon/out-of-range hang.
-	if ChargeAvailable() then
-		return "Charge", "in-combat Charge usable + verified range"
-	end
+	-- DPS Charge is an out-of-combat opener only. A protected usability read
+	-- cannot authorize a second pull during a target swap.
 
 	local rage = AL.Power(1)
 	local targetHp = AL.HealthPercent("target")
@@ -4602,7 +4595,7 @@ local function NextFury(s, inCombat, hostile)
 		return NextDPS(s, false, hostile)
 	end
 	if not hostile then return nil, "No target" end
-	if ChargeAvailable() then return "Charge", "in-combat Charge usable + verified range" end
+	-- DPS Charge remains an out-of-combat opener, including for Fury.
 	local casting = AL.CastingSpell and AL.CastingSpell()
 	if SafeValue(casting) and type(casting) == "string" then return nil, "Casting" end
 	for _, reader in pairs({ UnitCastingDuration, UnitChannelDuration }) do
@@ -4789,7 +4782,7 @@ local function NextArms(s,inCombat,hostile)
 			if ok and (not SafeValue(value) or value~=nil and value~=false) then return nil,"Casting" end
 		end
 	end
-	if ChargeAvailable() then return "Charge","in-combat Charge usable + verified range" end
+	-- DPS Charge remains an out-of-combat opener, including for Arms.
 	local rage=HamstringNumber(AL.Power(1))
 	local hp,targetHP=HamstringNumber(AL.HealthPercent("player")),HamstringNumber(AL.HealthPercent("target"))
 	local stance,ttd=PlayerStance(),TargetTTD()
@@ -4889,6 +4882,9 @@ end
 
 local function NextTank(s,inCombat,hostile)
 	if not inCombat then
+		if s.tankDisableAutoTargeting == true then
+			return nil, hostile and "Tank auto-targeting disabled; engage manually" or "Ready"
+		end
 		if hostile then
 			if ChargeAvailable() then return "Charge","verified tank Charge range + rage" end
 			return AL.known.Attack and "Attack" or nil,"tank opener"
