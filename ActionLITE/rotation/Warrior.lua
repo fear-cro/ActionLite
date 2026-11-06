@@ -1548,10 +1548,10 @@ end
 
 local function AoEModeActive(s, enemyCount, minimum)
 	if not s.aoe then return false end
-	-- An unreadable/incomplete count is not proof that AoE is unnecessary.
-	-- The manual toggle remains the fallback when nameplates are unavailable.
-	return enemyCount == nil or enemyCount >= minimum
-		or enemyCountDebug.unreadable or enemyCountDebug.existing == 0
+	-- An enabled toggle is permission to use AoE, not proof of two attackers.
+	-- Missing nameplates or protected count data must not turn a single-target
+	-- fight into a Thunder Clap loop at the expense of Rend and Slam.
+	return type(enemyCount) == "number" and enemyCount >= minimum
 end
 
 local function AoEDamage(s, rage, inMelee, tankMode)
@@ -1597,6 +1597,7 @@ end
 
 local function OverflowDump(s, rage, enemyCount, tankMode)
 	if not RageOverflowing(rage) then return nil end
+	if StrikeQueued("Heroic Strike") or StrikeQueued("Cleave") then return nil end
 
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	-- Cleave is never selected unless the player explicitly enabled AoE.
@@ -1859,7 +1860,8 @@ local function NextDPS(s, inCombat, hostile)
 	-- Slam is a real single-target spender. Prefer verified post-swing timing
 	-- when Forever exposes it; if the client hides all swing timing, fall back
 	-- to ready + usable + stationary instead of disabling Slam forever.
-	if not aoeActive and s.slam and inMelee and not PlayerMoving() and ReadyUsable("Slam") then
+	if not aoeActive and s.slam and VerifiedMelee(inMelee)
+		and not PlayerMoving() and ReadyUsable("Slam") then
 		local slamAt = SettingNumber(s, "slamReserveRage", SLAM_RESERVE_RAGE, 15, 100)
 		local allowed, rageSource = DumpGate(rage, slamAt)
 
@@ -1882,7 +1884,9 @@ local function NextDPS(s, inCombat, hostile)
 	-- Heroic Strike remains the single-target fallback spender, but it no longer
 	-- starves Slam when Slam is ready. The 80+ emergency overflow guard still
 	-- sits earlier in the rotation.
-	if not aoeActive and s.heroic and Ok("Heroic Strike") and AL.SpellUsable("Heroic Strike") then
+	if not aoeActive and s.heroic and not StrikeQueued("Heroic Strike")
+		and not StrikeQueued("Cleave") and Ok("Heroic Strike")
+		and AL.SpellUsable("Heroic Strike") then
 		local dumpAt = HeroicDumpAt(s)
 		local allowed, rageSource = DumpGate(rage, dumpAt)
 		if allowed then
