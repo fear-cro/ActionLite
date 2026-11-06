@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 50362)
+Total output lines: 5315
+
 local ADDON, AL = ...
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -2214,7 +2217,13 @@ local function ChooseSpell(s, inCombat, hostile)
 	if WarriorRole(s) == "TANK" then
 		return NextTank(s, inCombat, hostile)
 	end
-	return NextDPS(s, inCombat, hostile)
+	local spell, reason = NextDPS(s, inCombat, hostile)
+	-- DPS mode is authoritative. Keep tank-only stance and threat actions out
+	-- even if a future change accidentally exposes one through a shared helper.
+	if spell == "Defensive Stance" or spell == "Taunt" or spell == "Challenging Shout" then
+		return nil, "DPS role blocked tank-only action"
+	end
+	return spell, reason
 end
 
 function M.NextSpell(s, inCombat, hostile)
@@ -2810,41 +2819,7 @@ local function ArmsTalentRank(name)
 	if type(GetTalentInfo) ~= "function" then return nil end
 	for index = 1, 40 do
 		local ok, talent, _, _, _, rank = pcall(GetTalentInfo, 1, index, false, false)
-		if ok and SafeValue(talent) and type(talent) == "string" then
-			local value = HamstringNumber(rank)
-			if value and value >= 0 and value <= 5 then
-				armsTalentRanks[talent] = value
-				local english = AL.englishNames and AL.englishNames[talent]
-				if english then armsTalentRanks[english] = value end
-			end
-		end
-	end
-	for english,id in pairs({["Improved Slam"]=12862,["Improved Tactical Mastery"]=12295}) do
-		local reader=C_Spell and C_Spell.GetSpellName
-		if type(reader)=="function" then
-			local ok,localized=pcall(reader,id)
-			if ok and SafeValue(localized) and type(localized)=="string" and armsTalentRanks[localized]~=nil then
-				armsTalentRanks[english]=armsTalentRanks[localized]
-			end
-		end
-	end
-	return armsTalentRanks[name]
-end
-
--- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
--- Improved Whirlwind is passive: read the character's actual Fury rank so a
--- protected cooldown can use 9/8 seconds without granting the talent from a preset.
-local function FuryTalentRank(name)
-	if furyTalentRanks then return furyTalentRanks[name] end
-	furyTalentRanks = {}
-	if type(GetTalentInfo) ~= "function" then return nil end
-	for index = 1, 40 do
-		local ok, talent, _, _, _, rank = pcall(GetTalentInfo, 2, index, false, false)
-		if ok and SafeValue(talent) and type(talent) == "string" then
-			local value = HamstringNumber(rank)
-			if value and value >= 0 and value <= 5 then
-				furyTalentRanks[talent] = value
-				local english = AL.englishNames and AL.englishNames[talent]
+		if ok and SafeValue(talent) and typ…362 tokens truncated…ent]
 				if english then furyTalentRanks[english] = value end
 			end
 		end
@@ -4986,9 +4961,18 @@ function M.NextSpell(s, inCombat, hostile)
 	if WarriorRole(s) == "TANK" then
 		return NextTank(s, inCombat, hostile)
 	end
-	if M.ArmsSelected(s) then return NextArms(s,inCombat,hostile) end
-	if s.fury == true then return NextFury(s, inCombat, hostile) end
-	return NextDPS(s, inCombat, hostile)
+	local spell, reason
+	if M.ArmsSelected(s) then
+		spell, reason = NextArms(s,inCombat,hostile)
+	elseif s.fury == true then
+		spell, reason = NextFury(s, inCombat, hostile)
+	else
+		spell, reason = NextDPS(s, inCombat, hostile)
+	end
+	if spell == "Defensive Stance" or spell == "Taunt" or spell == "Challenging Shout" then
+		return nil, "DPS role blocked tank-only action"
+	end
+	return spell, reason
 end
 
 -- One setter serves the menu and the macro; redraws never print status.
