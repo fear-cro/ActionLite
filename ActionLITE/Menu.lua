@@ -170,7 +170,10 @@ local function CreateSpellMacro(spell)
 		return
 	end
 	local icon = AL.SpellTexture(spell) or "INV_MISC_QUESTIONMARK"
-	local body = "#showtooltip " .. spell .. "\n/run ActionLite_Queue(\"" .. spell .. "\")"
+	-- The queue key stays canonical, but the game tooltip must use the
+	-- character's localized learned spell name (e.g. on deDE/frFR clients).
+	local body = "#showtooltip " .. (AL.LocalName(spell) or spell)
+		.. "\n/run ActionLite_Queue(\"" .. spell .. "\")"
 	local ok = pcall(CreateMacro, mname, icon, body, false)
 	if not ok then
 		-- Some clients only accept the question-mark token here.
