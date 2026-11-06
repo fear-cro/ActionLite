@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 50362)
-Total output lines: 5315
-
 local ADDON, AL = ...
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -2819,7 +2816,41 @@ local function ArmsTalentRank(name)
 	if type(GetTalentInfo) ~= "function" then return nil end
 	for index = 1, 40 do
 		local ok, talent, _, _, _, rank = pcall(GetTalentInfo, 1, index, false, false)
-		if ok and SafeValue(talent) and typ…362 tokens truncated…ent]
+		if ok and SafeValue(talent) and type(talent) == "string" then
+			local value = HamstringNumber(rank)
+			if value and value >= 0 and value <= 5 then
+				armsTalentRanks[talent] = value
+				local english = AL.englishNames and AL.englishNames[talent]
+				if english then armsTalentRanks[english] = value end
+			end
+		end
+	end
+	for english,id in pairs({["Improved Slam"]=12862,["Improved Tactical Mastery"]=12295}) do
+		local reader=C_Spell and C_Spell.GetSpellName
+		if type(reader)=="function" then
+			local ok,localized=pcall(reader,id)
+			if ok and SafeValue(localized) and type(localized)=="string" and armsTalentRanks[localized]~=nil then
+				armsTalentRanks[english]=armsTalentRanks[localized]
+			end
+		end
+	end
+	return armsTalentRanks[name]
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+-- Improved Whirlwind is passive: read the character's actual Fury rank so a
+-- protected cooldown can use 9/8 seconds without granting the talent from a preset.
+local function FuryTalentRank(name)
+	if furyTalentRanks then return furyTalentRanks[name] end
+	furyTalentRanks = {}
+	if type(GetTalentInfo) ~= "function" then return nil end
+	for index = 1, 40 do
+		local ok, talent, _, _, _, rank = pcall(GetTalentInfo, 2, index, false, false)
+		if ok and SafeValue(talent) and type(talent) == "string" then
+			local value = HamstringNumber(rank)
+			if value and value >= 0 and value <= 5 then
+				furyTalentRanks[talent] = value
+				local english = AL.englishNames and AL.englishNames[talent]
 				if english then furyTalentRanks[english] = value end
 			end
 		end
