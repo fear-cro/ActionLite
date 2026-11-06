@@ -70,6 +70,8 @@ local M = {
 		bladeFlurry = true,
 		shank = true,
 		deathMark = true,
+		eureka = true,
+		escapeArtist = true,
 		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 		mutilate = true,
 		hemorrhage = true,
@@ -100,6 +102,8 @@ M.spells = {
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	{ 1316709, "Death Mark" },
 	{ 5277, "Evasion" },
+	{ 1259812, "Eureka!" },
+	{ 20589, "Escape Artist" },
 	{ 2098, "Eviscerate" },
 	{ 8647, "Expose Armor" },
 	{ 1966, "Feint" },
@@ -163,6 +167,43 @@ local function SafeCall(reader, ...)
 	if type(reader) ~= "function" then return nil end
 	local ok, a, b, c, d = pcall(reader, ...)
 	if ok then return a, b, c, d end
+end
+
+-- ActionLITE v1.1.7: Escape Artist is utility, not a general damage cooldown.
+-- Prefer a readable loss-of-control/root API; localized UI errors provide a
+-- short fallback without scanning protected combat auras.
+local escapeArtistNeededUntil = 0
+local escapeArtistEvents = CreateFrame("Frame")
+pcall(escapeArtistEvents.RegisterEvent, escapeArtistEvents, "UI_ERROR_MESSAGE")
+pcall(escapeArtistEvents.RegisterEvent, escapeArtistEvents, "PLAYER_REGEN_ENABLED")
+escapeArtistEvents:SetScript("OnEvent", function(_, event, _, message)
+	if event == "PLAYER_REGEN_ENABLED" then escapeArtistNeededUntil = 0; return end
+	if not SafeValue(message) or type(message) ~= "string" then return end
+	for _, key in ipairs({ "SPELL_FAILED_ROOTED", "ERR_ATTACK_ROOTED", "ERR_CANT_MOVE" }) do
+		local localized = _G[key]
+		if type(localized) == "string" and message == localized then
+			escapeArtistNeededUntil = GetTime() + 3
+			return
+		end
+	end
+end)
+
+local function EscapeArtistNeeded()
+	if type(UnitIsRooted) == "function" then
+		local rooted = SafeCall(UnitIsRooted, "player")
+		if SafeValue(rooted) and (rooted == true or rooted == 1) then return true end
+	end
+	local loss = C_LossOfControl
+	local count = loss and SafeCall(loss.GetActiveLossOfControlDataCount)
+	count = SafeValue(count) and type(count) == "number" and count or nil
+	if count then
+		for index = 1, math.min(20, math.max(0, math.floor(count))) do
+			local data = SafeCall(loss.GetActiveLossOfControlData, index)
+			if SafeValue(data) and type(data) == "table" and SafeValue(data.locType)
+				and (data.locType == "ROOT" or data.locType == "SNARE") then return true end
+		end
+	end
+	return GetTime() < escapeArtistNeededUntil
 end
 
 local function ReadableNumber(value)
@@ -1140,6 +1181,9 @@ function M.NextSpell(s, inCombat, hostile)
 		return nil, "Ready"
 	end
 	if not hostile then return nil, "No target" end
+	if s.escapeArtist ~= false and EscapeArtistNeeded() and ReadyUsable("Escape Artist") then
+		return "Escape Artist", "remove detected root or snare"
+	end
 	if pvp then
 		local opener, reason = PvPStealthOpener(s)
 		if opener or reason then return opener, reason end
@@ -1189,6 +1233,9 @@ function M.NextSpell(s, inCombat, hostile)
 			EnergyGate(energy, EnergyCost("Blade Flurry", 25), "Blade Flurry") })
 	end
 	if burstActive and meleeTarget then
+		if s.eureka ~= false and ReadyUsable("Eureka!") and not AL.HasBuff("player", "Eureka!") then
+			AddAction("Eureka!", "burst racial", { burstGate })
+		end
 		if ReadyUsable("Blood Fury") then AddAction("Blood Fury", "burst", { burstGate }) end
 		if ReadyUsable("Berserking") then AddAction("Berserking", "burst", { burstGate }) end
 	end
@@ -1379,6 +1426,8 @@ M.spells = {
 	{ 1316709, "Death Mark" },
 	{ 1725, "Distract" },
 	{ 5277, "Evasion" },
+	{ 1259812, "Eureka!" },
+	{ 20589, "Escape Artist" },
 	{ 2098, "Eviscerate" },
 	{ 8647, "Expose Armor" },
 	{ 1966, "Feint" },
@@ -1975,13 +2024,14 @@ end
 -- own successful casts. Talent spells are gated by learning, not a guessed level.
 local combatCooldowns = { ["Adrenaline Rush"] = 300, ["Blade Flurry"] = 120,
 	["Blood Fury"] = 120, ["Berserking"] = 180, ["Cold Blood"] = 180,
+	["Eureka!"] = 120, ["Escape Artist"] = 120,
 	["Ghostly Strike"] = 20, ["Premeditation"] = 120, ["Preparation"] = 600, ["Vanish"] = 300, ["Stealth"] = 10,
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	["Shank"] = 10, ["Death Mark"] = 10 }
 local combatDurations = { ["Adrenaline Rush"] = 15, ["Blade Flurry"] = 15,
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	["Blood Fury"] = 15, ["Berserking"] = 15, ["Ghostly Strike"] = 7, ["Vanish"] = 10,
-	["Cold Blood"] = math.huge }
+	["Cold Blood"] = math.huge, ["Eureka!"] = 8, ["Escape Artist"] = 3 }
 local combatEnds, combatCastAt, combatBuffEnds, combatRetry = {}, {}, {}, {}
 local combatIDs = {}
 for _, entry in ipairs(M.spells) do combatIDs[entry[2]] = entry[1] end
@@ -3040,7 +3090,7 @@ function M.GetUIState()
 end
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-for _, name in ipairs({ "Adrenaline Rush", "Blade Flurry", "Blood Fury", "Berserking", "Cold Blood", "Preparation", "Slice and Dice", "Evasion", "Vanish", "Stealth" }) do
+for _, name in ipairs({ "Adrenaline Rush", "Blade Flurry", "Blood Fury", "Berserking", "Eureka!", "Escape Artist", "Cold Blood", "Preparation", "Slice and Dice", "Evasion", "Vanish", "Stealth" }) do
 	AL.selfCastSpells = AL.selfCastSpells or {}
 	AL.selfCastSpells[name] = true
 end

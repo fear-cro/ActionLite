@@ -166,6 +166,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 			id="aoe-burst", group="aoe",
 			controls = {
 				{ key = "aoe", label = { en = "Enable AoE mode", fr = "Activer l'AoE Multi-Shot", pt = "Ativar AoE Multi-Shot", es = "Activar AoE Multi-Shot", de = "Multi-Shot AoE aktivieren", zh = "启用Multi-Shot AoE" }, spell = "Multi-Shot" },
+				{ key = "multiShot", label = "Use Multi-Shot in AoE", spell = "Multi-Shot", half = false },
 				{ type = "slider", key = "aoeMinEnemies", label = { en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Enemigos mínimos", de = "Mindestanzahl Gegner", zh = "最少敌人数" },
 					min = 2, max = 5, step = 1, default = 2, half = true },
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -197,4 +198,4 @@ AL.RegisterSimpleClassUI("HUNTER", {
 			},
 		},
 	},
-}, "0.13.4")
+}, "0.13.5")

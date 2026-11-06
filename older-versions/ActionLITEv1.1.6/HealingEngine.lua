@@ -1,0 +1,1297 @@
+local ADDON, AL = ...
+
+-- ============================================================================
+-- ActionLITE HealingEngine
+-- ----------------------------------------------------------------------------
+-- WoW Forever protects party health in combat. The engine never reads or
+-- compares protected health values in Lua. Instead, it asks the client to
+-- evaluate a ColorCurve and passes the resulting protected alpha directly to
+-- matching recommendation and target-pixel layers.
+--
+-- Shared selected-ally and healer-damage rules work without a class provider.
+-- Class rotations add automatic healing priorities by exposing
+-- HealingEnginePlan(profile, context). See Documentation/Rotation-Development.md.
+-- ============================================================================
+
+local Engine = {
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	VERSION = "1.1.6",
+	SUPPORTED_CLASSES = { DRUID = true, PALADIN = true, PRIEST = true, SHAMAN = true },
+	providers = {},
+	curves = {},
+	rows = {},
+	state = {},
+}
+AL.HealingEngine = Engine
+
+local ROLE_PRIORITY = { NONE = 1, DAMAGER = 2, HEALER = 3, TANK = 4 }
+local ACTIVE_SLOTS = { 3, 6 }
+local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local DAMAGE_MANA_THRESHOLD = 80
+local DPS_THRESHOLD_OFFSET = 10
+local FIVE_SECOND_RULE = 5
+
+-- Successful healing/support casts start the healer mana-recovery wait. The
+-- engine does not infer this from a recommendation: only a confirmed cast can
+-- suppress wand/DoT damage. Health-based healing remains available during the
+-- wait when a protected health mask says that care is still required.
+local HEALING_CASTS = {
+	DRUID = {
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		["Healing Touch"] = true, ["Regrowth"] = true, ["Rejuvenation"] = true,
+		["Swiftmend"] = true, ["Tranquility"] = true, ["Wild Growth"] = true,
+		["Nature's Swiftness"] = true, ["Elune's Light"] = true, ["Innervate"] = true,
+		["Thorns"] = true, ["Mark of the Wild"] = true, ["Faerie Fire"] = true,
+		["Moonfire"] = true, ["Insect Swarm"] = true,
+	},
+	PALADIN = {
+		["Holy Light"] = true, ["Flash of Light"] = true, ["Holy Shock"] = true,
+		["Lay on Hands"] = true, ["Divine Favor"] = true, ["Light's Vigil"] = true,
+		["Oath of Light"] = true,
+		["Blessing of Kings"] = true, ["Greater Blessing of Kings"] = true,
+		["Seal of Light"] = true, ["Seal of Wisdom"] = true,
+		["Seal of Command"] = true, ["Seal of Righteousness"] = true,
+		["Seal of Fury"] = true, ["Judgement"] = true,
+		["Devotion Aura"] = true, ["Retribution Aura"] = true,
+		["Concentration Aura"] = true,
+	},
+	PRIEST = {
+		["Lesser Heal"] = true, ["Heal"] = true, ["Greater Heal"] = true,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		["Flash Heal"] = true, ["Penance"] = true,
+		["Prayer of Healing"] = true, ["Prayer of Mending"] = true,
+		["Renew"] = true, ["Power Word: Shield"] = true,
+		["Cure Disease"] = true, ["Abolish Disease"] = true,
+		["Inner Focus"] = true, ["Power Infusion"] = true,
+		["Divine Grace"] = true, ["Elune's Light"] = true, ["Eureka!"] = true,
+		["Dark Sacrifice"] = true, ["Berserking"] = true,
+		["Rapid Regeneration"] = true,
+	},
+	SHAMAN = {
+		["Healing Wave"] = true, ["Lesser Healing Wave"] = true,
+		["Chain Heal"] = true, ["Riptide"] = true, ["Earth Shield"] = true,
+		["Healing Stream Totem"] = true, ["Mana Spring Totem"] = true,
+		["Stoneskin Totem"] = true, ["Strength of Earth Totem"] = true,
+		["Flametongue Totem"] = true, ["Searing Totem"] = true,
+		["Fire Resistance Totem"] = true, ["Frost Resistance Totem"] = true,
+		["Grace of Air Totem"] = true, ["Windfury Totem"] = true,
+		["Mana Tide Totem"] = true,
+		["Call of the Elements"] = true, ["Water Shield"] = true,
+		["Nature's Swiftness"] = true, ["Blood Fury"] = true,
+		["Berserking"] = true, ["Flame Shock"] = true,
+	},
+}
+
+-- These are safe base rules, not the final class healing priorities. A class
+-- provider can replace the selected-ally spell with manual/strongest and will
+-- later supply the routine and emergency requests used by protected health.
+local MANUAL_HEALS = {
+	DRUID = { "Healing Touch", "Regrowth" },
+	PALADIN = { "Holy Light", "Flash of Light" },
+	PRIEST = { "Greater Heal", "Heal", "Lesser Heal" },
+	SHAMAN = { "Healing Wave", "Lesser Healing Wave" },
+}
+
+-- A grouped healer conserves mana while watching the party. Wand users use
+-- Shoot; other healers only apply periodic damage at high mana. Consecration
+-- is the Paladin's available periodic-damage equivalent.
+local DAMAGE_SPELLS = {
+	DRUID = { "Insect Swarm", "Moonfire" },
+	PALADIN = { "Consecration" },
+	PRIEST = { "Shadow Word: Pain" },
+	SHAMAN = { "Flame Shock" },
+}
+local TARGET_DEBUFFS = {
+	["Insect Swarm"] = true,
+	["Moonfire"] = true,
+	["Shadow Word: Pain"] = true,
+	["Flame Shock"] = true,
+}
+
+local function IsSecret(value)
+	if type(issecretvalue) ~= "function" then return false end
+	local ok, secret = pcall(issecretvalue, value)
+	return not ok or secret == true
+end
+
+local function PublicNumber(value)
+	if IsSecret(value) or type(value) ~= "number" or value ~= value
+		or value == math.huge or value == -math.huge then return nil end
+	return value
+end
+
+local function PublicBoolean(value)
+	if IsSecret(value) then return nil end
+	if value == true or value == 1 then return true end
+	if value == false or value == 0 then return false end
+	return nil
+end
+
+local function SafeBoolean(func, ...)
+	if type(func) ~= "function" then return nil end
+	local ok, value = pcall(func, ...)
+	if not ok then return nil end
+	return PublicBoolean(value)
+end
+
+local function UnitExistsPublic(unit)
+	return SafeBoolean(UnitExists, unit) == true
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function PlayerAssignedGroupRole()
+	if type(UnitGroupRolesAssigned) ~= "function" then return nil end
+	local ok, role = pcall(UnitGroupRolesAssigned, "player")
+	if not ok or IsSecret(role) or type(role) ~= "string" then return nil end
+	if role == "HEALER" or role == "TANK" or role == "DAMAGER" or role == "NONE" then
+		return role
+	end
+	return nil
+end
+
+function Engine:IsGrouped()
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- "Grouped" means the Healing Rotation is actually eligible. A dungeon
+	-- alone is not enough: the player must have selected Heals and the client
+	-- must positively assign the player the HEALER group role.
+	local settings = self:GetSettings()
+	return settings and settings.enabled == true
+end
+
+-- Healing Rotation is intentionally limited to five-player dungeon instances
+-- for v1.1.5. Unknown instance state fails closed: Leveling remains active and
+-- no raid/battleground/follower-raid unit can be selected accidentally.
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+function Engine:DungeonState()
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Dungeon-only eligibility requires positive public proof that this is not a
+	-- raid. A missing or protected raid-state result must fail closed just like
+	-- protected instance type, group role, and roster data.
+	if type(IsInRaid) ~= "function" then return false, "raid state unavailable" end
+	local inRaid = SafeBoolean(IsInRaid)
+	if inRaid == nil then return false, "raid state protected" end
+	if inRaid == true then return false, "raid group" end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- The Healing Rotation never infers a healer from class, talents or selected
+	-- spells. The client's assigned group role must be publicly and positively
+	-- HEALER; NONE, DAMAGER, TANK and protected/unknown values all fail closed.
+	local playerRole = PlayerAssignedGroupRole()
+	if playerRole ~= "HEALER" then
+		return false, playerRole and ("player group role is " .. playerRole)
+			or "player healer role unavailable"
+	end
+	if type(IsInInstance) ~= "function" then return false, "instance API unavailable" end
+	local ok, inside, instanceType = pcall(IsInInstance)
+	if not ok or IsSecret(inside) or IsSecret(instanceType) then
+		return false, "instance state protected"
+	end
+	if inside ~= true or instanceType ~= "party" then
+		return false, "not a five-player dungeon"
+	end
+	local count = 1
+	for index = 1, 4 do
+		if UnitExistsPublic("party" .. index) then count = count + 1 end
+	end
+	if type(GetNumGroupMembers) == "function" then
+		local countOK, reported = pcall(GetNumGroupMembers)
+		reported = countOK and PublicNumber(reported) or nil
+		if reported and reported > 5 then return false, "group exceeds five players" end
+		if reported and reported > count then count = reported end
+	end
+	if count < 2 or count > 5 then return false, "five-player party unavailable" end
+	return true, "five-player dungeon"
+end
+
+local function ClampPercent(value, fallback)
+	value = PublicNumber(value) or fallback
+	return math.max(0, math.min(100, math.floor(value + 0.5)))
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local function SelectedRotationRole(profile)
+	if type(AL.GetRotationMode) == "function" then
+		local ok, role = pcall(AL.GetRotationMode, profile, AL.playerClass)
+		if ok and not IsSecret(role) then
+			if role == "HEAL" or role == "HEALS" then return "HEAL" end
+			if role == "DPS" or role == "TANK" then return role end
+		end
+	end
+	-- Compatibility with an intermediate role API during saved-profile upgrade.
+	if type(AL.GetRotationRole) == "function" then
+		local ok, role = pcall(AL.GetRotationRole, profile, AL.playerClass)
+		if ok and not IsSecret(role) then
+			if role == "HEAL" or role == "HEALS" then return "HEAL" end
+			if role == "DPS" or role == "TANK" then return role end
+		end
+	end
+	-- Compatibility while an older saved profile is normalized by Core. These
+	-- booleans are ordinary SavedVariables and never contain protected values.
+	if type(profile) == "table" then
+		if profile.roleHeals == true then return "HEAL" end
+		if profile.roleTank == true then return "TANK" end
+	end
+	return "DPS"
+end
+
+function Engine:NormalizeProfile(profile)
+	if type(profile) ~= "table" then return profile end
+	if profile.healingEngine == nil then profile.healingEngine = false end
+	profile.healingInitiateHP = ClampPercent(profile.healingInitiateHP, 80)
+	profile.healingEmergencyHP = ClampPercent(profile.healingEmergencyHP, 30)
+	return profile
+end
+
+function Engine:GetSettings(profile)
+	profile = self:NormalizeProfile(profile or (AL.S and AL.S()) or {})
+	local initiate = ClampPercent(profile.healingInitiateHP, 80)
+	local emergency = math.min(initiate, ClampPercent(profile.healingEmergencyHP, 30))
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local roleMode = SelectedRotationRole(profile)
+	local configured = roleMode == "HEAL"
+	local playerGroupRole = PlayerAssignedGroupRole()
+	local healerRole = playerGroupRole == "HEALER"
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local dungeon, restriction = false, "Healing Rotation disabled"
+	if not configured then
+		restriction = "Heals role not selected"
+	else
+		dungeon, restriction = self:DungeonState()
+		if dungeon and not healerRole then
+			dungeon = false
+			restriction = playerGroupRole and ("player group role is " .. playerGroupRole)
+				or "player healer role unavailable"
+		end
+	end
+	return {
+		configured = configured,
+		grouped = dungeon,
+		dungeon = dungeon,
+		enabled = configured and dungeon,
+		restriction = restriction,
+		roleMode = roleMode,
+		playerGroupRole = playerGroupRole or "UNKNOWN",
+		healerRole = healerRole,
+		castUnit = "focus",
+		initiate = initiate,
+		emergency = emergency,
+	}
+end
+
+function Engine:IsEnabled(profile)
+	local settings = self:GetSettings(profile)
+	return self.SUPPORTED_CLASSES[AL.playerClass] == true and settings.enabled
+end
+
+function Engine:FiveSecondRuleRemaining()
+	local now = GetTime and GetTime() or 0
+	now = PublicNumber(now) or 0
+	local expiration = PublicNumber(self.mp5Until) or 0
+	return math.max(0, expiration - now)
+end
+
+function Engine:FiveSecondRuleActive()
+	return self:FiveSecondRuleRemaining() > 0
+end
+
+-- Core calls this only after UNIT_SPELLCAST_SUCCEEDED has been resolved to a
+-- stable English spell name. Class providers also receive the event so they
+-- can maintain per-unit HoT, shield and sequence timers without reading
+-- protected combat auras.
+function Engine:OnCastSucceeded(spell)
+	if type(spell) ~= "string" or spell == "" or IsSecret(spell) then return end
+	local settings = self:GetSettings()
+	if not self.SUPPORTED_CLASSES[AL.playerClass] or not settings.enabled then return end
+	local now = GetTime and GetTime() or 0
+	now = PublicNumber(now) or 0
+	if HEALING_CASTS[AL.playerClass] and HEALING_CASTS[AL.playerClass][spell] then
+		self.mp5Until = now + FIVE_SECOND_RULE
+		self.lastHealingCast = { spell = spell, at = now }
+	end
+	local rotation = AL.rotations and AL.rotations[AL.playerClass]
+	local observer = rotation and rotation.HealingEngineCastSucceeded
+	if type(observer) == "function" then
+		local ok, message = pcall(observer, spell)
+		if not ok and AL.Debug and AL.Debug.CaptureError then
+			message = type(message) == "string" and not IsSecret(message)
+				and message or "Protected class healing cast observer failure"
+			AL.Debug.CaptureError("HealingEngine cast observer: " .. message, "healing engine")
+		end
+	end
+end
+
+function Engine:RegisterProvider(classToken, provider)
+	if self.SUPPORTED_CLASSES[classToken] and type(provider) == "function" then
+		self.providers[classToken] = provider
+		return true
+	end
+	return false
+end
+
+local function RosterUnits()
+	local units = {}
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- Dungeon-only: party tokens never include the player.
+	for index = 4, 1, -1 do units[#units + 1] = "party" .. index end
+	units[#units + 1] = "player"
+	return units
+end
+
+function Engine:ManualTargetUnit()
+	if not UnitExistsPublic("target") then return nil end
+	local assist = SafeBoolean(UnitCanAssist, "player", "target")
+	local friend = SafeBoolean(UnitIsFriend, "player", "target")
+	if assist ~= true and friend ~= true then return nil end
+	if type(UnitIsUnit) ~= "function" then return nil end
+	for _, unit in ipairs(RosterUnits()) do
+		if UnitExistsPublic(unit) and SafeBoolean(UnitIsUnit, "target", unit) == true then
+			return unit
+		end
+	end
+	return nil
+end
+
+function Engine:HostileTarget()
+	if not UnitExistsPublic("target") then return false end
+	if SafeBoolean(UnitCanAttack, "player", "target") ~= true then return false end
+	return SafeBoolean(UnitIsDeadOrGhost, "target") == false
+end
+
+function Engine:EnemyCombatTarget()
+	return SafeBoolean(UnitAffectingCombat, "player") == true and self:HostileTarget()
+end
+
+function Engine:TargetClassification()
+	if not self:HostileTarget() or type(UnitClassification) ~= "function" then return nil end
+	local ok, classification = pcall(UnitClassification, "target")
+	if not ok or IsSecret(classification) or type(classification) ~= "string" then return nil end
+	return classification
+end
+
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+local roleCache = {}
+local function UnitRole(unit)
+	if type(UnitGroupRolesAssigned) ~= "function" then return "NONE" end
+	local ok, role = pcall(UnitGroupRolesAssigned, unit)
+	if not ok or IsSecret(role) or type(role) ~= "string" or not ROLE_PRIORITY[role] then
+		return roleCache[unit] or "NONE"
+	end
+	if role ~= "NONE" then
+		roleCache[unit] = role
+		return role
+	end
+	return roleCache[unit] or "NONE"
+end
+
+local function UnitOrdinal(unit)
+	if unit == "player" then return 0 end
+	return tonumber(unit:match("(%d+)$")) or 99
+end
+
+local function ResolveSpellReference(spell)
+	if type(spell) == "number" and not IsSecret(spell) then return spell end
+	if type(spell) ~= "string" or IsSecret(spell) then return nil end
+	local reference = AL.rangeSpellRefs and AL.rangeSpellRefs[spell]
+	local id = reference and reference.id
+	if PublicNumber(id) then return id end
+	return spell
+end
+
+local function SpellRange(spell, unit)
+	local reference = ResolveSpellReference(spell)
+	if reference and C_Spell and type(C_Spell.IsSpellInRange) == "function" then
+		local ok, value = pcall(C_Spell.IsSpellInRange, reference, unit)
+		if ok then
+			local result = PublicBoolean(value)
+			if result ~= nil then return result end
+		end
+	end
+	-- The legacy API accepts spell names on compatible Classic clients. A nil
+	-- result means unknown and must not be converted into out of range.
+	if type(spell) == "string" and type(IsSpellInRange) == "function" then
+		local ok, value = pcall(IsSpellInRange, spell, unit)
+		if ok then return PublicBoolean(value) end
+	end
+	return nil
+end
+
+function Engine:IsUnitEligible(unit, spell, request)
+	if type(unit) ~= "string" or not AL.HealingTargetColors
+		or not AL.HealingTargetColors[unit] or not UnitExistsPublic(unit) then return false end
+
+	if unit ~= "player" then
+		local assist = SafeBoolean(UnitCanAssist, "player", unit)
+		local friend = SafeBoolean(UnitIsFriend, "player", unit)
+		if assist == false or friend == false or (assist == nil and friend == nil) then return false end
+	end
+	if SafeBoolean(UnitIsDeadOrGhost, unit) == true then return false end
+	if SafeBoolean(UnitIsConnected, unit) == false then return false end
+	if SafeBoolean(UnitIsVisible, unit) == false then return false end
+
+	local role = UnitRole(unit)
+	if request and type(request.roles) == "table" and request.roles[role] ~= true then return false end
+	if request and request.includePlayer == false and unit == "player" then return false end
+	if request and type(request.unit) == "string" and request.unit ~= unit then return false end
+	if request and type(request.unitFilter) == "function" then
+		local ok, allowed = pcall(request.unitFilter, unit, role)
+		if not ok or PublicBoolean(allowed) ~= true then return false end
+	end
+	local rangeUnit = request and request.rangeUnit or unit
+	if SpellRange(spell, rangeUnit) == false then return false end
+	return true, role
+end
+
+function Engine:BuildRoster(spell, request)
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	local roster = {}
+	if request and type(request.unit) == "string" then
+		local eligible, role = self:IsUnitEligible(request.unit, spell, request)
+		if eligible then
+			roster[1] = {
+				unit = request.unit,
+				role = role,
+				priority = (ROLE_PRIORITY[role] or ROLE_PRIORITY.NONE) * 1000
+					+ (100 - UnitOrdinal(request.unit)),
+			}
+		end
+		return roster
+	end
+	for _, unit in ipairs(RosterUnits()) do
+		local eligible, role = self:IsUnitEligible(unit, spell, request)
+		if eligible then
+			local roleValue = ROLE_PRIORITY[role] or ROLE_PRIORITY.NONE
+			roster[#roster + 1] = {
+				unit = unit,
+				role = role,
+				-- Higher role priority and earlier roster positions are drawn last,
+				-- so their opaque layer wins when several units share a health band.
+				priority = roleValue * 1000 + (100 - UnitOrdinal(unit)),
+			}
+		end
+	end
+	table.sort(roster, function(left, right)
+		if left.priority == right.priority then return left.unit > right.unit end
+		return left.priority < right.priority
+	end)
+	return roster
+end
+
+local function ThresholdCut(percent)
+	if percent >= 100 then return 1 end
+	if AL.ResourceThresholdCut then return math.min(1, AL.ResourceThresholdCut(percent, true)) end
+	return percent / 100
+end
+
+function Engine:HealthCurve(lowPercent, highPercent)
+	lowPercent = ClampPercent(lowPercent, 0)
+	highPercent = math.max(lowPercent, ClampPercent(highPercent, 100))
+	local key = tostring(lowPercent) .. ":" .. tostring(highPercent)
+	if self.curves[key] then return self.curves[key] end
+	local factory = C_CurveUtil and C_CurveUtil.CreateColorCurve
+	if type(factory) ~= "function" or type(CreateColor) ~= "function" then return nil end
+	local ok, curve = pcall(factory)
+	if not ok or not curve then return nil end
+	pcall(curve.SetType, curve, Enum and Enum.LuaCurveType and Enum.LuaCurveType.Step or 1)
+	local low = lowPercent / 100
+	local highCut = ThresholdCut(highPercent)
+	if not pcall(curve.AddPoint, curve, 0, CreateColor(1, 1, 1, lowPercent == 0 and 1 or 0)) then return nil end
+	if lowPercent > 0 and not pcall(curve.AddPoint, curve, low, CreateColor(1, 1, 1, 1)) then return nil end
+	if highPercent < 100 then
+		if not pcall(curve.AddPoint, curve, highCut, CreateColor(1, 1, 1, 0)) then return nil end
+		if highCut < 1 and not pcall(curve.AddPoint, curve, 1, CreateColor(1, 1, 1, 0)) then return nil end
+	else
+		if not pcall(curve.AddPoint, curve, 1, CreateColor(1, 1, 1, 1)) then return nil end
+	end
+	self.curves[key] = curve
+	return curve
+end
+
+local function ColorAlpha(color)
+	if IsSecret(color) then return false end
+	if color == nil or type(color.GetRGBA) ~= "function" then return false end
+	local ok, _, _, _, alpha = pcall(color.GetRGBA, color)
+	if not ok then return false end
+	if IsSecret(alpha) then return true, alpha end
+	if PublicNumber(alpha) then return true, alpha end
+	return false
+end
+
+function Engine:PredictedHealthAlpha(unit, lowPercent, highPercent)
+	local curve = self:HealthCurve(lowPercent, highPercent)
+	if not curve then return false, nil, "ColorCurve unavailable" end
+
+	if type(UnitHealthPercent) == "function" then
+		local ok, color = pcall(UnitHealthPercent, unit, true, curve)
+		if ok then
+			local available, alpha = ColorAlpha(color)
+			if available then return true, alpha end
+		end
+	end
+
+	-- Forever 1.60.1 also exposes the Midnight heal-prediction calculator.
+	-- This is a fallback for clients where UnitHealthPercent rejects a curve.
+	if type(CreateUnitHealPredictionCalculator) == "function"
+		and type(UnitGetDetailedHealPrediction) == "function" then
+		local okCalculator, calculator = pcall(CreateUnitHealPredictionCalculator)
+		if okCalculator and calculator then
+			local okFill = pcall(UnitGetDetailedHealPrediction, unit, "player", calculator)
+			if okFill and type(calculator.EvaluateCurrentHealthPercent) == "function" then
+				local okColor, color = pcall(calculator.EvaluateCurrentHealthPercent, calculator, curve)
+				if okColor then
+					local available, alpha = ColorAlpha(color)
+					if available then return true, alpha end
+				end
+			end
+		end
+	end
+	return false, nil, "Predicted health mask unavailable"
+end
+
+local function RequestAvailable(spell, profile)
+	if type(spell) ~= "string" or spell == "" or IsSecret(spell) then return false end
+	if AL.known and not AL.known[spell] then return false end
+	if AL.Allowed and not AL.Allowed(spell, profile) then return false end
+	if AL.IsReady and not AL.IsReady(spell) then return false end
+	if AL.SpellUsable then
+		local usable = AL.SpellUsable(spell)
+		if usable == false then return false end
+	end
+	return true
+end
+
+local function NormalizeRequest(value, category, threshold, profile)
+	if type(value) == "string" then value = { spell = value } end
+	if type(value) ~= "table" or value.enabled == false then return nil end
+	local spell = value.spell
+	if type(spell) ~= "string" or spell == "" or IsSecret(spell) then return nil end
+	if value.requireKnown ~= false and AL.known and not AL.known[spell] then return nil end
+	if AL.Allowed and not AL.Allowed(spell, profile) then return nil end
+	if value.requireReady ~= false and AL.IsReady and not AL.IsReady(spell) then return nil end
+	if value.requireUsable ~= false and AL.SpellUsable then
+		local usable = AL.SpellUsable(spell)
+		if usable == false then return nil end
+	end
+	local reason = "HealingEngine " .. tostring(category or "request")
+	local playerHealthAbove = PublicNumber(value.playerHealthAbove)
+	if playerHealthAbove then playerHealthAbove = ClampPercent(playerHealthAbove, 0) end
+	local secondaryHealthUnit = type(value.secondaryHealthUnit) == "string"
+		and not IsSecret(value.secondaryHealthUnit) and value.secondaryHealthUnit or nil
+	local secondaryHealthThreshold = PublicNumber(value.secondaryHealthThreshold)
+	if secondaryHealthThreshold then
+		secondaryHealthThreshold = ClampPercent(secondaryHealthThreshold, threshold)
+	end
+	local manaAbove = PublicNumber(value.manaAbove)
+	if manaAbove then manaAbove = ClampPercent(manaAbove, 0) end
+	local manaBelow = PublicNumber(value.manaBelow)
+	if manaBelow then manaBelow = ClampPercent(manaBelow, 100) end
+	return {
+		category = category,
+		spell = spell,
+		reason = type(value.reason) == "string" and value.reason or reason,
+		threshold = ClampPercent(value.threshold, threshold),
+		includePlayer = value.includePlayer,
+		roles = value.roles,
+		unit = value.unit,
+		unitFilter = value.unitFilter,
+		rangeUnit = value.rangeUnit,
+		visibility = value.visibility,
+		playerHealthAbove = playerHealthAbove,
+		secondaryHealthUnit = secondaryHealthUnit,
+		secondaryHealthThreshold = secondaryHealthThreshold,
+		manaAbove = manaAbove,
+		manaBelow = manaBelow,
+	}
+end
+
+-- A category may contain one request or an ordered list. Later requests are
+-- drawn later and therefore win when more than one protected condition is
+-- opaque. The singular form remains compatible with the original provider
+-- contract.
+local function NormalizeRequests(value, category, threshold, profile)
+	local requests = {}
+	if type(value) == "string" or (type(value) == "table" and value.spell ~= nil) then
+		local request = NormalizeRequest(value, category, threshold, profile)
+		if request then requests[1] = request end
+		return requests
+	end
+	if type(value) ~= "table" then return requests end
+	for _, item in ipairs(value) do
+		local request = NormalizeRequest(item, category, threshold, profile)
+		if request then requests[#requests + 1] = request end
+	end
+	return requests
+end
+
+function Engine:EffectiveThreshold(percent, role)
+	percent = ClampPercent(percent, 0)
+	if role == "DAMAGER" then percent = percent - DPS_THRESHOLD_OFFSET end
+	return math.max(0, percent)
+end
+
+function Engine:WandAvailable(profile)
+	if type(AL.WandEquipped) ~= "function" or not AL.WandEquipped() then return false end
+	if AL.known and not AL.known["Shoot"] then return false end
+	return not AL.Allowed or AL.Allowed("Shoot", profile)
+end
+
+function Engine:StrongestBaseHeal(profile)
+	for _, spell in ipairs(MANUAL_HEALS[AL.playerClass] or {}) do
+		if RequestAvailable(spell, profile) then
+			return {
+				spell = spell,
+				reason = "Healing Rotation: selected ally distress heal",
+			}
+		end
+	end
+end
+
+function Engine:DamageRequest(profile, context)
+	if self:FiveSecondRuleActive() then return nil end
+	if not self:EnemyCombatTarget() or self:WandAvailable(profile) then return nil end
+	local rotation = AL.rotations and AL.rotations[AL.playerClass]
+	if rotation and type(rotation.HealingEngineDamagePlan) == "function" then
+		local ok, value = pcall(rotation.HealingEngineDamagePlan, profile, context)
+		if not ok then
+			local message = type(value) == "string" and not IsSecret(value)
+				and value or "Protected healing damage provider failure"
+			if message ~= self.lastDamageProviderError and AL.Debug and AL.Debug.CaptureError then
+				self.lastDamageProviderError = message
+				AL.Debug.CaptureError("HealingEngine damage provider: " .. message, "healing engine")
+			end
+			return nil
+		end
+		-- false explicitly suppresses the generic class fallback. nil keeps it.
+		if value == false then return nil end
+		if value ~= nil then
+			local request = NormalizeRequest(value, "damage", DAMAGE_MANA_THRESHOLD, profile)
+			if request and SpellRange(request.spell, "target") ~= false then return request end
+			return nil
+		end
+	end
+	for _, spell in ipairs(DAMAGE_SPELLS[AL.playerClass] or {}) do
+		if RequestAvailable(spell, profile) and SpellRange(spell, "target") ~= false then
+			local present = false
+			if TARGET_DEBUFFS[spell] and type(AL.HasDebuff) == "function" then
+				local ok, result = pcall(AL.HasDebuff, "target", spell)
+				present = ok and result == true
+			end
+			if not present then
+				return {
+					category = "damage",
+					spell = spell,
+					reason = "Healing Rotation: periodic damage above 80% mana",
+					threshold = DAMAGE_MANA_THRESHOLD,
+				}
+			end
+		end
+	end
+end
+
+-- Called by Core before the class rotation. The third return value tells Core
+-- that the Healing Rotation owns this tick even when the correct result is to
+-- wait. Wand.lua still wraps the returned Shoot recommendation, preserving its
+-- shot and recovery timing.
+function Engine:BaseSuggestion(profile)
+	local settings = self:GetSettings(profile)
+	if not self.SUPPORTED_CLASSES[AL.playerClass] or not settings.enabled then
+		return nil, nil, false
+	end
+	local manualUnit = self:ManualTargetUnit()
+	if manualUnit then
+		return nil, "Healing Rotation: selected ally", true
+	end
+	if self:EnemyCombatTarget() then
+		if self:FiveSecondRuleActive() then
+			return nil, "Healing Rotation: five-second mana rule", true
+		end
+		if self:WandAvailable(profile) then
+			return "Shoot", "Healing Rotation: wand damage", true
+		end
+		return nil, "Healing Rotation: high-mana periodic damage", true
+	end
+	return nil, "Healing Rotation: monitoring group", true
+end
+
+function Engine:ProviderFor(classToken)
+	local provider = self.providers[classToken]
+	if type(provider) == "function" then return provider, "registered" end
+	local rotation = AL.rotations and AL.rotations[classToken]
+	if rotation and type(rotation.HealingEnginePlan) == "function" then
+		return rotation.HealingEnginePlan, "rotation"
+	end
+	return nil
+end
+
+function Engine:BuildPlan(baseSpell, baseReason)
+	local profile = AL.S and AL.S() or {}
+	local settings = self:GetSettings(profile)
+	if not self.SUPPORTED_CLASSES[AL.playerClass] or not settings.configured then return nil, settings end
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	if not settings.grouped then
+		return nil, settings, (settings.restriction or "Dungeon group unavailable")
+			.. "; Leveling Rotation active"
+	end
+	local casting = AL.CastingSpell and AL.CastingSpell()
+	local channeling = AL.PlayerChanneling and AL.PlayerChanneling()
+	if casting or channeling then return nil, settings, "Player cast in progress" end
+	local manualUnit = self:ManualTargetUnit()
+	local inCombat = SafeBoolean(UnitAffectingCombat, "player") == true
+	local hostileTarget = self:HostileTarget()
+	local provider, source = self:ProviderFor(AL.playerClass)
+	local context = {
+		engine = self,
+		settings = settings,
+		manualTarget = manualUnit,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- The protected unit pixel selects the member as focus. Healing macros are
+		-- expected to cast on focus; a mouseover clause remains a manual override.
+		healingCastUnit = "focus",
+		grouped = true,
+		inCombat = inCombat,
+		hostileTarget = hostileTarget,
+		enemyCombat = inCombat and hostileTarget,
+		targetClassification = self:TargetClassification(),
+		damageManaThreshold = DAMAGE_MANA_THRESHOLD,
+		dpsThresholdOffset = DPS_THRESHOLD_OFFSET,
+		mp5Locked = self:FiveSecondRuleActive(),
+		mp5Seconds = self:FiveSecondRuleRemaining(),
+		baseSpell = baseSpell,
+		baseReason = baseReason,
+		known = AL.known,
+		IsReady = AL.IsReady,
+		IsUsable = AL.SpellUsable,
+		Allowed = function(spell) return not AL.Allowed or AL.Allowed(spell, profile) end,
+	}
+	local supplied, providerStatus
+	if provider then
+		local ok, result = pcall(provider, profile, context)
+		supplied = ok and result or nil
+		if not ok then
+			providerStatus = type(result) == "string" and not IsSecret(result)
+				and result or "Protected healing provider failure"
+		end
+	end
+	if providerStatus then
+		local message = providerStatus
+		if message ~= self.lastProviderError and AL.Debug and AL.Debug.CaptureError then
+			self.lastProviderError = message
+			AL.Debug.CaptureError("HealingEngine provider: " .. message, "healing engine")
+		end
+	end
+	if type(supplied) ~= "table" then supplied = {} end
+	local plan = { source = source or "base-rules", rows = {}, settings = settings,
+		manualTarget = manualUnit, healingCastUnit = "focus" }
+
+	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+	-- A deliberately selected dungeon-party member is an explicit distress signal.
+	-- It bypasses health thresholds and every damage row until the user returns
+	-- to an enemy or clears the target.
+	if manualUnit then
+		local manualOwned = supplied.manual ~= nil
+		local manualValue = supplied.manual
+		if not manualOwned then manualValue = supplied.strongest end
+		if manualValue == nil and not manualOwned then
+			local aliases = NormalizeRequests(supplied.emergency, "manual", 100, profile)
+			manualValue = aliases[#aliases]
+		end
+		local manual
+		if supplied.manual ~= false then
+			manual = NormalizeRequest(manualValue, "manual", 100, profile)
+		end
+		if not manual and not manualOwned then
+			manual = NormalizeRequest(self:StrongestBaseHeal(profile), "manual", 100, profile)
+		end
+		if manual then
+			-- The user's explicit target overrides role/include filters intended for
+			-- automatic roster selection.
+			manual.roles, manual.includePlayer, manual.unitFilter = nil, nil, nil
+			manual.unit = manualUnit
+			local eligible, role = self:IsUnitEligible(manualUnit, manual.spell, manual)
+			if eligible then
+				local visibility = manual.visibility == "health" and "health" or "always"
+				plan.rows[1] = {
+					unit = manualUnit, role = role, spell = manual.spell,
+					reason = manual.reason, category = "manual", threshold = manual.threshold,
+					baseThreshold = manual.threshold, low = 0, high = manual.threshold,
+					band = "selected-ally", priority = math.huge, visibility = visibility,
+				}
+				return plan, settings
+			end
+		end
+		local fallback = not manualOwned
+			and NormalizeRequest(self:StrongestBaseHeal(profile), "manual", 100, profile) or nil
+		if fallback then
+			local eligible, role = self:IsUnitEligible(manualUnit, fallback.spell, fallback)
+			if eligible then
+				plan.rows[1] = {
+					unit = manualUnit, role = role, spell = fallback.spell,
+					reason = fallback.reason, category = "manual", threshold = 100,
+					low = 0, high = 100, band = "selected-ally", priority = math.huge,
+					visibility = "always",
+				}
+				return plan, settings
+			end
+		end
+		return nil, settings, "Selected ally; no available direct heal"
+	end
+
+	local damage = self:DamageRequest(profile, context)
+	if damage then
+		plan.rows[#plan.rows + 1] = {
+			spell = damage.spell, reason = damage.reason, category = "damage",
+			threshold = damage.threshold or DAMAGE_MANA_THRESHOLD,
+			baseThreshold = damage.threshold or DAMAGE_MANA_THRESHOLD,
+			low = damage.threshold or DAMAGE_MANA_THRESHOLD,
+			high = 100, band = "high-mana-damage", priority = 0,
+			visibility = "mana-above",
+		}
+	end
+	local routineValue = supplied.routine
+	if routineValue == nil then routineValue = supplied.lowCost end
+	if routineValue == nil then routineValue = supplied.hot end
+	local requests = {
+		maintenance = NormalizeRequests(supplied.maintenance, "maintenance", 100, profile),
+		routine = NormalizeRequests(routineValue, "routine", settings.initiate, profile),
+		emergency = NormalizeRequests(supplied.emergency, "emergency", settings.emergency, profile),
+		critical = NormalizeRequests(supplied.critical, "critical", settings.emergency, profile),
+		followup = NormalizeRequests(supplied.followup, "followup", 100, profile),
+	}
+	local function AddRow(request, member, low, high, band, visibility, threshold)
+		if visibility == "health" and (not high or high <= 0 or high <= (low or 0)) then return end
+		plan.rows[#plan.rows + 1] = {
+			unit = member.unit,
+			role = member.role,
+			spell = request.spell,
+			reason = request.reason,
+			category = request.category,
+			threshold = threshold or request.threshold,
+			baseThreshold = request.threshold,
+			low = low or 0,
+			high = high or 100,
+			band = band,
+			priority = member.priority,
+			visibility = visibility,
+			playerHealthAbove = request.playerHealthAbove,
+			secondaryHealthUnit = request.secondaryHealthUnit,
+			secondaryHealthThreshold = request.secondaryHealthThreshold,
+			manaAbove = request.manaAbove,
+			manaBelow = request.manaBelow,
+		}
+	end
+	local function AddStatic(request, band)
+		local visibility = request.visibility == "health" and "health" or "always"
+		for _, member in ipairs(self:BuildRoster(request.spell, request)) do
+			local threshold = self:EffectiveThreshold(request.threshold, member.role)
+			AddRow(request, member, 0, visibility == "health" and threshold or 100,
+				band, visibility, threshold)
+		end
+	end
+	for _, request in ipairs(requests.maintenance) do AddStatic(request, "maintenance") end
+
+	local function OrderedCandidates(list)
+		local candidates = {}
+		for requestIndex, request in ipairs(list) do
+			for _, member in ipairs(self:BuildRoster(request.spell, request)) do
+				candidates[#candidates + 1] = {
+					request = request, requestIndex = requestIndex, member = member,
+				}
+			end
+		end
+		table.sort(candidates, function(left, right)
+			if left.member.priority ~= right.member.priority then
+				return left.member.priority < right.member.priority
+			end
+			return left.requestIndex < right.requestIndex
+		end)
+		return candidates
+	end
+	local function AddRoutineBand(list, urgent)
+		for _, candidate in ipairs(OrderedCandidates(list)) do
+			local request, member = candidate.request, candidate.member
+			local high = self:EffectiveThreshold(request.threshold, member.role)
+			local floor = self:EffectiveThreshold(math.min(settings.emergency, request.threshold), member.role)
+			local midpoint = math.floor((floor + high) / 2 + 0.5)
+			if urgent then
+				AddRow(request, member, 0, midpoint, "urgent", "health", high)
+			else
+				AddRow(request, member, midpoint, high, "routine", "health", high)
+			end
+		end
+	end
+	local function AddEmergencyBand(list, critical)
+		for _, candidate in ipairs(OrderedCandidates(list)) do
+			local request, member = candidate.request, candidate.member
+			local high = self:EffectiveThreshold(request.threshold, member.role)
+			local midpoint = math.floor(high / 2 + 0.5)
+			if critical then
+				AddRow(request, member, 0, midpoint, "critical", "health", high)
+			else
+				AddRow(request, member, midpoint, high, "emergency", "health", high)
+			end
+		end
+	end
+	-- Health is secret, so exact Lua sorting is impossible. Two bands per
+	-- category put a substantially lower-health unit above a higher-health unit;
+	-- deterministic role/roster priority resolves ties inside each band.
+	AddRoutineBand(requests.routine, false)
+	AddRoutineBand(requests.routine, true)
+	AddEmergencyBand(requests.emergency, false)
+	AddEmergencyBand(requests.emergency, true)
+	for _, request in ipairs(requests.critical) do AddStatic(request, "critical-priority") end
+	for _, request in ipairs(requests.followup) do AddStatic(request, "followup") end
+	local status
+	if #plan.rows == 0 then
+		status = providerStatus or (provider and "No eligible healing units" or "Waiting for class healing provider")
+	end
+	return #plan.rows > 0 and plan or nil, settings, status
+end
+
+function Engine:ManaAboveAlpha(percent)
+	local readable
+	if type(AL.ManaPercent) == "function" then
+		local ok, value = pcall(AL.ManaPercent)
+		readable = ok and PublicNumber(value) or nil
+	end
+	if readable then return true, readable > percent and 1 or 0 end
+	if type(AL.ResourceIntervalAlpha) ~= "function" then
+		return false, nil, "Protected mana mask unavailable"
+	end
+	local low = AL.ResourceThresholdCut and AL.ResourceThresholdCut(percent, true) or (percent / 100)
+	local ok, alpha = AL.ResourceIntervalAlpha("power", "player", 0, low, 2)
+	if ok then return true, alpha end
+	return false, nil, "Protected mana mask unavailable"
+end
+
+function Engine:ManaBelowAlpha(percent)
+	local readable
+	if type(AL.ManaPercent) == "function" then
+		local ok, value = pcall(AL.ManaPercent)
+		readable = ok and PublicNumber(value) or nil
+	end
+	if readable then return true, readable <= percent and 1 or 0 end
+	if type(AL.ResourceIntervalAlpha) ~= "function" then
+		return false, nil, "Protected mana mask unavailable"
+	end
+	local high = AL.ResourceThresholdCut and AL.ResourceThresholdCut(percent, true) or (percent / 100)
+	local ok, alpha = AL.ResourceIntervalAlpha("power", "player", 0, 0, high)
+	if ok then return true, alpha end
+	return false, nil, "Protected mana mask unavailable"
+end
+
+function Engine:DecisionAlpha(decision)
+	if decision.visibility == "always" then return true, 1 end
+	if decision.visibility == "mana-above" then
+		return self:ManaAboveAlpha(decision.threshold or DAMAGE_MANA_THRESHOLD)
+	end
+	return self:PredictedHealthAlpha(decision.unit, decision.low, decision.high)
+end
+
+-- Extra protected gates are applied without inspecting or multiplying their
+-- alpha values in Lua. WoW combines the nested frame and region alpha values
+-- internally, so each protected condition remains opaque to addon code.
+function Engine:PlayerHealthAboveAlpha(percent)
+	if type(AL.ResourceIntervalAlpha) ~= "function" then
+		return false, nil, "Protected player-health gate unavailable"
+	end
+	local low = AL.ResourceThresholdCut and AL.ResourceThresholdCut(percent, true)
+		or math.min(1, (percent + 0.001) / 100)
+	local ok, alpha = AL.ResourceIntervalAlpha("health", "player", nil, low, 2)
+	if ok then return true, alpha end
+	return false, nil, "Protected player-health gate unavailable"
+end
+
+function Engine:SecondaryHealthAlpha(unit, percent)
+	if type(unit) ~= "string" or not AL.HealingTargetColors
+		or not AL.HealingTargetColors[unit] then
+		return false, nil, "Secondary healing unit unavailable"
+	end
+	return self:PredictedHealthAlpha(unit, 0, ClampPercent(percent, 100))
+end
+
+local function CreateLayerFrame(parent, level)
+	local frame = CreateFrame("Frame", nil, parent)
+	frame:SetAllPoints(parent)
+	frame:SetFrameLevel(level)
+	frame:EnableMouse(false)
+	frame:SetAlpha(0)
+	frame:Show()
+	return frame
+end
+
+function Engine:CreateVisualRow(index)
+	local display = self.display
+	if not display or not display.main or not display.slots then return nil end
+	local row = { slots = {}, index = index }
+	row.main = CreateLayerFrame(display.main, (display.main:GetFrameLevel() or 1) + 20 + index)
+	row.main.content = CreateLayerFrame(row.main, row.main:GetFrameLevel())
+	row.main.block = row.main.content:CreateTexture(nil, "BACKGROUND")
+	row.main.block:SetAllPoints(row.main)
+	row.main.block:SetColorTexture(0.03, 0.04, 0.06, 1)
+	row.main.icon = row.main.content:CreateTexture(nil, "OVERLAY")
+	row.main.icon:SetAllPoints(row.main)
+	row.main.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	row.main.key = row.main.content:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+	row.main.key:SetPoint("TOPRIGHT", row.main, "TOPRIGHT", -1, -2)
+	row.main.key:SetJustifyH("RIGHT")
+	row.main.key:SetWidth(42)
+	pcall(row.main.key.SetWordWrap, row.main.key, false)
+	row.main.key:SetTextColor(1, 1, 1, 1)
+
+	for _, slotIndex in ipairs(ACTIVE_SLOTS) do
+		local slot = display.slots[slotIndex]
+		local layer = CreateLayerFrame(slot, (slot:GetFrameLevel() or 100) + 20 + index)
+		layer.content = CreateLayerFrame(layer, layer:GetFrameLevel())
+		layer.block = layer.content:CreateTexture(nil, "BACKGROUND")
+		layer.block:SetAllPoints(layer)
+		layer.block:SetColorTexture(0, 0, 0, 1)
+		layer.icon = layer.content:CreateTexture(nil, "OVERLAY")
+		layer.icon:SetAllPoints(layer)
+		row.slots[slotIndex] = layer
+	end
+
+	local target = AL.HealingTargetPixel
+	if target then
+		row.target = CreateLayerFrame(target, (target:GetFrameLevel() or 101) + 20 + index)
+		row.target.content = CreateLayerFrame(row.target, row.target:GetFrameLevel())
+		row.target.texture = row.target.content:CreateTexture(nil, "OVERLAY")
+		row.target.texture:SetAllPoints(row.target)
+		row.target.texture:SetColorTexture(AL.GetUniversalColor(0))
+	end
+	self.rows[index] = row
+	return row
+end
+
+function Engine:VisualRow(index)
+	return self.rows[index] or self:CreateVisualRow(index)
+end
+
+local function SetFrameAlpha(frame, alpha)
+	if not frame then return true end
+	return pcall(frame.SetAlpha, frame, alpha)
+end
+
+local function SetRegionAlpha(region, alpha)
+	if not region then return true end
+	if type(region.SetAlpha) ~= "function" then return true end
+	return pcall(region.SetAlpha, region, alpha)
+end
+
+local function SetRowGateAlpha(row, alpha)
+	local applied = SetRegionAlpha(row.main and row.main.block, alpha)
+	applied = SetRegionAlpha(row.main and row.main.icon, alpha) and applied
+	applied = SetRegionAlpha(row.main and row.main.key, alpha) and applied
+	for _, slot in pairs(row.slots or {}) do
+		applied = SetRegionAlpha(slot.block, alpha) and applied
+		applied = SetRegionAlpha(slot.icon, alpha) and applied
+	end
+	applied = SetRegionAlpha(row.target and row.target.texture, alpha) and applied
+	return applied
+end
+
+local function SetRowSecondaryAlpha(row, alpha)
+	local applied = SetFrameAlpha(row.main and row.main.content, alpha)
+	for _, slot in pairs(row.slots or {}) do
+		applied = SetFrameAlpha(slot.content, alpha) and applied
+	end
+	applied = SetFrameAlpha(row.target and row.target.content, alpha) and applied
+	return applied
+end
+
+function Engine:ClearVisuals()
+	if self.visualsCleared then
+		if AL.SetHealingTargetPixel then AL.SetHealingTargetPixel("none") end
+		self.state.activeRows = 0
+		return
+	end
+	for _, row in ipairs(self.rows) do
+		SetFrameAlpha(row.main, 0)
+		for _, slot in pairs(row.slots) do SetFrameAlpha(slot, 0) end
+		SetFrameAlpha(row.target, 0)
+		row.decision = nil
+	end
+	if AL.SetHealingTargetPixel then AL.SetHealingTargetPixel("none") end
+	self.state.activeRows = 0
+	self.visualsCleared = true
+end
+
+function Engine:BindDisplay(display)
+	if type(display) ~= "table" or not display.main or type(display.slots) ~= "table" then return false end
+	self.display = display
+	self.visualsCleared = false
+	self:ClearVisuals()
+	return true
+end
+
+function Engine:ApplyDecision(row, decision, alpha, index, secondaryAlpha, gateAlpha)
+	if not row or not decision then return false end
+	local display = self.display
+	local texture = AL.IconFor and AL.IconFor(decision.spell)
+		or AL.SpellTexture and AL.SpellTexture(decision.spell) or UNKNOWN_ICON
+	local setTexture = display and display.setTexture
+	if type(setTexture) == "function" then setTexture(row.main.icon, texture)
+	else row.main.icon:SetTexture(texture) end
+	local key = not (ActionLiteDB and ActionLiteDB.keybindHidden) and AL.KeybindFor
+		and AL.KeybindFor(decision.spell) or nil
+	row.main.key:SetText(key or "")
+	row.main.key:SetShown(key ~= nil and key ~= false)
+
+	-- Healing Rotation output is always emitted on A[3]. A[6] is reserved for
+	-- passive UniversalN Unit1 assignments and is masked while a heal is active.
+	local desired = 3
+	for _, slotIndex in ipairs(ACTIVE_SLOTS) do
+		local slot = row.slots[slotIndex]
+		local shownTexture = slotIndex == desired and texture or nil
+		if type(setTexture) == "function" then setTexture(slot.icon, shownTexture)
+		else slot.icon:SetTexture(shownTexture) end
+	end
+
+	if decision.unit and row.target and row.target.texture then
+		local colorIndex = AL.HealingTargetColors and AL.HealingTargetColors[decision.unit] or 0
+		row.target.texture:SetColorTexture(AL.GetUniversalColor(colorIndex))
+	elseif row.target and row.target.texture then
+		row.target.texture:SetColorTexture(AL.GetUniversalColor(0))
+	end
+
+	local level = index or row.index
+	row.main:SetFrameLevel((display.main:GetFrameLevel() or 1) + 20 + level)
+	if row.main.content then row.main.content:SetFrameLevel(row.main:GetFrameLevel()) end
+	for slotIndex, slot in pairs(row.slots) do
+		slot:SetFrameLevel((display.slots[slotIndex]:GetFrameLevel() or 100) + 20 + level)
+		if slot.content then slot.content:SetFrameLevel(slot:GetFrameLevel()) end
+	end
+	if row.target then
+		row.target:SetFrameLevel((AL.HealingTargetPixel:GetFrameLevel() or 101) + 20 + level)
+		if row.target.content then row.target.content:SetFrameLevel(row.target:GetFrameLevel()) end
+	end
+
+	-- secondaryAlpha and gateAlpha may be secret client values. Pass them
+	-- through untouched; never use them in a Lua fallback, comparison or
+	-- arithmetic expression. Parent, child and region alpha form an AND gate in
+	-- the renderer without exposing any of the three conditions to Lua.
+	local applied = SetRowGateAlpha(row, gateAlpha)
+	applied = SetRowSecondaryAlpha(row, secondaryAlpha) and applied
+	applied = SetFrameAlpha(row.main, alpha) and applied
+	for _, slot in pairs(row.slots) do applied = SetFrameAlpha(slot, alpha) and applied end
+	if decision.unit then applied = SetFrameAlpha(row.target, alpha) and applied
+	else applied = SetFrameAlpha(row.target, 0) and applied end
+	self.visualsCleared = false
+	row.decision = {
+		unit = decision.unit, role = decision.role, spell = decision.spell,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		-- A unit-bearing HealingEngine decision is always executed on focus. Damage
+		-- rows retain the hostile target and therefore report "target" instead.
+		castUnit = decision.unit and "focus" or "target",
+		category = decision.category, threshold = decision.threshold,
+		baseThreshold = decision.baseThreshold,
+		band = decision.band, low = decision.low, high = decision.high,
+		visibility = decision.visibility,
+		playerHealthAbove = decision.playerHealthAbove,
+		secondaryHealthUnit = decision.secondaryHealthUnit,
+		secondaryHealthThreshold = decision.secondaryHealthThreshold,
+		manaAbove = decision.manaAbove,
+		manaBelow = decision.manaBelow,
+	}
+	return applied
+end
+
+function Engine:Update(baseSpell, baseReason)
+	self:ClearVisuals()
+	local plan, settings, status = self:BuildPlan(baseSpell, baseReason)
+	self.state = {
+		version = self.VERSION,
+		supported = self.SUPPORTED_CLASSES[AL.playerClass] == true,
+		configured = settings and settings.configured or false,
+		grouped = settings and settings.grouped or false,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		dungeon = settings and settings.dungeon or false,
+		restriction = settings and settings.restriction or nil,
+		enabled = settings and settings.enabled or false,
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		roleMode = settings and settings.roleMode or "DPS",
+		playerGroupRole = settings and settings.playerGroupRole or "UNKNOWN",
+		healerRole = settings and settings.healerRole or false,
+		healingCastUnit = "focus",
+		initiate = settings and settings.initiate or 80,
+		emergency = settings and settings.emergency or 30,
+		dpsThresholdOffset = DPS_THRESHOLD_OFFSET,
+		mp5Locked = self:FiveSecondRuleActive(),
+		mp5Seconds = self:FiveSecondRuleRemaining(),
+		lastHealingCast = self.lastHealingCast,
+		provider = plan and plan.source or nil,
+		manualTarget = plan and plan.manualTarget or nil,
+		status = status,
+		activeRows = 0,
+		rows = {},
+		at = GetTime and GetTime() or 0,
+	}
+	if not plan or not self.display then return false end
+
+	for index, decision in ipairs(plan.rows) do
+		local row = self:VisualRow(index)
+		local available, alpha, errorMessage = self:DecisionAlpha(decision)
+		local secondaryAvailable, secondaryAlpha, secondaryError = true, 1, nil
+		if available and decision.secondaryHealthUnit then
+			secondaryAvailable, secondaryAlpha, secondaryError = self:SecondaryHealthAlpha(
+				decision.secondaryHealthUnit, decision.secondaryHealthThreshold or decision.threshold)
+		end
+		local gateAvailable, gateAlpha, gateError = true, 1, nil
+		if available and secondaryAvailable then
+			if decision.playerHealthAbove then
+				gateAvailable, gateAlpha, gateError = self:PlayerHealthAboveAlpha(decision.playerHealthAbove)
+			elseif decision.manaAbove then
+				gateAvailable, gateAlpha, gateError = self:ManaAboveAlpha(decision.manaAbove)
+			elseif decision.manaBelow then
+				gateAvailable, gateAlpha, gateError = self:ManaBelowAlpha(decision.manaBelow)
+			end
+		end
+		if available and secondaryAvailable and gateAvailable
+			and self:ApplyDecision(row, decision, alpha, index, secondaryAlpha, gateAlpha) then
+			self.state.activeRows = self.state.activeRows + 1
+			self.state.rows[#self.state.rows + 1] = row.decision
+		elseif (gateError or secondaryError or errorMessage)
+			and (gateError or secondaryError or errorMessage) ~= self.lastMaskError then
+			local message = gateError or secondaryError or errorMessage
+			self.lastMaskError = message
+			if AL.Debug and AL.Debug.CaptureError then
+				AL.Debug.CaptureError("HealingEngine mask: " .. message, "healing engine")
+			end
+		end
+	end
+	return self.state.activeRows > 0
+end
+
+function Engine:DebugState()
+	local result = {
+		version = self.VERSION,
+		supportedClasses = { "DRUID", "PALADIN", "PRIEST", "SHAMAN" },
+		class = AL.playerClass,
+		pixel = { x = AL.ProtocolPixelLayout and AL.ProtocolPixelLayout.x or 163,
+			y = AL.ProtocolPixelLayout and AL.ProtocolPixelLayout.healing or 0 },
+	}
+	for key, value in pairs(self.state or {}) do result[key] = value end
+	return result
+end
+
+local events = CreateFrame("Frame")
+for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "UNIT_CONNECTION",
+	"PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_ROLES_ASSIGNED",
+	"ROLE_CHANGED_INFORM" }) do
+	pcall(events.RegisterEvent, events, event)
+end
+-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+events:SetScript("OnEvent", function(_, event)
+	if event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE"
+		or event == "PLAYER_ROLES_ASSIGNED" or event == "ROLE_CHANGED_INFORM" then
+		-- Party tokens can be reassigned when a member joins, leaves, or changes
+		-- subgroup or role. Never carry a departed or changed member's cached role
+		-- onto the next protected evaluation.
+		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
+		for unit in pairs(roleCache) do roleCache[unit] = nil end
+	end
+	for _, unit in ipairs(RosterUnits()) do
+		if UnitExistsPublic(unit) then UnitRole(unit) end
+	end
+	-- The display driver performs the next protected-mask evaluation. Clearing
+	-- immediately prevents a departed unit's color from persisting between ticks.
+	Engine:ClearVisuals()
+end)
+

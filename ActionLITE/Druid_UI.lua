@@ -219,6 +219,8 @@ AL.RegisterSimpleClassUI("DRUID", {
 			title = { en = "PREPARATION & SURVIVAL", fr = "PREPARATION ET SURVIE", pt = "PREPARAÇÃO E SOBREVIVÊNCIA", es = "PREPARACIÓN Y SUPERVIVENCIA", de = "VORBEREITUNG & ÜBERLEBEN", zh = "准备与生存" },
 			id="preparation-survival", group="preparation",
 			controls = {
+				{ key = "slam", label = "Use learned Slam against casts", spell = "Slam", half = false,
+				  tooltip = { "Slam", "When learned, ready and in melee range while not shapeshifted, use Slam to stun a detected enemy cast." } },
 				{ key = "buffs", label = { en = "Mark of the Wild upkeep", fr = "Maintenir Mark of the Wild", pt = "Manter Mark of the Wild", es = "Mantener Mark of the Wild", de = "Mark of the Wild halten", zh = "保持Mark of the Wild" }, spell = "Mark of the Wild" },
 				{ key = "thorns", label = { en = "Thorns upkeep", fr = "Maintenir Thorns", pt = "Manter Thorns", es = "Mantener Thorns", de = "Thorns halten", zh = "保持Thorns" }, spell = "Thorns" },
 				{ key = "heal", label = { en = "Healing reminders", fr = "Rappels de soins", pt = "Lembretes de cura", es = "Recordatorios de sanación", de = "Heil-Erinnerungen", zh = "治疗提醒" }, spell = "Rejuvenation" },
@@ -259,7 +261,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 			},
 		},
 	},
-}, "0.13.3")
+}, "0.13.4")
 
 
 -- Keep new Bear slider getters on the same bounded settings as the rotation,
@@ -280,5 +282,5 @@ if originalBuilder and AL.RegisterClassUI then
         end
         return originalBuilder(page,adapter)
     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-    end,"0.13.3")
+    end,"0.13.4")
 end

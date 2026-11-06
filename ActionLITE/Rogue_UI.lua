@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-local UI_VERSION = "0.16.4"
+local UI_VERSION = "0.16.5"
 
 -- Dedicated Rogue interface. Every key written here is read directly
 -- by rotation\Rogue.lua; no combat priorities are duplicated in the UI.
@@ -196,6 +196,8 @@ local function BuildRogueUI(page, ui)
 		{ en = "Defensive cooldown for dangerous melee pressure.", fr = "Temps de recharge defensif contre une forte pression de melee.", pt = "Recarga defensiva contra forte pressão corpo a corpo.", es = "Reutilización defensiva contra una fuerte presión cuerpo a cuerpo.", de = "Defensiver Cooldown gegen gefährlichen Nahkampfdruck.", zh = "应对危险近战压力的防御冷却技能。" })
 	Slider(control, "evasionHP",
 		{ en = "Evasion health threshold", fr = "Seuil de vie Evasion", pt = "Limite de vida Evasion", es = "Umbral de salud Evasion", de = "Gesundheitsschwelle für Evasion", zh = "Evasion 生命值阈值" }, 5, 90, 35, " % HP")
+	Check(control, "escapeArtist", "Escape Artist", "Escape Artist",
+		"Use the learned Gnome racial only when a root or snare is positively detected through the client loss-of-control state or a recent localized rooted error.")
 	Check(control, "vanish", "Vanish", "Vanish",
 		{ en = "Optional emergency escape. Disabled by default to avoid spending the cooldown automatically.", fr = "Fuite d'urgence optionnelle. Desactivee par defaut pour ne pas depenser automatiquement le temps de recharge.", pt = "Fuga de emergência opcional. Desativada por padrão para não gastar a recarga automaticamente.", es = "Huida de emergencia opcional. Desactivada por defecto para no gastar la reutilización automáticamente.", de = "Optionale Notflucht. Standardmäßig aus, damit der Cooldown nicht automatisch verbraucht wird.", zh = "可选的紧急脱离。默认关闭，以免自动消耗冷却时间。" })
 	Slider(control, "vanishHP",
@@ -212,6 +214,8 @@ local function BuildRogueUI(page, ui)
 	Check(aoe, "bladeFlurry", "Blade Flurry", "Blade Flurry",
 		{ en = "AoE use requires AoE On and the selected confirmed melee enemy count, independent of the Burst health slider. Burst On may also use it against a target above the Burst health threshold." })
 	local burstLimits=ui.Card(stack,"BURST LIMITS",nil,{id="burst-limits",group="burst"})
+	Check(burstLimits, "eureka", "Use Eureka!", "Eureka!",
+		"Uses the learned Gnome racial with Burst On (and during PvP burst), after a hostile melee target is confirmed and the Burst target-health threshold passes.")
 	Slider(burstLimits, "burstMinTargetHP",
 		{ en = "Burst minimum target health", fr = "Vie cible minimum pour Burst", pt = "Vida mínima do alvo para Burst", es = "Salud mínima del objetivo para Burst", de = "Min. Zielgesundheit für Burst", zh = "Burst 最低目标生命值" }, 0, 100, 40, " %")
 	ui.Help(aoe, Text({

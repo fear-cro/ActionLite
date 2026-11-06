@@ -71,6 +71,7 @@ local M = {
 		levelingShiftBelowEnergy = 40,
 		levelingMoonkin = true, levelingInsectSwarm = true,
 		levelingStarfire = true,
+		slam = true,
 		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 		pvpCatOpener = "NONE",
 	},
@@ -114,6 +115,8 @@ M.spells = {
 	{ 6785, "Ravage" },
 	{ 5221, "Shred" },
 	{ 1322605, "Shifting Power" },
+	-- ActionLITE v1.1.7: learned Forever stun used against detected casts.
+	{ 1323676, "Slam" },
 	{ 2908, "Soothe Animal" },
 	{ 779, "Swipe" },
 	{ 467, "Thorns" },
@@ -340,6 +343,17 @@ end
 
 local function InMelee(name)
     return Bool((SafeCall(AL.InRange, name))) == true
+end
+
+-- Demoralizing Roar is centered on the Druid. Require confirmed melee range,
+-- and when distance is readable use a four-yard safety margin so the icon is
+-- not shown while the target is only brushing the edge of the effect.
+local function DemoralizingRoarClose()
+	if not InMelee("Maul") then return false end
+	local squared, checked = SafeCall(UnitDistanceSquared, "target")
+	squared = Number(squared)
+	if squared and squared >= 0 and Bool(checked) ~= false then return squared <= 16 end
+	return true
 end
 
 local function ActiveEnemyCount()
@@ -662,7 +676,7 @@ local function BearRotation(s)
     if s.enrage and not AL.HasBuff("player", "Enrage") then
         Offer("Enrage", "rage", { PowerGate(1, rage, RULES.enrageBelowRage, true, true) })
     end
-    if s.enrage and not AL.HasDebuff("target", "Demoralizing Roar") and InMelee("Maul") then
+	if s.enrage and not AL.HasDebuff("target", "Demoralizing Roar") and DemoralizingRoarClose() then
         Offer("Demoralizing Roar", "mitigation", nil, 1, 10)
     end
     -- Lacerate is now a Feral talent learned during leveling.  Learned-spell
@@ -701,6 +715,10 @@ local function CasterRotation(s, hp, form)
 		Heal(hp, RULES.healCaster, form == "moonkin")
 		-- An active Rejuvenation must not suppress the larger heal at low HP.
 		Offer("Healing Touch", "combat self-heal", { HealthGate("player", hp, RULES.healCaster, true) }, 0, nil, false, form == "moonkin")
+	end
+	if s.slam ~= false and Bool((SafeCall(AL.TargetCasting))) == true
+		and InMelee("Slam") then
+		Offer("Slam", "interrupt detected cast", nil, 0)
 	end
 	-- ActionLITE v1.1.6: clear the active opener as soon as its cast begins so
 	-- the reader cannot press it twice. Halfway through the opening Wrath,
@@ -959,6 +977,8 @@ M.spells = {
 	{ 1079, "Rip" },
 	{ 5221, "Shred" },
 	{ 1322605, "Shifting Power" },
+	-- ActionLITE v1.1.7: learned Forever stun used against detected casts.
+	{ 1323676, "Slam" },
 	{ 2908, "Soothe Animal" },
 	{ 2912, "Starfire" },
 	{ 18562, "Swiftmend" },
@@ -2409,6 +2429,12 @@ function B.melee(unit)
  end
  return false
 end
+function B.demoClose()
+	if not B.melee("target") then return false end
+	local squared, checked=SafeCall(UnitDistanceSquared,"target");squared=Number(squared)
+	if squared and squared>=0 and Bool(checked)~=false then return squared<=16 end
+	return true
+end
 function B.needsTaunt(unit)
  unit=(unit or'target')..'target'
  if Bool((SafeCall(UnitExists,unit)))~=true then return false end
@@ -2564,6 +2590,10 @@ function B.rotation(s,inCombat,hostile)
    end
   end
   if hostile then
+	if form=='caster'and s.slam~=false and Bool((SafeCall(AL.TargetCasting)))==true
+	 and Bool((SafeCall(AL.InRange,'Slam')))==true then
+	 B.offer('Slam','interrupt detected cast',nil,0)
+	end
    local shift=B.learned('Dire Bear Form')and'Dire Bear Form'or'Bear Form'
    if form~='bear'and s.bearAutoForm and B.learned(shift)then
     if GetTime()-B.formAt<0.5 then AddAction(nil,'Bear Form settling')else B.offer(shift,'Tank Bear form',nil,0)end
@@ -2601,7 +2631,7 @@ function B.rotation(s,inCombat,hostile)
      B.offer('Faerie Fire','maintain own armor reduction',nil,0)
     end
     if melee then
-     if s.bearDemoRoar and B.dot('Demoralizing Roar')<=2 then B.offer('Demoralizing Roar','physical mitigation',nil,1,10)end
+     if s.bearDemoRoar and B.demoClose() and B.dot('Demoralizing Roar')<=2 then B.offer('Demoralizing Roar','physical mitigation',nil,1,10)end
      if inCombat and AL.burst then
       local threshold=M.BearSetting(s,'bearBurstMinTargetHP')
       local gates={threshold<=0 or HealthGate('target',HealthPercent('target'),threshold,false)}

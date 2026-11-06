@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-AL.buildId = "1.1.6-20261105"
+AL.buildId = "1.1.7-20261106"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -1678,7 +1678,7 @@ local SPELL_COOLDOWNS = {
 	["Mind Blast"] = 8, ["Holy Fire"] = 10, ["Devouring Plague"] = 24, ["Vampiric Embrace"] = 30, ["Shadow Word: Death"] = 18,
 	["Psychic Scream"] = 30, ["Silence"] = 45, ["Desperate Prayer"] = 600, ["Fade"] = 30,
 	["Inner Focus"] = 180, ["Penance"] = 12, ["Prayer of Mending"] = 10, ["Power Infusion"] = 180,
-	["Divine Grace"] = 600, ["Dark Sacrifice"] = 600, ["Eureka!"] = 120,
+	["Divine Grace"] = 600, ["Dark Sacrifice"] = 600, ["Eureka!"] = 120, ["Escape Artist"] = 120,
 	["Rapid Regeneration"] = 180,
 	["Gouge"] = 10, ["Kick"] = 10, ["Evasion"] = 300, ["Blade Flurry"] = 120, ["Stealth"] = 10,
 	["Vanish"] = 300, ["Riposte"] = 6,

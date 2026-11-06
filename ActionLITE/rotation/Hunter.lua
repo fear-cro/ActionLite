@@ -70,6 +70,7 @@ local M = {
 		concussive = true,
 		survivalMelee = false,
 		aoe = false,
+		multiShot = true,
 		drink = true,
 		petMendHP = 50,
 		drinkMana = 30,
@@ -845,7 +846,7 @@ function M.NextSpell(s, inCombat, hostile)
                 if s.concussive and TargetTargetsPlayer() then Offer("Concussive Shot", "keep distance") end
                 local minimum = SettingNumber(s, "aoeMinEnemies", 2, 2, 5)
                 local count = s.aoe and ActiveEnemyCount(minimum)
-                if count and count >= minimum then Offer("Multi-Shot", "aoe") end
+				if s.multiShot ~= false and count and count >= minimum then Offer("Multi-Shot", "aoe") end
                 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
                 if s.volley and count and count >= minimum and not PlayerMoving() then
                     Offer("Volley", "ranged area damage", {
@@ -2016,9 +2017,9 @@ local function MarksmanshipRanged(s,mana,targetHP)
     -- to AoE On. Never spend that timer on Multi-Shot against one target.
     local minimum=SettingNumber(s,"aoeMinEnemies",2,2,5)
     local count=s.aoe and ActiveEnemyCount(minimum)
-    if count and count>=minimum and not moving then
-        Offer("Multi-Shot","Marksmanship AoE")
-        if s.volley then Offer("Volley","ranged ground AoE",{
+	if count and count>=minimum then
+		if s.multiShot ~= false then Offer("Multi-Shot","Marksmanship AoE") end
+		if s.volley and not moving then Offer("Volley","ranged ground AoE",{
             ManaGate(mana,SettingNumber(s,"volleyMinMana",35,0,100),false)}) end
     end
     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -2099,13 +2100,13 @@ local function BeastRanged(s,mana,targetHP)
     if s.concussive and TargetTargetsPlayer() then Offer("Concussive Shot","keep distance") end
     local minimum=SettingNumber(s,"aoeMinEnemies",2,2,5)
     local count=s.aoe and ActiveEnemyCount(5)
-    if count and count>=minimum and not moving then
+	if count and count>=minimum then
         local gates={ManaGate(mana,SettingNumber(s,"beastAoEMinMana",35,0,100),false)}
-        if s.volley and count>=math.max(minimum,SettingNumber(s,"beastVolleyMinEnemies",4,2,5)) then
+		if s.volley and not moving and count>=math.max(minimum,SettingNumber(s,"beastVolleyMinEnemies",4,2,5)) then
             Offer("Volley","Beast Mastery ranged ground AoE",BeastGates(gates,
                 ManaGate(mana,SettingNumber(s,"volleyMinMana",35,0,100),false)))
         end
-        Offer("Multi-Shot","Beast Mastery AoE",gates)
+		if s.multiShot ~= false then Offer("Multi-Shot","Beast Mastery AoE",gates) end
     end
     if s.aimed and not moving then Offer("Aimed Shot","Beast Mastery primary shot") end
     if BeastWindow(s,moving) then
@@ -2364,7 +2365,7 @@ function M.NextSpell(s, inCombat, hostile)
                 local minimum = SettingNumber(s, "aoeMinEnemies", 2, 2, 5)
                 local count = s.aoe and ActiveEnemyCount(minimum)
                 if count and count >= minimum then
-                    Offer("Multi-Shot", "aoe")
+					if s.multiShot ~= false then Offer("Multi-Shot", "aoe") end
                     if Survival(s) and s.volley and not PlayerMoving() then
                         Offer("Volley","ranged ground AoE",{ManaGate(manaPercent,SettingNumber(s,"volleyMinMana",35,0,100),false)})
                     end

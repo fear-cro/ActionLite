@@ -80,11 +80,13 @@ local M = {
 		deathWish = true,
 		recklessness = true,
 		demo = false,
+		demoAoEOnly = false,
 		aoe = false,
 		aoeMinEnemies = 2,
 		cleaveDumpRage = 60,
 		sweepingReserveRage = 50,
 		tankAutoStance = true,
+		tankDisableAutoTargeting = false,
 		tankTaunt = true,
 		tankAoETaunt = true,
 		tankInterrupt = true,
@@ -275,6 +277,7 @@ local rendWindowStartedAt = 0
 
 local trackedTargetGUID
 local rendExpires = 0
+local rendAppliedToTarget = false
 local demoExpires = 0
 local sunderStacks = 0
 local sunderExpires = 0
@@ -481,6 +484,7 @@ local function ResetTargetTrackers()
 	trackedTargetGUID = TargetGUID()
 	rendWindowStartedAt = GetTime()
 	rendExpires = 0
+	rendAppliedToTarget = false
 	demoExpires = 0
 	sunderStacks = 0
 	sunderExpires = 0
@@ -615,6 +619,7 @@ local function TrackSuccessfulCast(name, targetMatches)
 	if targetMatches == false then return end
 	if name == "Rend" and (guid or targetMatches) then
 		rendExpires = now + RendDuration()
+		rendAppliedToTarget = true
 	elseif name == "Demoralizing Shout" and (guid or targetMatches) then
 		demoExpires = now + 30
 	elseif name == "Sunder Armor" and (guid or targetMatches) then
@@ -691,6 +696,83 @@ end
 
 local pendingTrackedCast
 local finishedTrackedCasts = {}
+-- Next-swing attacks can remain queued after SENT while their success arrives
+-- on a later melee swing. Keep a bounded local record when the native current-
+-- spell query is protected so a cast-time Slam cannot cancel that queued hit.
+local queuedSwingStrike
+local activeSlamCast
+local SWING_STRIKE_IDS = {
+	[78] = "Heroic Strike", [284] = "Heroic Strike", [285] = "Heroic Strike",
+	[1608] = "Heroic Strike", [11564] = "Heroic Strike", [11565] = "Heroic Strike",
+	[11566] = "Heroic Strike", [11567] = "Heroic Strike",
+	[845] = "Cleave", [7369] = "Cleave", [11608] = "Cleave",
+	[11609] = "Cleave", [20569] = "Cleave",
+}
+local function SwingStrikeName(arg3, arg4)
+	local id = HamstringNumber(arg4) or HamstringNumber(arg3)
+	if not id then return nil end
+	for _, name in ipairs({ "Heroic Strike", "Cleave" }) do
+		local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[name]
+		if ref and HamstringNumber(ref.id) == id then return name end
+	end
+	return SWING_STRIKE_IDS[id]
+end
+
+local function TrackQueuedSwing(event, arg2, arg3, arg4)
+	if event == "UNIT_SPELLCAST_SENT" then
+		local name = SwingStrikeName(arg3, arg4)
+		if name then
+			queuedSwingStrike = { name = name, guid = HamstringCastGUID(arg3), at = GetTime() }
+		end
+		return
+	end
+	if not queuedSwingStrike then return end
+	local guid = HamstringCastGUID(arg2)
+	if guid and queuedSwingStrike.guid and guid == queuedSwingStrike.guid then
+		queuedSwingStrike = nil
+	elseif not guid
+		and SwingStrikeName(arg3, arg4) == queuedSwingStrike.name then
+		queuedSwingStrike = nil
+	end
+end
+
+-- The shared cast tracker does not currently track Warrior. Hide Slam's
+-- recommendation locally from START through STOP/success/failure, including
+-- when the combat client protects the cast name but leaves its ID readable.
+local function SlamCastIdentity(arg2, arg3, arg4)
+	local id = HamstringNumber(arg4) or HamstringNumber(arg3)
+	if id then
+		local ref = AL.rangeSpellRefs and AL.rangeSpellRefs["Slam"]
+		return id == 1240193 or (ref and HamstringNumber(ref.id) == id) or false
+	end
+	if SafeValue(arg2) and type(arg2) == "string" then
+		return ((AL.englishNames and AL.englishNames[arg2]) or arg2) == "Slam"
+	end
+	return false
+end
+
+local function TrackSlamCast(event, arg2, arg3, arg4)
+	if event == "UNIT_SPELLCAST_START" then
+		if SlamCastIdentity(arg2, arg3, arg4) then
+			activeSlamCast = { guid = HamstringCastGUID(arg2), at = GetTime() }
+		end
+		return
+	end
+	if not activeSlamCast then return end
+	local guid = HamstringCastGUID(arg2)
+	if (guid and activeSlamCast.guid and guid == activeSlamCast.guid)
+		or (not guid and SlamCastIdentity(arg2, arg3, arg4)) then
+		activeSlamCast = nil
+	end
+end
+
+local function SlamCasting()
+	if not activeSlamCast then return false end
+	if GetTime() - activeSlamCast.at <= 3.5 then return true end
+	activeSlamCast = nil
+	return false
+end
+
 local function PruneTrackedCasts()
 	for guid, at in pairs(finishedTrackedCasts) do
 		if GetTime() - at > 30 then finishedTrackedCasts[guid] = nil end
@@ -707,7 +789,8 @@ if type(CombatLogGetCurrentEventInfo) == "function" then
 	pcall(tracker.RegisterEvent, tracker, "COMBAT_LOG_EVENT_UNFILTERED")
 end
 for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED",
-	"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED" }) do
+	"UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
+	"UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED" }) do
 	if not pcall(tracker.RegisterUnitEvent, tracker, event, "player") then
 		pcall(tracker.RegisterEvent, tracker, event)
 	end
@@ -716,6 +799,8 @@ end
 tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if event == "PLAYER_ENTERING_WORLD" then
 		pendingTrackedCast, finishedTrackedCasts = nil, {}
+		queuedSwingStrike = nil
+		activeSlamCast = nil
 		ResetTargetTrackers()
 		lastSwingAt = 0
 		combatStartedAt = 0
@@ -731,6 +816,8 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	end
 
 	if event == "PLAYER_TARGET_CHANGED" then
+		queuedSwingStrike = nil
+		activeSlamCast = nil
 		ResetTargetTrackers()
 		lastSwingAt = 0
 		return
@@ -743,6 +830,8 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	end
 
 	if event == "PLAYER_REGEN_ENABLED" then
+		queuedSwingStrike = nil
+		activeSlamCast = nil
 		combatStartedAt = 0
 		rendWindowStartedAt = 0
 		lastSwingAt = 0
@@ -751,6 +840,8 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 
 	if event == "PLAYER_DEAD" then
 		pendingTrackedCast, finishedTrackedCasts = nil, {}
+		queuedSwingStrike = nil
+		activeSlamCast = nil
 		battleShoutExpires = 0
 		ResetTargetTrackers()
 		combatStartedAt = 0
@@ -759,8 +850,13 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		return
 	end
 
+	if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_STOP" then
+		if SafeValue(unit) and unit == "player" then TrackSlamCast(event, arg2, arg3, arg4) end
+		return
+	end
 	if event == "UNIT_SPELLCAST_SENT" then
 		if not SafeValue(unit) or unit ~= "player" then return end
+		TrackQueuedSwing(event, arg2, arg3, arg4)
 		PruneTrackedCasts()
 		local name = TrackedCastName(arg2, arg3, arg4)
 		-- A readable different spell ID must never inherit the recommendation.
@@ -784,6 +880,8 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET"
 		or event == "UNIT_SPELLCAST_INTERRUPTED" then
 		if not SafeValue(unit) or unit ~= "player" then return end
+		TrackSlamCast(event, arg2, arg3, arg4)
+		TrackQueuedSwing(event, arg2, arg3, arg4)
 		local guid = HamstringCastGUID(arg2)
 		if guid then finishedTrackedCasts[guid] = GetTime() end
 		if not guid or not pendingTrackedCast or not pendingTrackedCast.guid
@@ -792,6 +890,8 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	end
 	if event == "UNIT_SPELLCAST_SUCCEEDED" then
 		if not SafeValue(unit) or unit ~= "player" then return end
+		TrackSlamCast(event, arg2, arg3, arg4)
+		TrackQueuedSwing(event, arg2, arg3, arg4)
 		PruneTrackedCasts()
 		local guid = HamstringCastGUID(arg2)
 		if guid and finishedTrackedCasts[guid] then return end
@@ -844,6 +944,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 	if subEvent == "SPELL_MISSED" then
 		if spellName == "Rend" then
 			rendExpires = 0
+			rendAppliedToTarget = false
 		else
 			sunderStacks = math.max(0, sunderStacks - 1)
 		end
@@ -856,6 +957,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		end
 	elseif spellName == "Rend" and subEvent == "SPELL_AURA_APPLIED" then
 		rendExpires = GetTime() + RendDuration()
+		rendAppliedToTarget = true
 	elseif spellName == "Sunder Armor" then
 		if subEvent == "SPELL_AURA_APPLIED" then
 			sunderStacks = math.max(1, sunderStacks)
@@ -1514,6 +1616,13 @@ local function ReadyRageSpell(name)
 end
 
 local function StrikeQueued(name)
+	if queuedSwingStrike then
+		if GetTime() - queuedSwingStrike.at > 6 then
+			queuedSwingStrike = nil
+		elseif queuedSwingStrike.name == name then
+			return true
+		end
+	end
 	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[name]
 	local id = ref and HamstringNumber(ref.id) or name
 	for _, reader in pairs({ IsCurrentSpell, C_Spell and C_Spell.IsCurrentSpell }) do
@@ -1630,7 +1739,8 @@ local function ShouldRend(targetHp, ttd)
 	-- the opening target window. This prevents a missing opener from surfacing
 	-- as a surprise Rend near the end of the fight.
 	local windowAge = ElapsedSince(rendWindowStartedAt)
-	if targetHp == nil and windowAge and windowAge > REND_UNREADABLE_HP_WINDOW then
+	if targetHp == nil and not rendAppliedToTarget
+		and windowAge and windowAge > REND_UNREADABLE_HP_WINDOW then
 		return false
 	end
 
@@ -1723,6 +1833,11 @@ local function NextDPS(s, inCombat, hostile)
 	end
 
 	if not hostile then return nil, "No target" end
+	-- Clear Slam's icon as soon as its cast begins. Leaving it visible during
+	-- the cast invites another press before the success/cooldown event lands.
+	if SlamCasting() then
+		return nil, "Casting Slam"
+	end
 
 	-- Normal Charge remains unusable in combat, but Warbringer can make it legal.
 	-- ChargeAvailable() requires SpellUsable + a positively verified range, so
@@ -1861,6 +1976,7 @@ local function NextDPS(s, inCombat, hostile)
 	-- when Forever exposes it; if the client hides all swing timing, fall back
 	-- to ready + usable + stationary instead of disabling Slam forever.
 	if not aoeActive and s.slam and VerifiedMelee(inMelee)
+		and not StrikeQueued("Heroic Strike") and not StrikeQueued("Cleave")
 		and not PlayerMoving() and ReadyUsable("Slam") then
 		local slamAt = SettingNumber(s, "slamReserveRage", SLAM_RESERVE_RAGE, 15, 100)
 		local allowed, rageSource = DumpGate(rage, slamAt)
@@ -1897,7 +2013,8 @@ local function NextDPS(s, inCombat, hostile)
 		end
 	end
 
-	if s.demo and Ok("Demoralizing Shout")
+	if s.demo and (not s.demoAoEOnly or MultiTargetConfirmed(enemyCount))
+		and Ok("Demoralizing Shout")
 		and not DemoActive()
 		and HasRage(rage, 10)
 		and inMelee and AL.SpellUsable("Demoralizing Shout") then
@@ -1921,6 +2038,12 @@ end
 -- ========================================================================
 local function NextTank(s, inCombat, hostile)
 	if not inCombat then
+		-- ActionLITE v1.1.7: disabling automatic tank engagement suppresses
+		-- Charge/Attack openers. The player may select and engage a target
+		-- manually; normal tank priorities resume as soon as combat begins.
+		if s.tankDisableAutoTargeting == true then
+			return nil, hostile and "Tank auto-targeting disabled; engage manually" or "Ready"
+		end
 		if hostile then
 			if ChargeAvailable() then
 				return "Charge", "verified tank Charge range + rage"
@@ -1932,7 +2055,7 @@ local function NextTank(s, inCombat, hostile)
 
 	if not hostile then return nil, "No target" end
 
-	if ChargeAvailable() then
+	if s.tankDisableAutoTargeting ~= true and ChargeAvailable() then
 		return "Charge", "in-combat tank Charge usable + verified range"
 	end
 
@@ -2047,7 +2170,8 @@ local function NextTank(s, inCombat, hostile)
 		return "Battle Shout", "group attack power"
 	end
 
-	if s.tankDemo and Ok("Demoralizing Shout")
+	if s.tankDemo and (not s.demoAoEOnly or MultiTargetConfirmed(enemyCount))
+		and Ok("Demoralizing Shout")
 		and not DemoActive()
 		and HasRage(rage, 10) and inMelee and AL.SpellUsable("Demoralizing Shout") then
 		return "Demoralizing Shout", "mitigation + aoe threat"
