@@ -1014,6 +1014,44 @@ function AL.ItemCount(ids)
 	return total
 end
 
+-- Forever can protect the target's cast name while still delivering target
+-- spellcast events. Keep a short event-backed state so interrupts do not
+-- disappear merely because UnitCastingInfo/UnitChannelInfo became secret.
+local targetCastActiveUntil = 0
+local targetCastFrame = CreateFrame and CreateFrame("Frame")
+if targetCastFrame then
+	local targetOnly = true
+	for _, event in ipairs({
+		"UNIT_SPELLCAST_START", "UNIT_SPELLCAST_DELAYED",
+		"UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_UPDATE",
+		"UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_CHANNEL_STOP",
+		"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_FAILED_QUIET",
+		"UNIT_SPELLCAST_INTERRUPTED",
+	}) do
+		if not pcall(targetCastFrame.RegisterUnitEvent, targetCastFrame, event, "target") then
+			targetOnly = false
+			pcall(targetCastFrame.RegisterEvent, targetCastFrame, event)
+		end
+	end
+	pcall(targetCastFrame.RegisterEvent, targetCastFrame, "PLAYER_TARGET_CHANGED")
+	targetCastFrame:SetScript("OnEvent", function(_, event, unit)
+		if event == "PLAYER_TARGET_CHANGED" then
+			targetCastActiveUntil = 0
+			return
+		end
+		if not targetOnly then
+			if (issecretvalue and issecretvalue(unit)) or unit ~= "target" then return end
+		end
+		if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_DELAYED"
+			or event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_CHANNEL_UPDATE"
+		then
+			targetCastActiveUntil = (GetTime and GetTime() or 0) + 10
+		else
+			targetCastActiveUntil = 0
+		end
+	end)
+end
+
 function AL.TargetCasting()
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	-- Do not branch on UnitExists here: Forever may return a secret boolean in
@@ -1029,7 +1067,7 @@ function AL.TargetCasting()
 		if ok and not (issecretvalue and issecretvalue(name))
 			and type(name) == "string" and name ~= "" then return true end
 	end
-	return false
+	return GetTime and GetTime() < targetCastActiveUntil or false
 end
 
 function AL.TargetHasAnyDebuff(names)
