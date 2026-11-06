@@ -65,6 +65,7 @@ local M = {
 		flameshock = true,
 		earthshock = true,
 		earthShockTag = false,
+		flameShockTag = false,
 		frostshock = true,
 		stormstrike = true,
 		lightningbolt = true,
@@ -293,6 +294,12 @@ local function TargetAlreadyTagged()
     if taggedCurrentTarget then return true end
     local guid = SelectedTargetGUID()
     return guid and taggedByGUID[guid] == true or false
+end
+local function SelectedTagOpener(s)
+	-- The UI keeps these mutually exclusive. Flame Shock wins malformed or
+	-- imported profiles that contain both flags, while both may remain off.
+	if s and s.flameShockTag == true then return "Flame Shock" end
+	if s and s.earthShockTag == true then return "Earth Shock" end
 end
 local function Percent(value)
     value = Number(value)
@@ -1183,12 +1190,13 @@ function M.NextSpell(s, inCombat, hostile)
         if hostile then
             local melee = InMelee()
             if not inCombat then
-                -- Tagging is optional and independent of the normal Earth
-                -- Shock damage checkbox. Offer checks learned spell, cooldown,
+				-- Tagging is optional and independent of the normal Shock damage
+				-- checkboxes. Offer checks learned spell, cooldown,
                 -- usability, affordability and known out-of-range results.
-                if Enabled(s,"earthShockTag") and not TargetAlreadyTagged()
+				local tagOpener = SelectedTagOpener(s)
+				if tagOpener and not TargetAlreadyTagged()
                     and Bool((SafeCall(UnitIsDeadOrGhost,"target"))) ~= true then
-                    Offer("Earth Shock","Tag pull")
+					Offer(tagOpener, tagOpener .. " opener")
                 end
                 if not melee then LightningBolt(s,mana,moving,"Ranged pull")
                 else MaintainCombatTotems(s,role,targetHP,TotemSnapshot());MeleeAttack("Opener") end
@@ -1226,7 +1234,7 @@ end
 function M.OnCastResult(name, result, sent)
     if result ~= "UNIT_SPELLCAST_SUCCEEDED" or not name then return end
     local now = GetTime()
-    if name == "Earth Shock" then
+	if name == "Earth Shock" or name == "Flame Shock" then
         local guid = SafeValue(sent) and type(sent) == "table" and sent.targetGUID or nil
         if not (SafeValue(guid) and type(guid) == "string" and guid ~= "") then
             guid = SelectedTargetGUID()
