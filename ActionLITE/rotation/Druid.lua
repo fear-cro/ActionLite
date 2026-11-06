@@ -71,7 +71,6 @@ local M = {
 		levelingShiftBelowEnergy = 40,
 		levelingMoonkin = true, levelingInsectSwarm = true,
 		levelingStarfire = true,
-		slam = true,
 		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 		pvpCatOpener = "NONE",
 	},
@@ -115,8 +114,6 @@ M.spells = {
 	{ 6785, "Ravage" },
 	{ 5221, "Shred" },
 	{ 1322605, "Shifting Power" },
-	-- ActionLITE v1.1.7: learned Forever stun used against detected casts.
-	{ 1323676, "Slam" },
 	{ 2908, "Soothe Animal" },
 	{ 779, "Swipe" },
 	{ 467, "Thorns" },
@@ -670,7 +667,7 @@ end
 
 local function BearRotation(s)
     local rage = Power(1)
-    if s.bash and Bool((SafeCall(AL.TargetCasting))) == true and InMelee("Bash") then
+    if s.bash ~= false and Bool((SafeCall(AL.TargetCasting))) == true and InMelee("Bash") then
         Offer("Bash", "interrupt", nil, 1, 10)
     end
     if s.enrage and not AL.HasBuff("player", "Enrage") then
@@ -715,10 +712,6 @@ local function CasterRotation(s, hp, form)
 		Heal(hp, RULES.healCaster, form == "moonkin")
 		-- An active Rejuvenation must not suppress the larger heal at low HP.
 		Offer("Healing Touch", "combat self-heal", { HealthGate("player", hp, RULES.healCaster, true) }, 0, nil, false, form == "moonkin")
-	end
-	if s.slam ~= false and Bool((SafeCall(AL.TargetCasting))) == true
-		and InMelee("Slam") then
-		Offer("Slam", "interrupt detected cast", nil, 0)
 	end
 	-- ActionLITE v1.1.6: clear the active opener as soon as its cast begins so
 	-- the reader cannot press it twice. Halfway through the opening Wrath,
@@ -977,8 +970,6 @@ M.spells = {
 	{ 1079, "Rip" },
 	{ 5221, "Shred" },
 	{ 1322605, "Shifting Power" },
-	-- ActionLITE v1.1.7: learned Forever stun used against detected casts.
-	{ 1323676, "Slam" },
 	{ 2908, "Soothe Animal" },
 	{ 2912, "Starfire" },
 	{ 18562, "Swiftmend" },
@@ -1405,7 +1396,7 @@ end
 
 local function BearRotation(s)
     local rage = Power(1)
-    if s.bash and Bool((SafeCall(AL.TargetCasting))) == true and InMelee("Bash") then
+    if s.bash ~= false and Bool((SafeCall(AL.TargetCasting))) == true and InMelee("Bash") then
         Offer("Bash", "interrupt", nil, 1, 10)
     end
     if s.enrage and not AL.HasBuff("player", "Enrage") then
@@ -2590,10 +2581,6 @@ function B.rotation(s,inCombat,hostile)
    end
   end
   if hostile then
-	if form=='caster'and s.slam~=false and Bool((SafeCall(AL.TargetCasting)))==true
-	 and Bool((SafeCall(AL.InRange,'Slam')))==true then
-	 B.offer('Slam','interrupt detected cast',nil,0)
-	end
    local shift=B.learned('Dire Bear Form')and'Dire Bear Form'or'Bear Form'
    if form~='bear'and s.bearAutoForm and B.learned(shift)then
     if GetTime()-B.formAt<0.5 then AddAction(nil,'Bear Form settling')else B.offer(shift,'Tank Bear form',nil,0)end
@@ -2617,7 +2604,7 @@ function B.rotation(s,inCombat,hostile)
     end
     if s.bearChallengingRoar and aoe and loose>=3 then B.offer('Challenging Roar','recover 3+ allies\' attackers',nil,1,15)end
     if melee then
-     if s.bash and Bool((SafeCall(AL.TargetCasting)))==true then B.offer('Bash','Bear stun interrupt',nil,1,10)end
+     if s.bash~=false and Bool((SafeCall(AL.TargetCasting)))==true then B.offer('Bash','Bear stun interrupt',nil,1,10)end
      if inCombat and B.buff('Frenzied Regeneration')then
       AddAction(AL.Ok('Attack')and'Attack'or nil,'preserve Rage for Frenzied Regeneration',{
        HealthGate('player',hp,M.BearSetting(s,'bearFrenziedHP'),true)})

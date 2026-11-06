@@ -219,8 +219,6 @@ AL.RegisterSimpleClassUI("DRUID", {
 			title = { en = "PREPARATION & SURVIVAL", fr = "PREPARATION ET SURVIE", pt = "PREPARAÇÃO E SOBREVIVÊNCIA", es = "PREPARACIÓN Y SUPERVIVENCIA", de = "VORBEREITUNG & ÜBERLEBEN", zh = "准备与生存" },
 			id="preparation-survival", group="preparation",
 			controls = {
-				{ key = "slam", label = "Use learned Slam against casts", spell = "Slam", half = false,
-				  tooltip = { "Slam", "When learned, ready and in melee range while not shapeshifted, use Slam to stun a detected enemy cast." } },
 				{ key = "buffs", label = { en = "Mark of the Wild upkeep", fr = "Maintenir Mark of the Wild", pt = "Manter Mark of the Wild", es = "Mantener Mark of the Wild", de = "Mark of the Wild halten", zh = "保持Mark of the Wild" }, spell = "Mark of the Wild" },
 				{ key = "thorns", label = { en = "Thorns upkeep", fr = "Maintenir Thorns", pt = "Manter Thorns", es = "Mantener Thorns", de = "Thorns halten", zh = "保持Thorns" }, spell = "Thorns" },
 				{ key = "heal", label = { en = "Healing reminders", fr = "Rappels de soins", pt = "Lembretes de cura", es = "Recordatorios de sanación", de = "Heil-Erinnerungen", zh = "治疗提醒" }, spell = "Rejuvenation" },
