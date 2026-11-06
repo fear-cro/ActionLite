@@ -830,9 +830,11 @@ end
 local function CooldownReady(name)
     if SHOCKS[name] then
         if shockCastAt and GetTime() - shockCastAt < 0.5 then return false end
+        -- A successful Shock starts the shared cooldown. A GCD-only or stale
+        -- readable result for a different Shock must not clear that lock.
+        if GetTime() < shockLockUntil then return false end
         local ready = ReadableCooldown(name)
         if ready ~= nil then return ready end
-        if GetTime() < shockLockUntil then return false end
     end
     local localCD = localCooldowns[name]
     if localCD then
@@ -2355,6 +2357,9 @@ local function EnhancementReady(name)
     local record=enh.cooldowns[name]
     if SHOCKS[name] then record=enh.cooldowns.shock end
     if record and GetTime()-record.at<0.5 then return false end
+    if SHOCKS[name] and (GetTime()<shockLockUntil or record and record.ends>GetTime()) then
+        return false -- A per-rank/GCD read cannot clear a confirmed shared Shock cooldown.
+    end
     if name=="Chain Lightning" and Enabled(AL.S(),"elemental") and LightningMasteryActive() then return true end
     local info=SafeCall(C_Spell and C_Spell.GetSpellCooldown,LearnedID(name) or name)
     if SafeValue(info) and type(info)=="table" then
@@ -2387,9 +2392,10 @@ end
 local function CooldownReady(name)
     if SHOCKS[name] then
         if shockCastAt and GetTime() - shockCastAt < 0.5 then return false end
+        -- Honor the shared Shock lock before trusting a per-spell GCD read.
+        if GetTime() < shockLockUntil then return false end
         local ready = ReadableCooldown(name)
         if ready ~= nil then return ready end
-        if GetTime() < shockLockUntil then return false end
     end
     local localCD = localCooldowns[name]
     if localCD then
