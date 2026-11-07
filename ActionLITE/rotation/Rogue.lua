@@ -72,6 +72,7 @@ local M = {
 		deathMark = true,
 		eureka = true,
 		escapeArtist = true,
+		autoTargetOnKill = false,
 		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 		mutilate = true,
 		hemorrhage = true,
@@ -125,6 +126,7 @@ M.spells = {
 	{ 5171, "Slice and Dice" },
 	{ 2983, "Sprint" },
 	{ 1784, "Stealth" },
+	{ 0, "Target Next Enemy" },
 	{ 1856, "Vanish" },
 }
 
@@ -1417,6 +1419,7 @@ local M = {
 		evasion = true,
 		vanish = false,
 		snd = true,
+		autoTargetOnKill = false,
 		rupture = false,
 		expose = false,
 		bladeFlurry = true,
@@ -1494,6 +1497,7 @@ M.spells = {
 	{ 5171, "Slice and Dice" },
 	{ 2983, "Sprint" },
 	{ 1784, "Stealth" },
+	{ 0, "Target Next Enemy" },
 	{ 1856, "Vanish" },
 }
 
@@ -3166,9 +3170,11 @@ AL.RegisterRotation("ROGUE", M)
     -- the full spell list, UI builders and Universal icon choices stay current.
     for key, value in pairs(leveling.defaults) do advanced.defaults[key] = value end
 
-    -- These virtual actions are bound macros. Set their Unit1 defaults once
-    -- without claiming a Universal icon already reserved by another spell.
+    -- These virtual actions are bound macros. Set their Universal defaults once
+    -- without claiming an icon already reserved by another spell.
     local poisonIconRetryAt, poisonIconConflictReported = setmetatable({}, { __mode = "k" }),
+        setmetatable({}, { __mode = "k" })
+    local targetIconRetryAt, targetIconConflictReported = setmetatable({}, { __mode = "k" }),
         setmetatable({}, { __mode = "k" })
     function advanced.EnsurePoisonIcons(profile)
         if type(profile) ~= "table" then return end
@@ -3198,21 +3204,102 @@ AL.RegisterRotation("ROGUE", M)
             profile.roguePoisonIconsInitialized = assigned
             if not assigned then poisonIconRetryAt[profile] = now + 5 end
         end
+        if not profile.rogueTargetIconInitialized and now >= (targetIconRetryAt[profile] or 0) then
+            local assigned = profile.icons and profile.icons["Target Next Enemy"] and true or false
+            if not assigned then
+                for _, choice in ipairs(root.UNIVERSAL_CHOICES or {}) do
+                    if choice.slot == 3 and choice.number == 6 then
+                        local accepted, owner = root.SetIconChoice("Target Next Enemy", choice, profile)
+                        assigned = accepted == true
+                        if not accepted and owner and not targetIconConflictReported[profile] and root.Say then
+                            targetIconConflictReported[profile] = true
+                            root.Say("Target Next Enemy icon is reserved by " .. owner .. "; choose another Universal icon in Spells.")
+                        end
+                        break
+                    end
+                end
+            end
+            profile.rogueTargetIconInitialized = assigned
+            if not assigned then targetIconRetryAt[profile] = now + 5 end
+        end
         if root.playerClass == "ROGUE" then
             -- A macro is intentionally absent from the class spellbook. Keep
-            -- its two Spells-tab rows actionable after any spellbook rescan.
+            -- these Spells-tab rows actionable after any spellbook rescan.
             root.known["Apply Main-Hand Poison"] = true
             root.known["Apply Off-Hand Poison"] = true
+            root.known["Target Next Enemy"] = true
         end
     end
     root.IconOverrides = root.IconOverrides or {}
     root.IconOverrides["Apply Main-Hand Poison"] = function() return 133646 end
     root.IconOverrides["Apply Off-Hand Poison"] = function() return 133632 end
+    root.IconOverrides["Target Next Enemy"] = function() return 133648 end
+
+    local TARGET_NEXT_ACTION = "Target Next Enemy"
+    local retargetState = { guid = nil, pendingUntil = 0 }
+    local function ResetRetargetState()
+        retargetState.guid, retargetState.pendingUntil = nil, 0
+    end
+    local function RetargetValue(fn, ...)
+        if type(fn) ~= "function" then return nil end
+        local ok, value = pcall(fn, ...)
+        if not ok or (issecretvalue and issecretvalue(value)) then return nil end
+        return value
+    end
+    local function RetargetGUID()
+        local guid = RetargetValue(UnitGUID, "target")
+        return type(guid) == "string" and guid ~= "" and guid or nil
+    end
+    local function RetargetAfterKill(profile, inCombat, hostile)
+        if type(profile) ~= "table" or profile.autoTargetOnKill ~= true or inCombat ~= true then
+            ResetRetargetState()
+            return nil
+        end
+        if type(root.Allowed) == "function" and not root.Allowed(TARGET_NEXT_ACTION, profile) then return nil end
+        if type(profile.icons) ~= "table" or not profile.icons[TARGET_NEXT_ACTION] then return nil end
+        local now = GetTime()
+        local guid = RetargetGUID()
+        local exists = RetargetValue(UnitExists, "target")
+        local dead = RetargetValue(UnitIsDeadOrGhost, "target")
+        if guid and hostile == true and dead ~= true then
+            retargetState.guid, retargetState.pendingUntil = guid, 0
+            return nil
+        end
+        if guid and retargetState.guid == guid and dead == true then
+            retargetState.guid, retargetState.pendingUntil = nil, now + 2.5
+        end
+        if retargetState.pendingUntil > now and (dead == true or exists == false) then
+            return TARGET_NEXT_ACTION, "enemy defeated; acquire next target"
+        end
+        return nil
+    end
+    if root.playerClass == "ROGUE" and type(CreateFrame) == "function" then
+        local retargetFrame = CreateFrame("Frame")
+        pcall(retargetFrame.RegisterEvent, retargetFrame, "PLAYER_REGEN_ENABLED")
+        pcall(retargetFrame.RegisterEvent, retargetFrame, "PLAYER_DEAD")
+        if type(CombatLogGetCurrentEventInfo) == "function" then
+            pcall(retargetFrame.RegisterEvent, retargetFrame, "COMBAT_LOG_EVENT_UNFILTERED")
+        end
+        retargetFrame:SetScript("OnEvent", function(_, event)
+            if event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_DEAD" then
+                ResetRetargetState()
+                return
+            end
+            local ok, _, subevent, _, _, _, _, _, destGUID = pcall(CombatLogGetCurrentEventInfo)
+            if not ok or (subevent ~= "UNIT_DIED" and subevent ~= "UNIT_DESTROYED" and subevent ~= "PARTY_KILL")
+                or (issecretvalue and issecretvalue(destGUID)) or type(destGUID) ~= "string" then return end
+            if retargetState.guid and destGUID == retargetState.guid then
+                retargetState.guid, retargetState.pendingUntil = nil, GetTime() + 2.5
+            end
+        end)
+    end
 
     local modernNextSpell = advanced.NextSpell
     local wasLeveling = true
     function advanced.NextSpell(profile, ...)
         advanced.EnsurePoisonIcons(profile)
+        local targetAction, targetReason = RetargetAfterKill(profile, select(1, ...), select(2, ...))
+        if targetAction then return targetAction, targetReason end
         if UsesLeveling(profile) then
             wasLeveling = true
 			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5

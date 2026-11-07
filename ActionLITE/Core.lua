@@ -462,6 +462,7 @@ local UNWATCHED_ACTIONS = {
 	["Raptor Strike"] = true,
 	-- These are macro/item actions, not spells with UNIT_SPELLCAST_SENT.
 	["Apply Main-Hand Poison"] = true, ["Apply Off-Hand Poison"] = true,
+	["Target Next Enemy"] = true,
 }
 
 local function PublicSpellName(value)
@@ -2824,6 +2825,7 @@ function AL.ScanSpellbook()
 	if AL.playerClass == "ROGUE" then
 		AL.known["Apply Main-Hand Poison"] = true
 		AL.known["Apply Off-Hand Poison"] = true
+		AL.known["Target Next Enemy"] = true
 	end
 	if trackedCastClass then
 		WarlockManaHook("RefreshManaCache")

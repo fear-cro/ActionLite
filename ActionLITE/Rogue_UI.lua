@@ -25,6 +25,7 @@ local function BuildRogueUI(page, ui)
 	end
 
 	local function SpellIcon(name)
+		if spellIDs[name] == 0 and AL.IconFor then return AL.IconFor(name, ui.Profile()) end
 		return ui.SpellIcon(name, spellIDs[name])
 	end
 	local function Check(card, key, label, spell, help, full)
@@ -110,6 +111,11 @@ local function BuildRogueUI(page, ui)
 			{ label = "Garrote", value = "GARROTE" },
 		}, "BACKSTAB")
 	ui.Help(opening, "When Stealth setup is enabled, a nearby hostile forces Stealth if the selected opener or a learned fallback can be used. Without a dagger, Cheap Shot or Garrote can open before the rotation returns to Sinister Strike; Garrote requires rear position.")
+
+	local targeting = ui.Card(stack, "TARGETING", "Optional next-target support", { id="targeting", group="preparation" })
+	Check(targeting, "autoTargetOnKill", "Target next enemy after a kill", "Target Next Enemy",
+		"Disabled by default. When enabled, ActionLITE recommends the Target Next Enemy macro for 2.5 seconds after the selected hostile dies. It never changes targets while the current enemy is alive.", true)
+	ui.Help(targeting, "In the Spells tab, assign a free Universal icon to Target Next Enemy and click Macro. Bind the created macro to the matching ActionLITE reader key. The macro only runs /targetenemy while the current target is dead or missing.")
 
 	local poison = ui.Card(stack, "WEAPON POISONS", "Outside combat only", { id="poisons", group="preparation" })
 	local poisonOptions = {

@@ -106,6 +106,7 @@ local POISON_MACRO_ACTIONS = {
 	["Apply Main-Hand Poison"] = { key = "mainHandPoison", slot = 16, hand = "Main-hand", universal = 7 },
 	["Apply Off-Hand Poison"] = { key = "offHandPoison", slot = 17, hand = "Off-hand", universal = 10 },
 }
+local TARGET_NEXT_ACTION = "Target Next Enemy"
 local poisonMacroDialog
 local function ShowPoisonMacroTemplate(spell)
 	local action = POISON_MACRO_ACTIONS[spell]
@@ -164,23 +165,30 @@ local function CreateSpellMacro(spell)
 		AL.Say(L("MACRO_COMBAT"))
 		return
 	end
-	local mname = SpellMacroName(spell)
+	local targetNext = spell == TARGET_NEXT_ACTION
+	local mname = targetNext and "ALNextTarget" or SpellMacroName(spell)
 	if GetMacroInfo and GetMacroInfo(mname) then
 		AL.Say(L("MACRO_EXISTS", mname))
 		return
 	end
-	local icon = AL.SpellTexture(spell) or "INV_MISC_QUESTIONMARK"
+	local icon = targetNext and AL.IconFor(spell, AL.ES()) or AL.SpellTexture(spell)
+	icon = icon or "INV_MISC_QUESTIONMARK"
 	-- The queue key stays canonical, but the game tooltip must use the
 	-- character's localized learned spell name (e.g. on deDE/frFR clients).
-	local body = "#showtooltip " .. (AL.LocalName(spell) or spell)
-		.. "\n/run ActionLite_Queue(\"" .. spell .. "\")"
+	local body = targetNext and "#showtooltip\n/targetenemy [noexists][dead]"
+		or ("#showtooltip " .. (AL.LocalName(spell) or spell)
+		.. "\n/run ActionLite_Queue(\"" .. spell .. "\")")
 	local ok = pcall(CreateMacro, mname, icon, body, false)
 	if not ok then
 		-- Some clients only accept the question-mark token here.
 		ok = pcall(CreateMacro, mname, "INV_MISC_QUESTIONMARK", body, false)
 	end
 	if ok then
-		print("|cff89cff0[ActionLITE]|r " .. L("MACRO_CREATED", mname) .. " = queue(" .. spell .. ")")
+		if targetNext then
+			print("|cff89cff0[ActionLITE]|r " .. L("MACRO_CREATED", mname) .. " = target next enemy when the current target is dead or missing")
+		else
+			print("|cff89cff0[ActionLITE]|r " .. L("MACRO_CREATED", mname) .. " = queue(" .. spell .. ")")
+		end
 		OpenMacroWindow()
 	else
 		AL.Say(L("MACRO_FAILED"))
@@ -1206,6 +1214,8 @@ local function BuildMenu()
 				if not row.spellName then return end
 				if POISON_MACRO_ACTIONS[row.spellName] then
 					ShowPoisonMacroTemplate(row.spellName)
+				elseif row.spellName == TARGET_NEXT_ACTION then
+					CreateSpellMacro(row.spellName)
 				elseif button == "RightButton" then
 					ActionLite_Queue(row.spellName)
 				else
@@ -1313,19 +1323,27 @@ local function BuildMenu()
 					row.isKnown = isKnown
 					local poisonAction = token == "ROGUE" and
 						(name == "Apply Main-Hand Poison" or name == "Apply Off-Hand Poison")
+					local targetAction = token == "ROGUE" and name == TARGET_NEXT_ACTION
+					local virtualAction = poisonAction or targetAction
 					UI.Tooltip(row, name, poisonAction and {
 						"Weapon poison application: use the Template button to copy a hand-specific item macro.",
+					} or targetAction and {
+						"Optional post-kill targeting action. Create and bind its native macro before enabling the Rogue setting.",
 					} or { "Spell ID: " .. tostring(id or "?"), L("QUEUE_LEFT"), L("QUEUE_RIGHT") })
 					row.nameText:SetText(name)
 					row.nameText:SetTextColor(UI.Color(isKnown and THEME.text or THEME.textFaint))
 					-- Keep native artwork for ordinary spells; virtual poison macro
 					-- actions have no spellbook icon, so show their assigned Unit1 art.
-					row.icon:SetTexture((poisonAction and AL.IconFor(name, prof)) or UI.SpellIcon(name, id))
+					row.icon:SetTexture((virtualAction and AL.IconFor(name, prof)) or UI.SpellIcon(name, id))
 					row.queueBtn.text:SetText(poisonAction and "Template" or L("MACRO"))
-					row.queueBtn.alTipTitle = poisonAction and "Weapon poison macro" or L("QUEUE_MACRO")
+					row.queueBtn.alTipTitle = poisonAction and "Weapon poison macro"
+						or targetAction and "Target Next Enemy macro" or L("QUEUE_MACRO")
 					row.queueBtn.alTipLines = poisonAction and {
 						"Click for a copyable application macro for the selected poison and hand.",
 						"Right click also opens the template; poison actions cannot be queued as spells.",
+					} or targetAction and {
+						"Click to create /targetenemy [noexists][dead] using the selected icon.",
+						"Bind the macro to the matching reader key; this action cannot be manually queued.",
 					} or { L("QUEUE_LEFT"), L("QUEUE_RIGHT") }
 					pcall(row.icon.SetDesaturated, row.icon, not isKnown)
 					if viewingOther then
