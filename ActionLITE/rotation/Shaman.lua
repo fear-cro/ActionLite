@@ -1159,6 +1159,17 @@ local function MaintainCombatTotems(s, role, targetHP, snapshot)
     if Enabled(s,"searing") and not ActiveTotemFrom("FIRE",snapshot) then Offer("Searing Totem", "Fire totem", gates) end
 end
 
+local function FireNovaWithSearing(s, mana, snapshot, nearby, reason)
+	if not Enabled(s,"aoe") or not Enabled(s,"firenova") or not nearby then return end
+	local manaGate = ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false)
+	if snapshot["Searing Totem"] then
+		Offer("Fire Nova", reason, { manaGate })
+	else
+		-- Fire Nova is only valid after this exact fire totem is confirmed active.
+		Offer("Searing Totem", "Fire Nova setup", { manaGate })
+	end
+end
+
 local function AoEDamage(s, role, mana, count, snapshot, targetHP, moving)
 	if not Enabled(s,"aoe") then return end
 	local manaGate = ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false)
@@ -1166,11 +1177,10 @@ local function AoEDamage(s, role, mana, count, snapshot, targetHP, moving)
 	local totemGates = { manaGate,
 		HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	-- AoE On explicitly requests the learned, player-centred Fire Nova whenever
-	-- the selected target is close enough. Enemy counting remains mandatory for
-	-- Chain Lightning and Magma Totem, but it cannot suppress Fire Nova when
-	-- nearby nameplates are hidden or protected.
-	if Enabled(s,"firenova") and InMelee() then Offer("Fire Nova", "Close-range AoE", damageGates) end
+	-- AoE On requests Searing Totem first, then Fire Nova only while that exact
+	-- totem is confirmed active. Enemy counting remains mandatory only for
+	-- Chain Lightning and Magma Totem.
+	FireNovaWithSearing(s, mana, snapshot, InMelee(), "Close-range AoE")
 	if not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
 	if role == "ELEMENTAL" and not moving then Offer("Chain Lightning", "Ranged AoE", damageGates) end
 	if InMelee() and Enabled(s,"magma") and not snapshot["Magma Totem"] and not snapshot["?FIRE"] then
@@ -2807,10 +2817,21 @@ local function MaintainCombatTotems(s, role, targetHP, snapshot)
     if Enabled(s,"searing") and not ActiveTotemFrom("FIRE",snapshot) then Offer("Searing Totem", "Fire totem", gates) end
 end
 
+local function FireNovaWithSearing(s, mana, snapshot, nearby, reason)
+	if not Enabled(s,"aoe") or not Enabled(s,"firenova") or not nearby then return end
+	local manaGate = ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false)
+	if snapshot["Searing Totem"] then
+		Offer("Fire Nova", reason, { manaGate })
+	else
+		-- Fire Nova is only valid after this exact fire totem is confirmed active.
+		Offer("Searing Totem", "Fire Nova setup", { manaGate })
+	end
+end
+
 local function AoETotem(s, mana, count, snapshot, targetHP)
 	if not Enabled(s,"aoe") then return end
 	local manaGate = ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false)
-	if Enabled(s,"firenova") and InMelee() then Offer("Fire Nova", "AoE Fire Nova", { manaGate }) end
+	FireNovaWithSearing(s, mana, snapshot, InMelee(), "AoE Fire Nova")
 	if not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
 	local gates = { manaGate,
         HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
@@ -2964,10 +2985,8 @@ local function EnhancementBurst(s,targetHP)
     if Enabled(s,"enhancementRacials") then Offer("Berserking","Enhancement Burst",gates) end
 end
 
-local function EnhancementFireNova(s,mana)
-	if Enabled(s,"aoe") and Enabled(s,"firenova") and UnitWithin("target",8)==true then
-		Offer("Fire Nova","Enhancement AoE",{ManaGate(mana,SettingNumber(s,"aoeMinMana",30,0,100),false)})
-	end
+local function EnhancementFireNova(s,mana,snapshot)
+	FireNovaWithSearing(s,mana,snapshot,UnitWithin("target",8)==true,"Enhancement AoE")
 end
 
 local function EnhancementAoE(s,mana,count,snapshot,moving,instant)
@@ -2994,7 +3013,7 @@ local function EnhancementDamage(s,inCombat,mana,targetHP,moving,melee)
         local snapshot=TotemSnapshot()
 		-- Fire Nova is the explicit AoE-On action and must precede ordinary
 		-- Enhancement maintenance and single-target attacks.
-		EnhancementFireNova(s,mana)
+		EnhancementFireNova(s,mana,snapshot)
         EnhancementTotems(s,targetHP,snapshot)
         EnhancementBurst(s,targetHP)
         if Enabled(s,"stormstrike") then Offer("Stormstrike","Enhancement Stormstrike") end
@@ -3062,10 +3081,9 @@ local function ElementalDamage(s,inCombat,mana,targetHP,moving)
     local rangedCount=Enabled(s,"aoe") and Enabled(s,"elementalChainLightning") and EnemyCount(minimum,36) or nil
     local aoeMana=ManaGate(mana,SettingNumber(s,"aoeMinMana",30,0,100),false)
     local totemHP=HealthGate("target",targetHP,SettingNumber(s,"totemMinTargetHP",45,0,100),false)
-	-- Fire Nova follows the player's explicit AoE toggle even when Forever
-	-- cannot expose a reliable nearby-enemy count. It remains close-range,
-	-- learned-spell, cooldown and mana gated.
-	if closeTarget and Enabled(s,"firenova") then Offer("Fire Nova","Elemental AoE nova",{aoeMana}) end
+	-- Fire Nova follows the explicit AoE toggle without an enemy-count check,
+	-- but only after Searing Totem is confirmed active.
+	FireNovaWithSearing(s,mana,snapshot,closeTarget,"Elemental AoE nova")
     if Enabled(s,"totems") then
         local earth,water=PreferredEarthTotem(s,"ELEMENTAL"),PreferredWaterTotem(s,"ELEMENTAL")
         for _,choice in ipairs({{earth,"EARTH"},{water,"WATER"}}) do

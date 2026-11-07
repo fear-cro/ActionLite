@@ -253,7 +253,7 @@ local function BuildShamanUI(page, ui)
 		{ en = "AoE totems require a confirmed nearby enemy count.", fr = "Les totems AoE exigent un nombre confirme d'ennemis proches.", pt = "Totens AoE exigem uma contagem confirmada de inimigos próximos.", es = "Los tótems AoE requieren un número confirmado de enemigos cercanos.", de = "AoE-Totems brauchen eine bestätigte Anzahl naher Gegner.", zh = "AoE 图腾需要已确认的附近敌人数量。" })
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	Check(aoe, "firenova", "Fire Nova", "Fire Nova",
-		"With AoE On, uses learned Fire Nova at close range without requiring a detected enemy count. The AoE mana threshold still applies. Caster Leveling also uses learned Chain Lightning while stationary and only after the selected enemy-count threshold is confirmed.")
+		"With AoE On, places learned Searing Totem first and only uses learned Fire Nova after Searing Totem is confirmed active. Fire Nova does not require a detected enemy count; close range and the AoE mana threshold still apply. Caster Leveling uses learned Chain Lightning only while stationary and after the selected enemy-count threshold is confirmed.")
 	Check(aoe, "magma", "Magma Totem", "Magma Totem")
 	Slider(aoe, "aoeMinEnemies",
 		{ en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Mínimo de enemigos", de = "Mindestanzahl Gegner", zh = "最少敌人数" }, 2, 5, 2, "")
