@@ -38,7 +38,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ type = "info", text = "Aimed Shot, an eligible missing Sting, Summon Hawk, then learned Arcane Shot and Auto Shot. Uses shared Aimed Shot, Sting, Hawk, Arcane Shot and Trueshot Aura checkboxes. Favors ranged attacks; close enemies use the existing melee fallback and ranged damage resumes when distance allows." },
 				{ type = "slider", key = "beastStingMinMana", label = "Beast Mastery Sting minimum mana", min = 0, max = 100, step = 5, default = 30, suffix = " %" },
 				{ type = "slider", key = "beastHawkMinMana", label = "Beast Mastery Summon Hawk minimum mana", min = 0, max = 100, step = 5, default = 0, suffix = " %" },
-				{ type = "info", text = "The shared Sting target-health and Arcane Shot mana sliders also apply. Summon Hawk and Arcane Shot share a cooldown; Aimed Shot and Multi-Shot share another. Active casts and channels finish. Keep your pet attacking and its learned attacks on autocast." },
+				{ type = "info", text = "The shared Aimed Shot, Sting target-health and Arcane Shot mana sliders also apply. Summon Hawk and Arcane Shot share a cooldown; Aimed Shot and Multi-Shot share another. Active casts and channels finish. Keep your pet attacking and its learned attacks on autocast." },
 			},
 		},
 		{
@@ -68,10 +68,12 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ type = "info", text = "Selects learned ranged priorities through level 60: Aimed Shot, Stings and Sniper Shot between primary shots, then Arcane Shot and Auto Shot. Build selections are exclusive; your saved options are kept. Talents and equipment are not changed." },
 				{ key = "marksmanshipNoPet", half = false, label = "Marksmanship: use learned Lone Wolf (no pet)", spell = "Dismiss Pet" },
 				{ type = "info", text = "The reference build learns Lone Wolf. Only a confirmed learned talent disables Call/Revive/Mend Pet and allows stationary out-of-combat dismissal. Before learning it, normal pet controls remain available." },
+				{ type = "slider", key = "aimedMinMana", label = { en = "Aimed Shot minimum mana", fr = "Mana minimum pour Aimed Shot", pt = "Mana mínima para Aimed Shot", es = "Maná mínimo para Aimed Shot", de = "Aimed Shot Mindestmana", zh = "Aimed Shot最低法力值" },
+					min = 0, max = 80, step = 5, default = 20, suffix = " %" },
 				{ key = "sniper", label = "Use Sniper Shot", spell = "Sniper Shot" },
 				{ type = "slider", key = "sniperMinMana", label = "Sniper Shot minimum mana", min = 0, max = 100, step = 5, default = 30, suffix = " %" },
 				{ type = "slider", key = "marksmanshipStingMinMana", label = "Marksmanship Sting minimum mana", min = 0, max = 100, step = 5, default = 30, suffix = " %" },
-				{ type = "info", text = "Aimed Shot and Sniper Shot require standing still. Uses the existing Sting target-health and Arcane Shot mana sliders. Close enemies use the melee fallback, then resume ranged attacks when distance allows. Sniper Shot and Trueshot Aura are available in the Spells tab for Universal icon selection." },
+				{ type = "info", text = "Aimed Shot and Sniper Shot require standing still and obey their shared mana sliders. Uses the existing Sting target-health and Arcane Shot mana sliders. Close enemies use the melee fallback, then resume ranged attacks when distance allows. Sniper Shot and Trueshot Aura are available in the Spells tab for Universal icon selection." },
 			},
 		},
 		{
@@ -130,6 +132,8 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ type = "slider", key = "stingMinTargetHP", label = { en = "Sting minimum target health", fr = "Vie cible minimum pour Sting", pt = "Vida mínima do alvo para Sting", es = "Salud mínima del objetivo para Sting", de = "Sting: Mindestgesundheit des Ziels", zh = "Sting目标最低生命值" },
 					min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 				{ key = "aimed", label = "Aimed Shot", spell = "Aimed Shot" },
+				{ type = "slider", key = "aimedMinMana", label = { en = "Aimed Shot minimum mana", fr = "Mana minimum pour Aimed Shot", pt = "Mana mínima para Aimed Shot", es = "Maná mínimo para Aimed Shot", de = "Aimed Shot Mindestmana", zh = "Aimed Shot最低法力值" },
+					min = 0, max = 80, step = 5, default = 20, suffix = " %" },
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				{ key = "sniper", label = "Use learned Sniper Shot", spell = "Sniper Shot" },
 				{ type = "slider", key = "sniperMinMana", label = "Sniper Shot minimum mana", min = 0, max = 80, step = 5, default = 20, suffix = " %" },
@@ -138,7 +142,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
 					min = 0, max = 80, step = 5, default = 20, suffix = " %", half = true },
 				{ key = "concussive", label = { en = "Concussive Shot when chased", fr = "Concussive Shot si poursuivi", pt = "Concussive Shot se perseguido", es = "Concussive Shot si te persiguen", de = "Concussive Shot bei Verfolgung", zh = "被追击时Concussive Shot" }, spell = "Concussive Shot" },
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-				{ type = "info", text = "The strengthened Aimed Shot remains the stationary primary shot. Learned Sniper Shot follows it when ready and above its mana threshold; Arcane Shot remains the instant ranged fallback." },
+				{ type = "info", text = "The strengthened Aimed Shot remains the stationary primary shot while at or above its mana threshold. Learned Sniper Shot follows it when ready and above its own threshold; Arcane Shot remains the instant ranged fallback." },
 			},
 		},
 		{

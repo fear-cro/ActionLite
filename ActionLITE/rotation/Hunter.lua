@@ -59,6 +59,7 @@ local M = {
 		sting = true,
 		scorpid = false,
 		aimed = true,
+		aimedMinMana = 20,
 		arcane = true,
 		rapidfire = true,
 		callpet = true,
@@ -345,6 +346,10 @@ local function ManaGate(value, threshold, below)
     local cut = threshold / 100
     if below then cut = NextFloat32(cut) end
     return { axis = "mana", kind = "power", unit = "player", powerType = 0, cut = cut, below = below }
+end
+
+local function AimedManaGate(s, mana)
+    return ManaGate(mana, SettingNumber(s, "aimedMinMana", 20, 0, 80), false)
 end
 
 local function Affordable(name, usable, shortage)
@@ -859,7 +864,9 @@ function M.NextSpell(s, inCombat, hostile)
                 -- Multi-Shot and Aimed Shot share a cooldown in Forever.
                 -- AoE On reserves that cooldown for Multi-Shot even while the
                 -- AoE spell is briefly unusable or still on its cooldown.
-                if not s.aoe and s.aimed and not PlayerMoving() then Offer("Aimed Shot", "aimed shot") end
+                if not s.aoe and s.aimed and not PlayerMoving() then
+                    Offer("Aimed Shot", "aimed shot", { AimedManaGate(s, manaPercent) })
+                end
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				-- Sniper Shot is a learned stationary Marksmanship talent. Keep it
 				-- behind Aimed Shot and ahead of instant fillers, with both its real
@@ -1049,6 +1056,7 @@ local M = {
 		sting = true,
 		scorpid = false,
 		aimed = true,
+		aimedMinMana = 20,
 		arcane = true,
 		rapidfire = true,
 		callpet = true,
@@ -1507,6 +1515,10 @@ local function ManaGate(value, threshold, below)
     local cut = threshold / 100
     if below then cut = NextFloat32(cut) end
     return { axis = "mana", kind = "power", unit = "player", powerType = 0, cut = cut, below = below }
+end
+
+local function AimedManaGate(s, mana)
+    return ManaGate(mana, SettingNumber(s, "aimedMinMana", 20, 0, 80), false)
 end
 
 local function Affordable(name, usable, shortage)
@@ -1989,12 +2001,17 @@ local function MeleeRotation(s, petUp, mana, targetHP, inCombat)
     AddAction(AL.Ok("Attack") and "Attack" or nil, "melee")
 end
 
-local function ShotWindow(s,seconds,moving)
+local function ShotWindow(s,seconds,moving,mana,releaseProtectedMana)
     -- AoE explicitly reserves the shared Aimed Shot / Multi-Shot cooldown.
     -- Do not hold ordinary fillers waiting for an Aimed Shot that is disabled
     -- by the active AoE rotation.
     if s.aoe then return true end
     if moving or not s.aimed or not Ok("Aimed Shot") then return true end
+    local manaGate=AimedManaGate(s,mana)
+    -- Readable mana below the slider releases fillers immediately. When mana
+    -- is protected, add both branches so the native curve selects Aimed Shot
+    -- only at or above the threshold and falls through below it.
+    if manaGate==false or type(manaGate)=="table" and releaseProtectedMana~=false then return true end
     local usable,shortage=SpellUsability("Aimed Shot")
     if usable==false or shortage==true or Bool((SafeCall(AL.InRange,"Aimed Shot")))==false then return true end
     local info=NativeCooldown("Aimed Shot")
@@ -2010,10 +2027,14 @@ local function MarksmanshipRanged(s,mana,targetHP)
     Mark(s,targetHP,"mark")
     if AL.burst and RangedInRange() then
         local gate=HealthGate("target",targetHP,SettingNumber(s,"burstMinTargetHP",40,0,100),false)
-        -- Prefer Rapid Fire just before the next stationary Aimed Shot.
+        -- Prefer Rapid Fire just before the next stationary Aimed Shot. If
+        -- mana is protected, the same native threshold controls this pairing.
+        local aimedEnabled=s.aimed and Ok("Aimed Shot")
         if s.rapidfire and not moving and not AL.HasBuff("player","Rapid Fire")
-            and (not s.aimed or not Ok("Aimed Shot") or not ShotWindow(s,0.5,false)) then
-            Offer("Rapid Fire","Marksmanship Burst",{gate})
+            and (not aimedEnabled or not ShotWindow(s,0.5,false,mana,false)) then
+            local rapidGates={gate}
+            if aimedEnabled then rapidGates[#rapidGates+1]=AimedManaGate(s,mana) end
+            Offer("Rapid Fire","Marksmanship Burst",rapidGates)
         end
         if s.bloodFury then Offer("Blood Fury","Marksmanship Burst",{gate}) end
     end
@@ -2028,20 +2049,22 @@ local function MarksmanshipRanged(s,mana,targetHP)
     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
     -- The strengthened Aimed Shot remains the stationary primary shot. The
     -- doubled Sniper Shot stays ahead of the strengthened instant Arcane Shot.
-    if not s.aoe and s.aimed and not moving then Offer("Aimed Shot","Marksmanship primary shot") end
+    if not s.aoe and s.aimed and not moving then
+        Offer("Aimed Shot","Marksmanship primary shot",{AimedManaGate(s,mana)})
+    end
     -- The reference has no Summon Hawk point. Preserve its checkbox for
     -- characters that actually learn it, without granting the talent.
     if s.summonHawk then Offer("Summon Hawk","learned guardian",{HealthGate("target",targetHP,40,false)}) end
-    if ShotWindow(s,0.5,moving) and not AL.HasDebuff("target","Serpent Sting")
+    if ShotWindow(s,0.5,moving,mana) and not AL.HasDebuff("target","Serpent Sting")
         and not AL.HasDebuff("target","Scorpid Sting") then
         local gates={HealthGate("target",targetHP,SettingNumber(s,"stingMinTargetHP",35,0,100),false),
             ManaGate(mana,SettingNumber(s,"marksmanshipStingMinMana",30,0,100),false)}
         if s.scorpid and Ok("Scorpid Sting") then Offer("Scorpid Sting","Marksmanship Sting",gates)
         elseif s.sting then Offer("Serpent Sting","Marksmanship damage over time",gates) end
     end
-    if s.sniper and not moving and ShotWindow(s,1,false) then Offer("Sniper Shot","Marksmanship filler",{
+    if s.sniper and not moving and ShotWindow(s,1,false,mana) then Offer("Sniper Shot","Marksmanship filler",{
         ManaGate(mana,SettingNumber(s,"sniperMinMana",30,0,100),false)}) end
-    if s.arcane and ShotWindow(s,2,moving) then Offer("Arcane Shot","Marksmanship instant filler",{
+    if s.arcane and ShotWindow(s,2,moving,mana) then Offer("Arcane Shot","Marksmanship instant filler",{
         ManaGate(mana,SettingNumber(s,"arcaneMinMana",20,0,80),false)}) end
     if EnsureAutoShot() then Offer("Auto Shot","start auto shot") end
 end
@@ -2059,10 +2082,10 @@ local function BeastPetEngaged()
     local a,b=SafeCall(UnitGUID,"pettarget"),SafeCall(UnitGUID,"target")
     return SafeValue(a) and SafeValue(b) and type(a)=="string" and type(b)=="string" and a==b
 end
-local function BeastWindow(s,moving)
+local function BeastWindow(s,moving,mana)
     -- A ready primary was already offered first. If its real mana/range gate
     -- hides it, release affordable fillers rather than waiting on Auto Shot.
-    return ControlReady("Aimed Shot") or ShotWindow(s,0.5,moving)
+    return ControlReady("Aimed Shot") or ShotWindow(s,0.5,moving,mana)
 end
 local function BeastBurst(s,mana,targetHP,petUp)
     if not BeastMastery(s) or not AL.burst then return end
@@ -2080,12 +2103,13 @@ local function BeastBurst(s,mana,targetHP,petUp)
     for _,entry in ipairs({{"aimed","Aimed Shot"},{"summonHawk","Summon Hawk"},{"arcane","Arcane Shot"}}) do
         local candidate=entry[2]
         if s[entry[1]] and (candidate~="Aimed Shot" or not moving)
-            and (candidate=="Aimed Shot" or BeastWindow(s,moving))
+            and (candidate=="Aimed Shot" or BeastWindow(s,moving,mana))
             and Ok(candidate) and ControlReady(candidate)
             and Bool((SafeCall(AL.InRange,candidate)))~=false then
             local usable,shortage=SpellUsability(candidate)
             local eligible=BeastGates(gates,Affordable(candidate,usable,shortage),usable~=false,shortage~=true)
-            if candidate=="Summon Hawk" then eligible=BeastGates(eligible,
+            if candidate=="Aimed Shot" then eligible=BeastGates(eligible,AimedManaGate(s,mana))
+            elseif candidate=="Summon Hawk" then eligible=BeastGates(eligible,
                 ManaGate(mana,SettingNumber(s,"beastHawkMinMana",0,0,100),false))
             elseif candidate=="Arcane Shot" then eligible=BeastGates(eligible,
                 ManaGate(mana,SettingNumber(s,"arcaneMinMana",20,0,80),false)) end
@@ -2109,8 +2133,10 @@ local function BeastRanged(s,mana,targetHP)
         end
 		if s.multiShot ~= false then Offer("Multi-Shot","Beast Mastery AoE",gates) end
     end
-    if not s.aoe and s.aimed and not moving then Offer("Aimed Shot","Beast Mastery primary shot") end
-    if BeastWindow(s,moving) then
+    if not s.aoe and s.aimed and not moving then
+        Offer("Aimed Shot","Beast Mastery primary shot",{AimedManaGate(s,mana)})
+    end
+    if BeastWindow(s,moving,mana) then
         if not AL.HasDebuff("target","Serpent Sting") and not AL.HasDebuff("target","Scorpid Sting") then
             local gates={HealthGate("target",targetHP,SettingNumber(s,"stingMinTargetHP",35,0,100),false),
                 ManaGate(mana,SettingNumber(s,"beastStingMinMana",30,0,100),false)}
@@ -2337,7 +2363,7 @@ function M.NextSpell(s, inCombat, hostile)
             Mark(s, targetHP, petUp and "mark and send pet" or "mark")
             if UseMelee(s) then MeleeRotation(s, petUp, manaPercent, targetHP, false)
             elseif BeastMastery(s) and not s.aoe and s.aimed and not PlayerMoving() then
-                Offer("Aimed Shot","Beast Mastery opener")
+                Offer("Aimed Shot","Beast Mastery opener",{AimedManaGate(s,manaPercent)})
                 if EnsureAutoShot() then Offer("Auto Shot","opener") end
             elseif EnsureAutoShot() then Offer("Auto Shot", "opener") end
         end
@@ -2375,7 +2401,9 @@ function M.NextSpell(s, inCombat, hostile)
                     if preferScorpid then Offer("Scorpid Sting", "weaken attacks", { stingGate })
                     elseif s.sting then Offer("Serpent Sting", "damage over time", { stingGate }) end
                 end
-                if not s.aoe and s.aimed and not PlayerMoving() then Offer("Aimed Shot", "aimed shot") end
+                if not s.aoe and s.aimed and not PlayerMoving() then
+                    Offer("Aimed Shot", "aimed shot", { AimedManaGate(s, manaPercent) })
+                end
                 if s.summonHawk then Offer("Summon Hawk", "hawk", { HealthGate("target", targetHP, 40, false) }) end
                 if s.arcane then Offer("Arcane Shot", "ranged filler", {
                     ManaGate(manaPercent, SettingNumber(s, "arcaneMinMana", 20, 0, 80), false) }) end
