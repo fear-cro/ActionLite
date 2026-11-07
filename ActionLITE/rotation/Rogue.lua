@@ -1236,7 +1236,7 @@ function M.NextSpell(s, inCombat, hostile)
 		AddAction("Vanish", "emergency escape", { HealthGate("player", playerHP, SettingNumber(s, "vanishHP", 20, 5, 80), true) })
 	end
 	local targetCasting = AL.TargetCasting()
-	if targetCasting and s.kick and ReadyUsable("Kick") then
+	if targetCasting and s.kick and ReadyUsable("Kick") and InMeleeRange("Kick") then
 		AddAction("Kick", "interrupt"); return FinishDecision()
 	end
 	if targetCasting and s.kidney and cp >= SettingNumber(s, "kidneyMinCP", 3, 1, 5) and ReadyUsable("Kidney Shot") then
@@ -3049,7 +3049,7 @@ function M.NextSpell(s, inCombat, hostile)
 		AddAction("Vanish", "emergency escape", { HealthGate("player", playerHP, SettingNumber(s, "vanishHP", 20, 5, 80), true) })
 	end
 	local targetCasting = AL.TargetCasting()
-	if targetCasting and s.kick and ReadyUsable("Kick") then
+	if targetCasting and s.kick and ReadyUsable("Kick") and InMeleeRange("Kick") then
 		AddAction("Kick", "interrupt"); return FinishDecision()
 	end
 	if targetCasting and s.kidney and cp >= SettingNumber(s, "kidneyMinCP", 3, 1, 5) and ReadyUsable("Kidney Shot") then
