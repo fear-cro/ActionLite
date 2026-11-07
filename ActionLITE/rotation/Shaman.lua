@@ -2281,7 +2281,7 @@ local function Standalone(s) return Enabled(s,"elemental") or Enabled(s,"enhance
 
 -- Standalone 18/33/0 state. Only confirmed player casts create timers;
 -- proc stacks and resets require readable client evidence.
-local enh = { cooldowns={}, flames={}, talents={}, talentWarm=false, boltAt=-math.huge, completed={} }
+local enh = { cooldowns={}, flames={}, flameFallbackUntil=0, talents={}, talentWarm=false, boltAt=-math.huge, completed={} }
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 local ENH_COOLDOWNS = { ["Lightning Mastery"]=180, ["Stormstrike"]=6, ["Fire Nova"]=10, ["Chain Lightning"]=6,
     ["Water Shield"]=15,
@@ -2645,7 +2645,11 @@ end
 local function Offer(name, reason, gates, preparation, showRange)
     if not Standalone(AL.S()) and AL.DPS60 and AL.DPS60.Active() and AL.DPS60.Info(name) and not AL.DPS60.Ready(name) then return false end
     if not Ok(name) then return false end
-    if Standalone(AL.S()) then
+    -- Stormstrike's native cooldown fields can become protected in combat.
+    -- Keep using the confirmed-cast six-second tracker in the Leveling
+    -- rotation instead of falling through to the generic readable-cooldown
+    -- path, which could hide Stormstrike for the entire fight.
+    if Standalone(AL.S()) or name == "Stormstrike" then
         if not EnhancementReady(name) then return false end
     elseif not CooldownReady(name) then return false end
     local usable, shortage = SpellUsability(name)
@@ -2758,9 +2762,13 @@ local function LightningBolt(s, mana, moving, reason)
     end
 end
 
+local EnhancementFlameActive
+
 local function Damage(s, role, mana, targetHP, moving)
     local shock = ManaGate(mana,SettingNumber(s,"shockMinMana",25,0,100),false)
-    if Enabled(s,"flameshock") and not AL.HasDebuff("target","Flame Shock") then
+    -- Use the confirmed-cast target timer when Forever protects target auras.
+    -- Repeating Flame Shock here could otherwise keep it ahead of Stormstrike.
+    if Enabled(s,"flameshock") and not EnhancementFlameActive() then
         Offer("Flame Shock","Damage over time",{ shock,
             HealthGate("target",targetHP,SettingNumber(s,"flameShockMinTargetHP",35,0,100),false) })
     end
@@ -2815,9 +2823,9 @@ local function EnhancementInstantBolt()
     return false
 end
 
-local function EnhancementFlameActive()
+EnhancementFlameActive = function()
     local guid=SafeCall(UnitGUID,"target")
-    if not SafeValue(guid) or type(guid)~="string" then return false end
+    if not SafeValue(guid) or type(guid)~="string" then return (enh.flameFallbackUntil or 0)>GetTime() end
     local record=enh.flames[guid]
     if record and record.expires<=GetTime() then enh.flames[guid]=nil;record=nil end
     if record and GetTime()-record.at<0.6 then return true end
@@ -2840,7 +2848,7 @@ local function EnhancementFlameActive()
             end
         end
     end
-    return record~=nil
+    return record~=nil or (enh.flameFallbackUntil or 0)>GetTime()
 end
 
 local function EnhancementAir(s)
@@ -3082,7 +3090,7 @@ function M.CanTrackSuggestedSpell(name)
 end
 
 function M.OnTargetChanged()
-    lastRotation, AL.rotationSecretVisual, enh.flameBlocked = nil, nil, nil
+    lastRotation, AL.rotationSecretVisual, enh.flameBlocked, enh.flameFallbackUntil = nil, nil, nil, 0
 end
 
 function M.OnCastResult(name, result, sent)
@@ -3101,9 +3109,13 @@ function M.OnCastResult(name, result, sent)
     if name=="Lightning Bolt" then enh.boltAt=now end
     if name=="Lightning Bolt" or name=="Chain Lightning" or name=="Fire Nova" or SHOCKS[name] then enh.clearConsumeAt=now end
     if name=="Water Shield" or name=="Lightning Shield" then enh.shield={name=name,at=now,expires=now+600} end
-    if name=="Flame Shock" and sent and SafeValue(sent.targetGUID) and type(sent.targetGUID)=="string" then
-        for guid,record in pairs(enh.flames) do if record.expires<=now then enh.flames[guid]=nil end end
-        enh.flames[sent.targetGUID]={at=now,expires=now+M.FlameShockDuration()}
+    if name=="Flame Shock" then
+        local expires=now+M.FlameShockDuration()
+        enh.flameFallbackUntil=expires
+        if sent and SafeValue(sent.targetGUID) and type(sent.targetGUID)=="string" then
+            for guid,record in pairs(enh.flames) do if record.expires<=now then enh.flames[guid]=nil end end
+            enh.flames[sent.targetGUID]={at=now,expires=expires}
+        end
     end
     if SHOCKS[name] then
         local _, ending = ReadableCooldown(name)
