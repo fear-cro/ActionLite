@@ -1094,6 +1094,15 @@ local function BuildMenu()
 		local pickerScroll, pickerContent = UI.ScrollArea(iconPicker, { pad = 2, padTop = 2 })
 		pickerContent:SetWidth(math.max(10, pickerScroll:GetWidth() or 10))
 		local pickerOptions = {}
+		local function IconChoiceAllowed(spell, choice)
+			local mod = AL.rotations and AL.rotations[ActiveToken()]
+			local requirement = mod and type(mod.iconRequirements) == "table"
+				and mod.iconRequirements[spell] or nil
+			if not requirement then return true end
+			if requirement.universalOnly and not choice then return false end
+			if requirement.slot and (not choice or choice.slot ~= requirement.slot) then return false end
+			return true
+		end
 		for index = 0, #AL.UNIVERSAL_CHOICES do
 			local choice = AL.UNIVERSAL_CHOICES[index]
 			local opt = CreateFrame("Button", nil, pickerContent)
@@ -1121,7 +1130,8 @@ local function BuildMenu()
 			opt:SetScript("OnClick", function()
 				local spell = iconPicker.spell
 				local prof = ES()
-				if iconPicker:IsShown() and spell and iconPicker.profile == prof then
+				if iconPicker:IsShown() and spell and iconPicker.profile == prof
+					and IconChoiceAllowed(spell, choice) then
 					local changed, owner = AL.SetIconChoice(spell, choice, prof)
 					if changed then
 						RecordUI("Spell icon changed", { class = ActiveToken(), spell = spell,
@@ -1143,7 +1153,8 @@ local function BuildMenu()
 			iconPicker.profile = ES()
 			local visible = 0
 			for _, option in ipairs(pickerOptions) do
-				local available = not AL.IconChoiceOwner(spell, option.choice, iconPicker.profile)
+				local available = IconChoiceAllowed(spell, option.choice)
+					and not AL.IconChoiceOwner(spell, option.choice, iconPicker.profile)
 				option.frame:SetShown(available)
 				if available then
 					option.frame:ClearAllPoints()
@@ -1308,6 +1319,7 @@ local function BuildMenu()
 			if token == "ROGUE" and type(mod.EnsurePoisonIcons) == "function" then
 				mod.EnsurePoisonIcons(prof)
 			end
+			if type(mod.EnsureRequiredIcons) == "function" then mod.EnsureRequiredIcons(prof) end
 			local shown, known = 0, 0
 			for _, entry in ipairs(mod.spells) do
 				local id, name = entry[1], entry[2]
@@ -1324,7 +1336,9 @@ local function BuildMenu()
 					local poisonAction = token == "ROGUE" and
 						(name == "Apply Main-Hand Poison" or name == "Apply Off-Hand Poison")
 					local targetAction = token == "ROGUE" and name == TARGET_NEXT_ACTION
-					local virtualAction = poisonAction or targetAction
+					local requiredIconAction = type(mod.iconRequirements) == "table"
+						and mod.iconRequirements[name] ~= nil
+					local virtualAction = poisonAction or targetAction or requiredIconAction
 					UI.Tooltip(row, name, poisonAction and {
 						"Weapon poison application: use the Template button to copy a hand-specific item macro.",
 					} or targetAction and {
@@ -1357,12 +1371,16 @@ local function BuildMenu()
 					local label = choice and (choice.slot == 6
 						and ("Univ.%d Unit1"):format(choice.number) or L("UNIVERSAL_SHORT", choice.number)) or L("DEFAULT")
 					local owner = AL.IconChoiceOwner(name, choice, prof)
+					local iconRequirement = type(mod.iconRequirements) == "table" and mod.iconRequirements[name] or nil
 					row.iconBtn.text:SetText(label .. (owner and " !" or ""))
 					row.iconBtn.text:SetTextColor(UI.Color(owner and THEME.warn or THEME.text))
 					row.iconBtn.alTipTitle = label
 					row.iconBtn.alTipLines = owner and {
 						"Also assigned to " .. owner .. ". Choose a different Universal icon or Default.",
 						"Update the matching keybind when changing a Universal icon.",
+					} or iconRequirement and {
+						"This rank-specific action requires an available Unit1 Universal icon.",
+						"Universal10 Unit1 is assigned by default; update the matching binding if you change it.",
 					} or {
 						"Each Universal icon can be assigned to one spell per class and A slot.",
 						"Choose Default to release an assignment. Regular and Unit1 icons are separate choices.",

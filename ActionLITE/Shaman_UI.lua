@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-local UI_VERSION = "0.20.1"
+local UI_VERSION = "0.20.2"
 
 -- Dedicated Shaman interface. Only UI text is localized here;
 -- spell names and profile keys remain identical in both languages.
@@ -20,6 +20,7 @@ end
 local function BuildShamanUI(page, ui)
 	local rotation = AL.rotations and AL.rotations.SHAMAN
 	if rotation and rotation.NormalizeBuild then rotation.NormalizeBuild(ui.Profile()) end
+	if rotation and rotation.EnsureRequiredIcons then rotation.EnsureRequiredIcons(ui.Profile()) end
 	-- Flame Shock wins migration conflicts because it is the newer explicit
 	-- opener choice. Both opener checkboxes may still remain off.
 	if ui.Profile().flameShockTag == true and ui.Profile().earthShockTag == true then
@@ -35,6 +36,9 @@ local function BuildShamanUI(page, ui)
 	end
 
 	local function SpellIcon(name)
+		if name == "Earth Shock (Rank 1)" and AL.IconFor then
+			return AL.IconFor(name, ui.Profile())
+		end
 		return ui.SpellIcon(name, spellIDs[name])
 	end
 
@@ -162,9 +166,13 @@ local function BuildShamanUI(page, ui)
 
 	local offense = ui.Card(stack,
 		Text({ en = "COMBAT PRIORITY", fr = "PRIORITE DE COMBAT", pt = "PRIORIDADE DE COMBATE", es = "PRIORIDAD DE COMBATE", de = "KAMPFPRIORITÄT", zh = "战斗优先级" }), nil, { id="offense", group="damage" })
+	Check(offense, "rankOneEarthShockInterrupt",
+		{ en = "Use Rank 1 Earth Shock interrupts", fr = "Utiliser Earth Shock rang 1 pour interrompre", pt = "Usar Earth Shock nível 1 para interromper", es = "Usar Earth Shock rango 1 para interrumpir", de = "Earth Shock Rang 1 zum Unterbrechen", zh = "使用1级 Earth Shock 打断" },
+		"Earth Shock (Rank 1)",
+		{ en = "Highest interrupt priority while an enemy is casting. This action is isolated from normal Earth Shock and requires a Unit1 Universal binding; Universal10 Unit1 is assigned by default.", fr = "Priorite d'interruption maximale pendant l'incantation ennemie. Cette action est separee du Earth Shock normal et exige une liaison Universal Unit1; Universal10 Unit1 est attribue par defaut.", pt = "Prioridade máxima de interrupção enquanto o inimigo conjura. Esta ação é separada do Earth Shock normal e exige uma tecla Universal Unit1; Universal10 Unit1 é o padrão.", es = "Máxima prioridad de interrupción mientras el enemigo lanza. Esta acción está separada del Earth Shock normal y requiere una tecla Universal Unit1; Universal10 Unit1 es el valor predeterminado.", de = "Höchste Unterbrechungspriorität, während der Gegner zaubert. Diese Aktion ist vom normalen Earth Shock getrennt und benötigt eine Universal-Unit1-Belegung; standardmäßig Universal10 Unit1.", zh = "敌人施法时拥有最高打断优先级。此动作与普通 Earth Shock 完全分离，并需要 Unit1 通用图标绑定；默认分配 Universal10 Unit1。" }, true)
 	Check(offense, "interrupt",
 		{ en = "Earth Shock interrupt", fr = "Interruption avec Earth Shock", pt = "Interromper com Earth Shock", es = "Interrumpir con Earth Shock", de = "Earth Shock unterbricht", zh = "Earth Shock 打断" }, "Earth Shock",
-		{ en = "Always checked before healing, maintenance and damage.", fr = "Toujours verifie avant les soins, la maintenance et les degats.", pt = "Sempre verificado antes de cura, manutenção e dano.", es = "Siempre se comprueba antes de sanación, mantenimiento y daño.", de = "Wird immer vor Heilung, Pflege und Schaden geprüft.", zh = "始终在治疗、维持和伤害之前检查。" }, true)
+		{ en = "Uses the highest learned rank before healing, maintenance and damage when the Rank 1 interrupt option is off.", fr = "Utilise le rang appris le plus eleve avant les soins, l'entretien et les degats lorsque l'option rang 1 est desactivee.", pt = "Usa o nível aprendido mais alto antes de cura, manutenção e dano quando a opção de nível 1 está desativada.", es = "Usa el rango aprendido más alto antes de sanación, mantenimiento y daño cuando la opción de rango 1 está desactivada.", de = "Nutzt den höchsten erlernten Rang vor Heilung, Pflege und Schaden, wenn die Rang-1-Option ausgeschaltet ist.", zh = "关闭1级打断选项时，在治疗、维持和伤害之前使用已学会的最高等级。" }, true)
 	Check(offense, "earthShockTag",
 		{ en = "Earth Shock to tag a target", fr = "Earth Shock pour engager une cible", pt = "Earth Shock para iniciar no alvo", es = "Earth Shock para iniciar contra el objetivo", de = "Earth Shock zum Anpullen", zh = "用 Earth Shock 抢怪起手" }, "Earth Shock",
 		{ en = "Optional opener before combat. Suggest Earth Shock once per enemy when learned, ready and in range. Selecting it clears the Flame Shock opener; both may be off.", fr = "Ouverture facultative avant le combat. Suggere Earth Shock une fois par ennemi. Le selectionner desactive l'ouverture Flame Shock; les deux peuvent etre desactives.", pt = "Abertura opcional antes do combate. Sugere Earth Shock uma vez por inimigo. Selecioná-lo desativa a abertura com Flame Shock; ambos podem ficar desativados.", es = "Inicio opcional antes del combate. Sugiere Earth Shock una vez por enemigo. Seleccionarlo desactiva el inicio con Flame Shock; ambos pueden estar desactivados.", de = "Optionaler Auftakt vor dem Kampf. Earth Shock wird einmal pro Gegner empfohlen. Die Auswahl deaktiviert den Flame-Shock-Auftakt; beide können aus sein.", zh = "可选战前起手：每个敌人建议一次 Earth Shock。选择后会关闭 Flame Shock 起手；两者也可同时关闭。" }, true,
@@ -253,7 +261,7 @@ local function BuildShamanUI(page, ui)
 		{ en = "AoE totems require a confirmed nearby enemy count.", fr = "Les totems AoE exigent un nombre confirme d'ennemis proches.", pt = "Totens AoE exigem uma contagem confirmada de inimigos próximos.", es = "Los tótems AoE requieren un número confirmado de enemigos cercanos.", de = "AoE-Totems brauchen eine bestätigte Anzahl naher Gegner.", zh = "AoE 图腾需要已确认的附近敌人数量。" })
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	Check(aoe, "firenova", "Fire Nova", "Fire Nova",
-		"With AoE On, places learned Searing Totem first and only uses learned Fire Nova after Searing Totem is confirmed active. Fire Nova does not require a detected enemy count; close range and the AoE mana threshold still apply. Caster Leveling uses learned Chain Lightning only while stationary and after the selected enemy-count threshold is confirmed.")
+		"With AoE On, Fire Nova obeys the selected enemy-count and mana thresholds. It is suggested only while Searing Totem is confirmed active and the Shaman remains within its 30-yard cast range. Searing Totem remains available for a single target. A failed or repeated Fire Nova recommendation pauses for one GCD before retrying.")
 	Check(aoe, "magma", "Magma Totem", "Magma Totem")
 	Slider(aoe, "aoeMinEnemies",
 		{ en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Mínimo de enemigos", de = "Mindestanzahl Gegner", zh = "最少敌人数" }, 2, 5, 2, "")

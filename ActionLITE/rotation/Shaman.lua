@@ -8,6 +8,195 @@ local ADDON, AL = ...
 do
     local root = AL
     local leveling, advanced
+    local RANK_ONE_EARTH_SHOCK = "Earth Shock (Rank 1)"
+    local RANK_ONE_EARTH_SHOCK_ID = 8042
+    local FIRE_NOVA_CAST_RANGE = 30
+    local FIRE_NOVA_GCD_FALLBACK = 1.5
+    local fireNovaState = {
+        placement = nil,
+        suggestionStartedAt = nil,
+        skipUntil = 0,
+    }
+    local lightningShieldExpires
+    local rankOneIconWarnings = setmetatable({}, { __mode = "k" })
+
+    local function PublicNumber(value)
+        if issecretvalue and issecretvalue(value) then return nil end
+        if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then return nil end
+        return value
+    end
+
+    local function PublicBoolean(value)
+        if issecretvalue and issecretvalue(value) then return nil end
+        if type(value) == "boolean" then return value end
+        if value == 1 then return true end
+        if value == 0 then return false end
+    end
+
+    local function TargetBeyondTwentyYards()
+        if type(UnitDistanceSquared) == "function" then
+            local ok, distance, checked = pcall(UnitDistanceSquared, "target")
+            distance, checked = ok and PublicNumber(distance) or nil, ok and PublicBoolean(checked) or nil
+            if distance and checked ~= false then return distance >= 20 * 20 end
+        end
+        local action = _G.Action
+        if action and action.Unit then
+            local okUnit, object = pcall(action.Unit, "target")
+            if not okUnit then okUnit, object = pcall(action.Unit, action, "target") end
+            if okUnit and object and type(object.GetRange) == "function" then
+                local okRange, lower, upper = pcall(object.GetRange, object)
+                if okRange then
+                    lower, upper = PublicNumber(lower), PublicNumber(upper)
+                    if lower and upper then
+                        if lower >= 20 then return true end
+                        if upper <= 20 then return false end
+                    elseif lower then
+                        return lower >= 20
+                    end
+                end
+            end
+        end
+        if type(root.InRange) == "function" then
+            local okShock, shock = pcall(root.InRange, "Earth Shock")
+            local okBolt, bolt = pcall(root.InRange, "Lightning Bolt")
+            shock = okShock and PublicBoolean(shock) or nil
+            bolt = okBolt and PublicBoolean(bolt) or nil
+            if shock == false and bolt ~= false then return true end
+        end
+        return false
+    end
+
+    local function PublicPosition(unit)
+        if type(UnitPosition) ~= "function" then return nil end
+        local ok, x, y, z, instance = pcall(UnitPosition, unit)
+        if not ok then return nil end
+        x, y, z, instance = PublicNumber(x), PublicNumber(y), PublicNumber(z), PublicNumber(instance)
+        if not x or not y then return nil end
+        return x, y, z, instance
+    end
+
+    local function RecordFireTotemPlacement()
+        local x, y, z, instance = PublicPosition("player")
+        fireNovaState.placement = x and {
+            x = x, y = y, z = z, instance = instance, at = GetTime(),
+        } or nil
+    end
+
+    local function FireTotemInCastRange()
+        local placed = fireNovaState.placement
+        if not placed then return false end
+        local x, y, z, instance = PublicPosition("player")
+        if not x or not y then return false end
+        if placed.instance and instance and placed.instance ~= instance then return false end
+        local dz = placed.z and z and (z - placed.z) or 0
+        local dx, dy = x - placed.x, y - placed.y
+        return dx * dx + dy * dy + dz * dz <= FIRE_NOVA_CAST_RANGE * FIRE_NOVA_CAST_RANGE
+    end
+
+    local function CurrentGCD()
+        local reader = C_Spell and C_Spell.GetSpellCooldown
+        if type(reader) == "function" then
+            local ok, info = pcall(reader, 61304)
+            if ok and type(info) == "table" and not (issecretvalue and issecretvalue(info)) then
+                local duration, rate = PublicNumber(info.duration), PublicNumber(info.modRate) or 1
+                if duration and duration >= 0.75 and duration <= 2.5 and rate > 0 then
+                    return duration / rate
+                end
+            end
+        end
+        return FIRE_NOVA_GCD_FALLBACK
+    end
+
+    local function ResetFireNovaSuggestion(clearSkip)
+        fireNovaState.suggestionStartedAt = nil
+        if clearSkip then fireNovaState.skipUntil = 0 end
+    end
+
+    local function FireNovaSuggestionAllowed()
+        local now = GetTime()
+        if now < (fireNovaState.skipUntil or 0) then return false end
+        local started = fireNovaState.suggestionStartedAt
+        if started and now - started >= CurrentGCD() then
+            fireNovaState.suggestionStartedAt = nil
+            fireNovaState.skipUntil = now + CurrentGCD()
+            return false
+        end
+        return true
+    end
+
+    local function MarkFireNovaSuggested()
+        fireNovaState.suggestionStartedAt = fireNovaState.suggestionStartedAt or GetTime()
+    end
+
+    local function SuppressFireNovaForGCD()
+        fireNovaState.suggestionStartedAt = nil
+        fireNovaState.skipUntil = GetTime() + CurrentGCD()
+    end
+
+    local function LightningShieldNeedsRefresh()
+        local now = GetTime()
+        if type(root.BuffRemaining) == "function" then
+            local ok, remaining = pcall(root.BuffRemaining, "player", "Lightning Shield")
+            remaining = ok and PublicNumber(remaining) or nil
+            if remaining == 0 then
+                lightningShieldExpires = nil
+                return true
+            end
+            -- Core's name-only aura sweep can see that the shield is active,
+            -- but it cannot read the original expiration and therefore keeps
+            -- presenting a fresh ten-minute fallback. Capture that estimate
+            -- only once; successful casts below always replace it exactly.
+            if not lightningShieldExpires and remaining and remaining > 0 then
+                lightningShieldExpires = now + math.min(remaining, 600)
+            end
+        end
+        if lightningShieldExpires then
+            return lightningShieldExpires - now <= 1
+        end
+        local ok, active = pcall(root.HasBuff, "player", "Lightning Shield")
+        if ok and active == true then
+            lightningShieldExpires = now + 600
+            return false
+        end
+        return true
+    end
+
+    local function RankOneIconReady(profile)
+        if type(profile) ~= "table" or type(profile.icons) ~= "table" then return false end
+        if not profile.icons[RANK_ONE_EARTH_SHOCK] then return false end
+        return type(root.SlotFor) == "function" and root.SlotFor(RANK_ONE_EARTH_SHOCK, profile) == 6
+    end
+
+    local function EnsureRankOneEarthShockIcon(profile)
+        if type(profile) ~= "table" then return false end
+		if profile == root.defaults or type(ActionLiteDB) ~= "table" then return false end
+        if RankOneIconReady(profile) then return true end
+        if type(root.SetIconChoice) ~= "function" then return false end
+        local preferred
+        for _, choice in ipairs(root.UNIVERSAL_CHOICES or {}) do
+            if choice.slot == 6 and choice.number == 10 then preferred = choice; break end
+        end
+        if not preferred then return false end
+        local accepted, owner = root.SetIconChoice(RANK_ONE_EARTH_SHOCK, preferred, profile)
+        if accepted then return true end
+        if owner and profile.rankOneEarthShockInterrupt == true
+            and not rankOneIconWarnings[profile] and type(root.Say) == "function" then
+            rankOneIconWarnings[profile] = true
+            root.Say("Universal10 Unit1 is assigned to " .. owner
+                .. ". Choose an available Unit1 icon for Earth Shock (Rank 1) in Spells.")
+        end
+        return false
+    end
+
+    local function RefreshRankOneEarthShock(profile)
+        if type(root.known) == "table" then
+            root.known[RANK_ONE_EARTH_SHOCK] = root.known["Earth Shock"] and true or nil
+        end
+        if root.known and root.known[RANK_ONE_EARTH_SHOCK] and type(root.rangeSpellRefs) == "table" then
+            root.rangeSpellRefs[RANK_ONE_EARTH_SHOCK] = { id = RANK_ONE_EARTH_SHOCK_ID }
+        end
+        return EnsureRankOneEarthShockIcon(profile)
+    end
     local function UsesLeveling(profile)
         profile = profile or (root.Profile and root.Profile("SHAMAN")) or (root.S and root.S())
         if advanced and type(profile) == "table" then
@@ -62,6 +251,7 @@ local M = {
 		waterTotemMode = "AUTO",
 		searing = true,
 		interrupt = true,
+		rankOneEarthShockInterrupt = false,
 		flameshock = true,
 		earthshock = true,
 		earthShockTag = false,
@@ -105,6 +295,7 @@ M.spells = {
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	{ 421, "Chain Lightning" },
 	{ 8042, "Earth Shock" },
+	{ 8042, RANK_ONE_EARTH_SHOCK, exactRank = true, baseName = "Earth Shock" },
 	{ 2484, "Earthbind Totem" },
 	{ 6196, "Far Sight" },
 	{ 408341, "Fire Nova" },
@@ -185,6 +376,7 @@ end
 
 local SHOCKS = {
 	["Earth Shock"] = true,
+	[RANK_ONE_EARTH_SHOCK] = true,
 	["Flame Shock"] = true,
 	["Frost Shock"] = true,
 }
@@ -541,7 +733,7 @@ local function UpdateTrackedManaRegen()
     trackedMana = math.min(trackedManaMax, math.max(0, trackedMana + gain))
 end
 
-local function SpellManaCost(spellName)
+local function SpellManaCost(spellName, spellID)
 	if type(spellName) ~= "string" or spellName == "" then return 0 end
 
 	local identifiers = {}
@@ -552,6 +744,9 @@ local function SpellManaCost(spellName)
 		seen[value] = true
 		identifiers[#identifiers + 1] = value
 	end
+
+	-- SENT exposes the exact rank even when the stable cast name is shared.
+	AddIdentifier(spellID)
 
 	-- Prefer Core's exact learned-rank reference.
 	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[spellName]
@@ -599,13 +794,13 @@ local function SpellManaCost(spellName)
 	return nil
 end
 
-local function SpendTrackedMana(spellName, sentCost)
+local function SpendTrackedMana(spellName, sentCost, spellID)
 	if not EnsureTrackedMana() then return end
 
 	UpdateTrackedManaRegen()
 
 	local cost = ReadableNumber(sentCost)
-	if cost == nil or cost < 0 then cost = SpellManaCost(spellName) end
+	if cost == nil or cost < 0 then cost = SpellManaCost(spellName, spellID) end
 	if cost == nil then trackedCostsKnown, trackedSource = false, "unreadable spell cost" end
 	trackedLastSpell = spellName
 	trackedLastCost = cost or 0
@@ -1138,7 +1333,9 @@ local function Heal(s, hp, mana, inCombat, moving)
 end
 
 local function Maintenance(s, role, inCombat, moving)
-    if Enabled(s, "shield") and not AL.HasBuff("player", "Lightning Shield") then Offer("Lightning Shield", "Shield", nil, true) end
+    if Enabled(s, "shield") and LightningShieldNeedsRefresh() then
+        Offer("Lightning Shield", inCombat and "Refresh shield" or "Shield", nil, true)
+    end
     if not inCombat and not moving and Enabled(s, "weapon") then
         local preferred = PreferredWeapon(s, role)
         if preferred and MainHandEnchantState(preferred) == false then Offer(preferred, "Weapon enchant", nil, true) end
@@ -1159,15 +1356,24 @@ local function MaintainCombatTotems(s, role, targetHP, snapshot)
     if Enabled(s,"searing") and not ActiveTotemFrom("FIRE",snapshot) then Offer("Searing Totem", "Fire totem", gates) end
 end
 
-local function FireNovaWithSearing(s, mana, snapshot, nearby, reason)
-	if not Enabled(s,"aoe") or not Enabled(s,"firenova") or not nearby then return end
-	local manaGate = ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false)
-	if snapshot["Searing Totem"] then
-		Offer("Fire Nova", reason, { manaGate })
-	else
-		-- Fire Nova is only valid after this exact fire totem is confirmed active.
-		Offer("Searing Totem", "Fire Nova setup", { manaGate })
+local function FireNovaWithSearing(s, mana, snapshot, count, reason)
+	local minimum = SettingNumber(s,"aoeMinEnemies",2,2,5)
+	if not Enabled(s,"aoe") or not Enabled(s,"firenova") or not count or count < minimum then
+		ResetFireNovaSuggestion()
+		return
 	end
+	-- Searing Totem remains normal single-target maintenance. Fire Nova alone
+	-- requires the AoE slider, the exact active fire totem and a confirmed
+	-- player position within its thirty-yard cast range.
+	if not snapshot["Searing Totem"] or not FireTotemInCastRange() then
+		ResetFireNovaSuggestion()
+		return
+	end
+	if not FireNovaSuggestionAllowed() then return end
+	local offered = Offer("Fire Nova", reason, {
+		ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false),
+	})
+	if offered then MarkFireNovaSuggested() else ResetFireNovaSuggestion() end
 end
 
 local function AoEDamage(s, role, mana, count, snapshot, targetHP, moving)
@@ -1176,11 +1382,6 @@ local function AoEDamage(s, role, mana, count, snapshot, targetHP, moving)
 	local damageGates = { manaGate }
 	local totemGates = { manaGate,
 		HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
-	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	-- AoE On requests Searing Totem first, then Fire Nova only while that exact
-	-- totem is confirmed active. Enemy counting remains mandatory only for
-	-- Chain Lightning and Magma Totem.
-	FireNovaWithSearing(s, mana, snapshot, InMelee(), "Close-range AoE")
 	if not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
 	if role == "ELEMENTAL" and not moving then Offer("Chain Lightning", "Ranged AoE", damageGates) end
 	if InMelee() and Enabled(s,"magma") and not snapshot["Magma Totem"] and not snapshot["?FIRE"] then
@@ -1203,7 +1404,7 @@ end
 
 local function LightningBolt(s, mana, moving, reason)
     if Enabled(s,"lightningbolt") and not moving then
-        Offer("Lightning Bolt", reason, { ManaGate(mana,SettingNumber(s,"lightningBoltMinMana",15,0,100),false) },false,true)
+        Offer("Lightning Bolt", reason, { ManaGate(mana,SettingNumber(s,"lightningBoltMinMana",15,0,100),false) })
     end
 end
 
@@ -1235,13 +1436,18 @@ local function Damage(s, role, mana, targetHP, moving)
 end
 
 function M.NextSpell(s, inCombat, hostile)
+    RefreshRankOneEarthShock(s)
     lastRotation = { at=GetTime(), actions={} }
     local role, moving, mana = Role(s), PlayerMoving(), GateManaPercent()
     local hp, targetHP = HealthPercent("player"), hostile and HealthPercent("target") or nil
     if PlayerIsCastingOrChanneling() then AddAction(nil,"Casting")
     else
-        if inCombat and hostile and Enabled(s,"interrupt") and Bool((SafeCall(AL.TargetCasting))) == true then
-            Offer("Earth Shock","Interrupt")
+        if inCombat and hostile and Bool((SafeCall(AL.TargetCasting))) == true then
+            if Enabled(s,"rankOneEarthShockInterrupt") then
+                if RankOneIconReady(s) then Offer(RANK_ONE_EARTH_SHOCK,"Rank 1 interrupt") end
+            elseif Enabled(s,"interrupt") then
+                Offer("Earth Shock","Interrupt")
+            end
         end
         Heal(s,hp,mana,inCombat,moving)
         if inCombat and hostile and Enabled(s,"stoneclaw") then
@@ -1251,6 +1457,17 @@ function M.NextSpell(s, inCombat, hostile)
             end
         end
         Maintenance(s,role,inCombat,moving)
+        -- Fire Nova is the first hostile damage check while AoE is active.
+        -- This keeps Lightning Bolt as a true ranged fallback instead of
+        -- letting an unconditional Bolt hide an eligible totem cast.
+        if inCombat and hostile and Enabled(s,"aoe") then
+            local novaSnapshot = TotemSnapshot()
+            local novaCount = EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5),10)
+            FireNovaWithSearing(s,mana,novaSnapshot,novaCount,"AoE Fire Nova")
+        end
+        if inCombat and hostile and TargetBeyondTwentyYards() then
+            LightningBolt(s,mana,moving,"Long-range fallback")
+        end
         if hostile then
             local melee = InMelee()
             if not inCombat then
@@ -1269,8 +1486,9 @@ function M.NextSpell(s, inCombat, hostile)
             else
                 Burst(s,role,targetHP)
                 local snapshot = TotemSnapshot()
-				local radius = role == "ELEMENTAL" and 36 or 8
-				local count = Enabled(s,"aoe") and EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5), radius) or nil
+				local minimum = SettingNumber(s,"aoeMinEnemies",2,2,5)
+				local count = role == "ELEMENTAL" and Enabled(s,"aoe") and EnemyCount(minimum,36)
+					or Enabled(s,"aoe") and EnemyCount(minimum,10) or nil
 				AoEDamage(s,role,mana,count,snapshot,targetHP,moving)
                 MaintainCombatTotems(s,role,targetHP,snapshot)
                 Damage(s,role,mana,targetHP,moving)
@@ -1293,12 +1511,22 @@ end
 function M.OnTargetChanged()
     taggedCurrentTarget = false
     flameShockFallbackUntil = 0
+    ResetFireNovaSuggestion()
     lastRotation, AL.rotationSecretVisual = nil, nil
 end
 
 function M.OnCastResult(name, result, sent)
+	if name == "Fire Nova" and result ~= "UNIT_SPELLCAST_SUCCEEDED" then
+		SuppressFireNovaForGCD()
+		return
+	end
     if result ~= "UNIT_SPELLCAST_SUCCEEDED" or not name then return end
     local now = GetTime()
+	if name == "Fire Nova" then ResetFireNovaSuggestion(true) end
+	if name == "Lightning Shield" then lightningShieldExpires = now + 600 end
+	if name == "Searing Totem" or name == "Totemic Call" or name == "Call of the Elements" then
+		RecordFireTotemPlacement()
+	end
 	if name == "Earth Shock" or name == "Flame Shock" then
         local guid = SafeValue(sent) and type(sent) == "table" and sent.targetGUID or nil
         if not (SafeValue(guid) and type(guid) == "string" and guid ~= "") then
@@ -1341,7 +1569,10 @@ function M.OnCastResult(name, result, sent)
         SaveTrackedWeapon()
     end
     local element = TOTEM_ELEMENT[name]
-	if element then trackedTotems[element] = { name=name, at=now, expires=now+TotemFallbackDuration(name) } end
+	if element then
+		trackedTotems[element] = { name=name, at=now, expires=now+TotemFallbackDuration(name) }
+		if element == "FIRE" and name ~= "Searing Totem" then fireNovaState.placement = nil end
+	end
 end
 
 function M.GetUIState()
@@ -1363,7 +1594,7 @@ function M.RefreshManaCache()
     EnsureTrackedMana(); RefreshManaRegen(); RefreshManaSensor()
 end
 
-function M.OnManaCastSent(name)
+function M.OnManaCastSent(name, spellID)
     castSentCount = castSentCount + 1
     local pct = LiveManaPercent()
     if pct ~= nil and EnsureTrackedMana() then
@@ -1372,7 +1603,7 @@ function M.OnManaCastSent(name)
         trackedManaUpdatedAt = GetTime()
     end
     lastSentCastName, lastSentCastAt = name, GetTime()
-    return { cost = name and SpellManaCost(name), at=GetTime() }
+	return { cost = name and SpellManaCost(name, spellID), id = spellID, at=GetTime() }
 end
 
 function M.OnManaCastSucceeded(name, id, guid, sent)
@@ -1385,9 +1616,9 @@ function M.OnManaCastSucceeded(name, id, guid, sent)
         trackedCostsKnown = true
         trackedMana = trackedManaMax * pct / 100
         trackedManaUpdatedAt, trackedSource = GetTime(), "successful-cast readable mana"
-        trackedLastSpell, trackedLastCost = name, (sent and sent.mana and sent.mana.cost) or SpellManaCost(name) or 0
+		trackedLastSpell, trackedLastCost = name, (sent and sent.mana and sent.mana.cost) or SpellManaCost(name, id) or 0
     else
-        SpendTrackedMana(name, sent and sent.mana and sent.mana.cost)
+		SpendTrackedMana(name, sent and sent.mana and sent.mana.cost, id)
     end
 end
 
@@ -1401,6 +1632,9 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
     if event == "PLAYER_STARTED_MOVING" then movementEventActive = true
     elseif event == "PLAYER_STOPPED_MOVING" then movementEventActive = false
     elseif event == "PLAYER_DEAD" or event == "PLAYER_ENTERING_WORLD" then
+		fireNovaState.placement = nil
+		ResetFireNovaSuggestion(true)
+		lightningShieldExpires = nil
         trackedMana, trackedManaMax, trackedManaUpdatedAt, trackedLastSpendAt = nil, nil, nil, nil
         trackedCostsKnown, trackedSource = true, "uninitialized"
         trackedLastSpell, trackedLastCost, eventManaPct, eventManaAt = nil, 0, nil, nil
@@ -1419,6 +1653,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
             if not identity or not trackedWeaponIdentity or identity ~= trackedWeaponIdentity then ClearTrackedWeapon(true) end
         end
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+		if event == "PLAYER_REGEN_ENABLED" then ResetFireNovaSuggestion(true) end
         if event == "PLAYER_REGEN_ENABLED" then taggedByGUID, taggedCurrentTarget = {}, false end
         if event == "PLAYER_REGEN_ENABLED" then RefreshCallOfFlameRank() end
         M.RefreshManaCache()
@@ -1580,6 +1815,7 @@ local M = {
 		waterTotemMode = "AUTO",
 		searing = true,
 		interrupt = true,
+		rankOneEarthShockInterrupt = false,
 		flameshock = true,
 		earthshock = true,
 		frostshock = true,
@@ -1644,6 +1880,7 @@ M.spells = {
 	{ 556, "Astral Recall" },
 	{ 526, "Cure Poison" },
 	{ 8042, "Earth Shock" },
+	{ 8042, RANK_ONE_EARTH_SHOCK, exactRank = true, baseName = "Earth Shock" },
 	{ 2484, "Earthbind Totem" },
 	{ 6196, "Far Sight" },
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -1735,6 +1972,7 @@ end
 
 local SHOCKS = {
 	["Earth Shock"] = true,
+	[RANK_ONE_EARTH_SHOCK] = true,
 	["Flame Shock"] = true,
 	["Frost Shock"] = true,
 }
@@ -2042,7 +2280,7 @@ local function UpdateTrackedManaRegen()
     trackedMana = math.min(trackedManaMax, math.max(0, trackedMana + gain))
 end
 
-local function SpellManaCost(spellName)
+local function SpellManaCost(spellName, spellID)
 	if type(spellName) ~= "string" or spellName == "" then return 0 end
 
 	local identifiers = {}
@@ -2053,6 +2291,9 @@ local function SpellManaCost(spellName)
 		seen[value] = true
 		identifiers[#identifiers + 1] = value
 	end
+
+	-- SENT exposes the exact rank even when the stable cast name is shared.
+	AddIdentifier(spellID)
 
 	-- Prefer Core's exact learned-rank reference.
 	local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[spellName]
@@ -2100,13 +2341,13 @@ local function SpellManaCost(spellName)
 	return nil
 end
 
-local function SpendTrackedMana(spellName, sentCost)
+local function SpendTrackedMana(spellName, sentCost, spellID)
 	if not EnsureTrackedMana() then return end
 
 	UpdateTrackedManaRegen()
 
 	local cost = ReadableNumber(sentCost)
-	if cost == nil or cost < 0 then cost = SpellManaCost(spellName) end
+	if cost == nil or cost < 0 then cost = SpellManaCost(spellName, spellID) end
 	if cost == nil then trackedCostsKnown, trackedSource = false, "unreadable spell cost" end
 	trackedLastSpell = spellName
 	trackedLastCost = cost or 0
@@ -2785,7 +3026,8 @@ local function Maintenance(s, role, inCombat, moving)
         local shield = Enabled(s,"elemental") and Enabled(s,"elementalWaterShield") and Ok("Water Shield") and "Water Shield"
             or high and role == "ELEMENTAL" and AL.DPS60.Known("Water Shield") and "Water Shield" or "Lightning Shield"
         local missing
-        if Enabled(s,"elemental") then missing=not ElementalShieldActive(shield)
+        if shield == "Lightning Shield" then missing=LightningShieldNeedsRefresh()
+        elseif Enabled(s,"elemental") then missing=not ElementalShieldActive(shield)
         else missing=high and AL.DPS60.Missing(shield, false) or not high and not AL.HasBuff("player",shield) end
         if missing then Offer(shield, "Shield", nil, true) end
     end
@@ -2817,21 +3059,26 @@ local function MaintainCombatTotems(s, role, targetHP, snapshot)
     if Enabled(s,"searing") and not ActiveTotemFrom("FIRE",snapshot) then Offer("Searing Totem", "Fire totem", gates) end
 end
 
-local function FireNovaWithSearing(s, mana, snapshot, nearby, reason)
-	if not Enabled(s,"aoe") or not Enabled(s,"firenova") or not nearby then return end
-	local manaGate = ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false)
-	if snapshot["Searing Totem"] then
-		Offer("Fire Nova", reason, { manaGate })
-	else
-		-- Fire Nova is only valid after this exact fire totem is confirmed active.
-		Offer("Searing Totem", "Fire Nova setup", { manaGate })
+local function FireNovaWithSearing(s, mana, snapshot, count, reason)
+	local minimum = SettingNumber(s,"aoeMinEnemies",2,2,5)
+	if not Enabled(s,"aoe") or not Enabled(s,"firenova") or not count or count < minimum then
+		ResetFireNovaSuggestion()
+		return
 	end
+	if not snapshot["Searing Totem"] or not FireTotemInCastRange() then
+		ResetFireNovaSuggestion()
+		return
+	end
+	if not FireNovaSuggestionAllowed() then return end
+	local offered = Offer("Fire Nova", reason, {
+		ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false),
+	})
+	if offered then MarkFireNovaSuggested() else ResetFireNovaSuggestion() end
 end
 
 local function AoETotem(s, mana, count, snapshot, targetHP)
 	if not Enabled(s,"aoe") then return end
 	local manaGate = ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false)
-	FireNovaWithSearing(s, mana, snapshot, InMelee(), "AoE Fire Nova")
 	if not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
 	local gates = { manaGate,
         HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
@@ -2852,7 +3099,7 @@ end
 
 local function LightningBolt(s, mana, moving, reason)
     if Enabled(s,"lightningbolt") and not moving then
-        Offer("Lightning Bolt", reason, { ManaGate(mana,SettingNumber(s,"lightningBoltMinMana",15,0,100),false) },false,true)
+        Offer("Lightning Bolt", reason, { ManaGate(mana,SettingNumber(s,"lightningBoltMinMana",15,0,100),false) })
     end
 end
 
@@ -2985,10 +3232,6 @@ local function EnhancementBurst(s,targetHP)
     if Enabled(s,"enhancementRacials") then Offer("Berserking","Enhancement Burst",gates) end
 end
 
-local function EnhancementFireNova(s,mana,snapshot)
-	FireNovaWithSearing(s,mana,snapshot,UnitWithin("target",8)==true,"Enhancement AoE")
-end
-
 local function EnhancementAoE(s,mana,count,snapshot,moving,instant)
     if not Enabled(s,"aoe") or not count or count<SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
     local gate=ManaGate(mana,SettingNumber(s,"aoeMinMana",30,0,100),false)
@@ -3009,16 +3252,18 @@ local function EnhancementDamage(s,inCombat,mana,targetHP,moving,melee)
         if not inCombat then return end
     end
     local shock=ManaGate(mana,SettingNumber(s,"shockMinMana",25,0,100),false)
+    local snapshot, count
+    if inCombat then
+        snapshot=TotemSnapshot()
+        count=Enabled(s,"aoe") and EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5),10) or nil
+    end
     if melee then
-        local snapshot=TotemSnapshot()
-		-- Fire Nova is the explicit AoE-On action and must precede ordinary
-		-- Enhancement maintenance and single-target attacks.
-		EnhancementFireNova(s,mana,snapshot)
+        snapshot=snapshot or TotemSnapshot()
+		count=count or (Enabled(s,"aoe") and EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5),10) or nil)
         EnhancementTotems(s,targetHP,snapshot)
         EnhancementBurst(s,targetHP)
         if Enabled(s,"stormstrike") then Offer("Stormstrike","Enhancement Stormstrike") end
         local instant=Enabled(s,"lightningbolt") and Enabled(s,"enhancementMaelstrom") and EnhancementInstantBolt()
-        local count=Enabled(s,"aoe") and EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5)) or nil
         EnhancementAoE(s,mana,count,snapshot,moving,instant)
         if instant then Offer("Lightning Bolt","Maelstrom Weapon",{ManaGate(mana,SettingNumber(s,"lightningBoltMinMana",15,0,100),false)}) end
         if Enabled(s,"totems") and Enabled(s,"searing") and not ActiveTotemFrom("FIRE",snapshot) then
@@ -3076,14 +3321,11 @@ local function ElementalDamage(s,inCombat,mana,targetHP,moving)
     local snapshot=TotemSnapshot()
     local minimum=SettingNumber(s,"aoeMinEnemies",2,2,5)
 	local closeTarget=Enabled(s,"aoe") and UnitWithin("target",8)==true
-	local closeCount=Enabled(s,"aoe") and EnemyCount(minimum) or nil
+	local closeCount=Enabled(s,"aoe") and EnemyCount(minimum,10) or nil
 	local closeAoE=closeTarget and closeCount and closeCount>=minimum
     local rangedCount=Enabled(s,"aoe") and Enabled(s,"elementalChainLightning") and EnemyCount(minimum,36) or nil
     local aoeMana=ManaGate(mana,SettingNumber(s,"aoeMinMana",30,0,100),false)
     local totemHP=HealthGate("target",targetHP,SettingNumber(s,"totemMinTargetHP",45,0,100),false)
-	-- Fire Nova follows the explicit AoE toggle without an enemy-count check,
-	-- but only after Searing Totem is confirmed active.
-	FireNovaWithSearing(s,mana,snapshot,closeTarget,"Elemental AoE nova")
     if Enabled(s,"totems") then
         local earth,water=PreferredEarthTotem(s,"ELEMENTAL"),PreferredWaterTotem(s,"ELEMENTAL")
         for _,choice in ipairs({{earth,"EARTH"},{water,"WATER"}}) do
@@ -3135,6 +3377,7 @@ end
 
 function M.NextSpell(s, inCombat, hostile)
     M.NormalizeBuild(s)
+    RefreshRankOneEarthShock(s)
     lastRotation = { at=GetTime(), actions={} }
     if not inCombat and Enabled(s,"elemental") then
         for _,name in ipairs({"Lightning Mastery","Water Shield","Blood Fury","Berserking"}) do
@@ -3145,8 +3388,12 @@ function M.NextSpell(s, inCombat, hostile)
     local hp, targetHP = HealthPercent("player"), hostile and HealthPercent("target") or nil
     if PlayerIsCastingOrChanneling() then AddAction(nil,"Casting")
     else
-        if inCombat and hostile and Enabled(s,"interrupt") and Bool((SafeCall(AL.TargetCasting))) == true then
-            Offer("Earth Shock","Interrupt")
+        if inCombat and hostile and Bool((SafeCall(AL.TargetCasting))) == true then
+            if Enabled(s,"rankOneEarthShockInterrupt") then
+                if RankOneIconReady(s) then Offer(RANK_ONE_EARTH_SHOCK,"Rank 1 interrupt") end
+            elseif Enabled(s,"interrupt") then
+                Offer("Earth Shock","Interrupt")
+            end
         end
         Heal(s,hp,mana,inCombat,moving)
         if inCombat and hostile and Enabled(s,"stoneclaw") then
@@ -3156,6 +3403,17 @@ function M.NextSpell(s, inCombat, hostile)
             end
         end
         Maintenance(s,role,inCombat,moving)
+        -- Resolve eligible Fire Nova before any ranged filler. If its mana
+        -- condition is protected, the visual plan still keeps Nova first only
+        -- in the bands where the selected AoE threshold is actually met.
+        if inCombat and hostile and Enabled(s,"aoe") then
+            local novaSnapshot = TotemSnapshot()
+            local novaCount = EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5),10)
+            FireNovaWithSearing(s,mana,novaSnapshot,novaCount,"AoE Fire Nova")
+        end
+        if inCombat and hostile and TargetBeyondTwentyYards() then
+            LightningBolt(s,mana,moving,"Long-range fallback")
+        end
         if hostile then
             local melee = InMelee()
             if Enabled(s,"elemental") then
@@ -3172,7 +3430,7 @@ function M.NextSpell(s, inCombat, hostile)
             else
                 Burst(s,role,targetHP)
                 local snapshot = TotemSnapshot()
-                local count = Enabled(s,"aoe") and EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5)) or nil
+                local count = Enabled(s,"aoe") and EnemyCount(SettingNumber(s,"aoeMinEnemies",2,2,5),10) or nil
                 AoETotem(s,mana,count,snapshot,targetHP)
                 MaintainCombatTotems(s,role,targetHP,snapshot)
                 Damage(s,role,mana,targetHP,moving)
@@ -3193,12 +3451,22 @@ function M.CanTrackSuggestedSpell(name)
 end
 
 function M.OnTargetChanged()
+    ResetFireNovaSuggestion()
     lastRotation, AL.rotationSecretVisual, enh.flameBlocked, enh.flameFallbackUntil = nil, nil, nil, 0
 end
 
 function M.OnCastResult(name, result, sent)
+	if name == "Fire Nova" and result ~= "UNIT_SPELLCAST_SUCCEEDED" then
+		SuppressFireNovaForGCD()
+		return
+	end
     if result ~= "UNIT_SPELLCAST_SUCCEEDED" or not name then return end
     local now = GetTime()
+	if name == "Fire Nova" then ResetFireNovaSuggestion(true) end
+	if name == "Lightning Shield" then lightningShieldExpires = now + 600 end
+	if name == "Searing Totem" or name == "Totemic Call" or name == "Call of the Elements" then
+		RecordFireTotemPlacement()
+	end
     if enh.duplicateAt==now and enh.duplicateName==name then return end
     local duration=ENH_COOLDOWNS[name]
     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -3240,6 +3508,7 @@ function M.OnCastResult(name, result, sent)
             elseif name=="Strength of Earth Totem" or name=="Stoneskin Totem" or name=="Mana Spring Totem" or name=="Healing Stream Totem" then duration=300 end
         end
         trackedTotems[element] = { name=name, at=now, expires=now+duration }
+		if element == "FIRE" and name ~= "Searing Totem" then fireNovaState.placement = nil end
     end
 end
 
@@ -3271,7 +3540,7 @@ function M.RefreshManaCache()
     EnsureTrackedMana(); RefreshManaRegen(); RefreshManaSensor()
 end
 
-function M.OnManaCastSent(name)
+function M.OnManaCastSent(name, spellID)
     castSentCount = castSentCount + 1
     local pct = LiveManaPercent()
     if pct ~= nil and EnsureTrackedMana() then
@@ -3280,7 +3549,7 @@ function M.OnManaCastSent(name)
         trackedManaUpdatedAt = GetTime()
     end
     lastSentCastName, lastSentCastAt = name, GetTime()
-    return { cost = name and SpellManaCost(name), at=GetTime() }
+	return { cost = name and SpellManaCost(name, spellID), id = spellID, at=GetTime() }
 end
 
 function M.OnManaCastSucceeded(name, id, guid, sent)
@@ -3311,9 +3580,9 @@ function M.OnManaCastSucceeded(name, id, guid, sent)
         trackedCostsKnown = true
         trackedMana = trackedManaMax * pct / 100
         trackedManaUpdatedAt, trackedSource = GetTime(), "successful-cast readable mana"
-        trackedLastSpell, trackedLastCost = name, (sent and sent.mana and sent.mana.cost) or SpellManaCost(name) or 0
+		trackedLastSpell, trackedLastCost = name, (sent and sent.mana and sent.mana.cost) or SpellManaCost(name, id) or 0
     else
-        SpendTrackedMana(name, sent and sent.mana and sent.mana.cost)
+		SpendTrackedMana(name, sent and sent.mana and sent.mana.cost, id)
     end
 end
 
@@ -3332,6 +3601,9 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
     elseif event == "PLAYER_STARTED_MOVING" then movementEventActive = true
     elseif event == "PLAYER_STOPPED_MOVING" then movementEventActive = false
     elseif event == "PLAYER_DEAD" or event == "PLAYER_ENTERING_WORLD" then
+		fireNovaState.placement = nil
+		ResetFireNovaSuggestion(true)
+		lightningShieldExpires = nil
         enh.shield,enh.shieldBlocked=nil,nil
         enh.masteryAt,enh.masteryUntil=nil,0
         enh.clearBlocked,enh.clearConsumeAt=nil,nil
@@ -3352,6 +3624,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
             if not identity or not trackedWeaponIdentity or identity ~= trackedWeaponIdentity then ClearTrackedWeapon(true) end
         end
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+		if event == "PLAYER_REGEN_ENABLED" then ResetFireNovaSuggestion(true) end
         enh.shieldBlocked,enh.clearBlocked=nil,nil
         M.RefreshManaCache()
         if event == "PLAYER_REGEN_ENABLED" then RefreshEnhancementTalents() end
@@ -4164,6 +4437,27 @@ AL.RegisterRotation("SHAMAN", M)
         shamanHealing.manaTideUntil = 0
         shamanHealing.friendlyDetourUntil = 0
     end)
+
+    -- Rank 1 Earth Shock is a separate Universal-only action. Its exact ID,
+    -- icon destination and watchdog alias stay isolated from every normal
+    -- Earth Shock opener, damage and interrupt path.
+    advanced.iconRequirements = advanced.iconRequirements or {}
+    advanced.iconRequirements[RANK_ONE_EARTH_SHOCK] = {
+        universalOnly = true,
+        slot = 6,
+        defaultNumber = 10,
+    }
+    function advanced.EnsureRequiredIcons(profile)
+        return EnsureRankOneEarthShockIcon(profile)
+    end
+    function advanced.RefreshVirtualActions(profile)
+        return RefreshRankOneEarthShock(profile)
+    end
+    function advanced.WatchdogCastAction(suggested, actual, arg2, arg3, arg4)
+        if suggested ~= RANK_ONE_EARTH_SHOCK or actual ~= "Earth Shock" then return nil end
+        local id = PublicNumber(arg4) or PublicNumber(arg3) or PublicNumber(arg2)
+        if id == nil or id == RANK_ONE_EARTH_SHOCK_ID then return RANK_ONE_EARTH_SHOCK end
+    end
 
     root.RegisterRotation("SHAMAN", advanced)
 end

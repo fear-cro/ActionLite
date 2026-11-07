@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-AL.buildId = "1.1.7-20261106"
+AL.buildId = "1.1.7-20261107"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -219,6 +219,21 @@ function ActionLite_Queue(spell)
 	if type(spell) ~= "string" or spell == "" then return end
 	if issecretvalue and issecretvalue(spell) then return end
 	spell = (AL.englishNames and AL.englishNames[spell]) or spell
+	local module = AL.rotations and AL.rotations[AL.playerClass]
+	local requirement = module and type(module.iconRequirements) == "table"
+		and module.iconRequirements[spell] or nil
+	if requirement then
+		local profile = AL.S()
+		local choice = type(AL.IconChoice) == "function" and AL.IconChoice(spell, profile) or nil
+		local slot = type(AL.SlotFor) == "function" and AL.SlotFor(spell, profile) or nil
+		if (requirement.universalOnly and not choice)
+			or (requirement.slot and slot ~= requirement.slot) then
+			if type(AL.Say) == "function" then
+				AL.Say(spell .. " requires an assigned Unit1 Universal icon before it can be queued.")
+			end
+			return
+		end
+	end
 	local say = not AL.S().noprint
 	for i, q in ipairs(AL.queue) do
 		if q.spell == spell then
@@ -2007,6 +2022,20 @@ local function EnglishCastName(...)
 	return name and ((AL.englishNames and AL.englishNames[name]) or name)
 end
 
+-- A rank-specific Universal action may intentionally use a distinct display
+-- key while the client reports the shared base spell name. Let that class
+-- module match only the currently displayed action; ordinary casts keep their
+-- canonical names and watchdog scope.
+local function WatchdogCastAction(name, arg2, arg3, arg4)
+	local suggested = AL.lastSuggestion
+	if type(suggested) ~= "string" or (issecretvalue and issecretvalue(suggested)) then return name end
+	local mod = AL.rotations and AL.rotations[AL.playerClass]
+	if not mod or type(mod.WatchdogCastAction) ~= "function" then return name end
+	local ok, mapped = pcall(mod.WatchdogCastAction, suggested, name, arg2, arg3, arg4)
+	if ok and type(mapped) == "string" and not (issecretvalue and issecretvalue(mapped)) then return mapped end
+	return name
+end
+
 local UTILITY_CURSES = {
 	["Curse of Weakness"] = true, ["Curse of Recklessness"] = true,
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -2027,7 +2056,7 @@ local function WatchSpellAttempt(event, arg2, arg3, arg4)
 		and event ~= "UNIT_SPELLCAST_CHANNEL_START" and event ~= "UNIT_SPELLCAST_SUCCEEDED"
 		and event ~= "UNIT_SPELLCAST_FAILED" and event ~= "UNIT_SPELLCAST_FAILED_QUIET"
 		and event ~= "UNIT_SPELLCAST_INTERRUPTED" then return end
-	local name = EnglishCastName(arg2, arg3, arg4)
+	local name = WatchdogCastAction(EnglishCastName(arg2, arg3, arg4), arg2, arg3, arg4)
 	local guid = ReadCastGUID(arg2)
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
 	-- If an actual key press/cast event reaches the client, this is no longer a
@@ -2784,7 +2813,19 @@ function AL.ScanSpellbook()
 		local mod = AL.rotations[AL.playerClass]
 		for _, entry in ipairs(mod and mod.spells or {}) do
 			local id, english = entry[1], entry[2]
-			if id == 0 and type(english) == "string" then
+			local exactRank = entry.exactRank == true and type(entry.baseName) == "string"
+			if exactRank then
+				-- Rank-specific virtual actions keep their exact numeric identity and
+				-- never rewrite the localized base spell back to the virtual label.
+				-- Earth Shock (Rank 1), for example, must not become the highest
+				-- learned Earth Shock rank or rename ordinary Earth Shock cast events.
+				if type(id) == "number" and id > 0 and AL.known[entry.baseName] then
+					AL.known[english] = true
+					AL.rangeSpellRefs[english] = { id = id }
+				else
+					AL.known[english], AL.rangeSpellRefs[english] = nil, nil
+				end
+			elseif id == 0 and type(english) == "string" then
 				local ref = AL.rangeSpellRefs[english]
 				if not ref then
 					-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
@@ -2803,7 +2844,7 @@ function AL.ScanSpellbook()
 					id, entry[1] = learnedID, learnedID
 				end
 			end
-			if type(id) == "number" and type(english) == "string" and not AL.known[english] then
+			if not exactRank and type(id) == "number" and type(english) == "string" and not AL.known[english] then
 				local ok, loc = pcall(AL.SpellName, id)
 				if ok and type(loc) == "string" and not (issecretvalue and issecretvalue(loc)) and AL.known[loc] then
 					AL.known[english] = true
@@ -2813,9 +2854,12 @@ function AL.ScanSpellbook()
 			end
 			-- Base IDs declared by the rotation provide a fallback for a
 			-- confirmed learned spell, without replacing an identity read from the book.
-			if type(id) == "number" and id > 0 and AL.known[english] and not AL.castSpellNamesByID[id] then
+			if not exactRank and type(id) == "number" and id > 0 and AL.known[english] and not AL.castSpellNamesByID[id] then
 				AL.castSpellNamesByID[id] = english
 			end
+		end
+		if mod and type(mod.RefreshVirtualActions) == "function" then
+			pcall(mod.RefreshVirtualActions, AL.S())
 		end
 	end
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.6
