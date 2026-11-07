@@ -673,6 +673,12 @@ end
 
 function M.CanTrackSuggestedSpell(name)
 	if not Ok(name) then return false end
+	-- Stealth openers are a single, explicit recommendation.  They are safe to
+	-- infer from a protected SENT payload even when an Energy mask is drawing
+	-- the icon; unlike the health-driven builder/finisher plan, there is no
+	-- second spell hidden behind the same opener recommendation.
+	if name == "Stealth" or name == "Cheap Shot" or name == "Backstab"
+		or name == "Ambush" or name == "Garrote" or name == "Sap" then return true end
 	-- A secret-health visual has two possible displayed actions. Never assume
 	-- that a hidden cast ID was the underlying builder rather than Eviscerate.
 	local visual = AL.rogueSecretVisual
@@ -770,10 +776,15 @@ local function StealthSetupAllowed(s, pvp)
 	}, "BACKSTAB")
 	if mode == "CHEAP_SHOT" then return Ok("Cheap Shot") end
 	if mode == "GARROTE" then return Ok("Garrote") end
-	if MainHandIsDagger() ~= true then return false end
-	if mode == "AMBUSH" then return Ok("Ambush") end
-	if mode == "BACKSTAB" then return Ok("Backstab") end
-	return Ok("Backstab") or Ok("Ambush")
+	if MainHandIsDagger() == true then
+		if mode == "AMBUSH" and Ok("Ambush") then return true end
+		if mode == "BACKSTAB" and Ok("Backstab") then return true end
+		if mode == "AUTO" and (Ok("Backstab") or Ok("Ambush")) then return true end
+	end
+	-- Force Stealth near the target when a usable non-dagger fallback exists.
+	-- The opener order will try the selected dagger attack first, then Cheap
+	-- Shot or Garrote, so this cannot leave a non-dagger Rogue idle in Stealth.
+	return Ok("Cheap Shot") or Ok("Garrote")
 end
 
 local function StealthOpener(s)
@@ -1866,6 +1877,8 @@ end
 
 function M.CanTrackSuggestedSpell(name)
 	if not Ok(name) then return false end
+	if name == "Stealth" or name == "Cheap Shot" or name == "Backstab"
+		or name == "Ambush" or name == "Garrote" or name == "Sap" then return true end
 	-- A secret-health visual has two possible displayed actions. Never assume
 	-- that a hidden cast ID was the underlying builder rather than Eviscerate.
 	local visual = AL.rogueSecretVisual
@@ -1948,10 +1961,12 @@ local function StealthSetupAllowed(s)
 	}, "BACKSTAB")
 	if mode == "CHEAP_SHOT" then return Ok("Cheap Shot") end
 	if mode == "GARROTE" then return Ok("Garrote") end
-	if MainHandIsDagger() ~= true then return false end
-	if mode == "AMBUSH" then return Ok("Ambush") end
-	if mode == "BACKSTAB" then return Ok("Backstab") end
-	return Ok("Backstab") or Ok("Ambush")
+	if MainHandIsDagger() == true then
+		if mode == "AMBUSH" and Ok("Ambush") then return true end
+		if mode == "BACKSTAB" and Ok("Backstab") then return true end
+		if mode == "AUTO" and (Ok("Backstab") or Ok("Ambush")) then return true end
+	end
+	return Ok("Cheap Shot") or Ok("Garrote")
 end
 
 local function StealthOpener(s)

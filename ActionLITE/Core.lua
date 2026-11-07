@@ -1242,9 +1242,16 @@ local CP_FINISHERS = {
 local inferredCp = 0
 local pendingComboCast
 local rogueComboChangedAt, rogueComboBefore = -math.huge, nil
+local comboSuccessSerial = 0
 
-function AL.TrackComboCast(name)
-	local before = inferredCp
+function AL.TrackComboCast(name, castBefore, castSerial)
+	-- Preserve the point snapshot captured when the button was pressed.  The
+	-- readable combo-point API can update before SUCCEEDED, or remain one tick
+	-- behind it; using the SENT snapshot prevents both double-counting and lost
+	-- multi-point builders such as Cheap Shot.
+	if type(castBefore) ~= "number" or castBefore < 0 or castBefore > 5
+		or castBefore ~= math.floor(castBefore) then castBefore = nil end
+	local before = castBefore or inferredCp
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	-- Shank only grants combo points through Boot Knife. The Rogue module
 	-- returns a value only for the guaranteed max-rank proc; lower ranks remain
@@ -1259,15 +1266,24 @@ function AL.TrackComboCast(name)
 		if CP_FINISHERS[name] then
 			rogueComboChangedAt, rogueComboBefore = GetTime(), before
 		elseif points then
-			rogueComboChangedAt, rogueComboBefore = -math.huge, nil
+			rogueComboChangedAt, rogueComboBefore = GetTime(), before
 		end
 	end
 	if points then
 		pendingComboCast = { name = name, before = before, at = GetTime() }
-		inferredCp = math.min(5, inferredCp + points)
+		if castBefore ~= nil and type(castSerial) == "number" and comboSuccessSerial > castSerial then
+			-- Another builder completed after this cast was sent. Keep both gains.
+			inferredCp = math.min(5, inferredCp + points)
+		elseif castBefore ~= nil then
+			inferredCp = math.max(inferredCp, math.min(5, before + points))
+		else
+			inferredCp = math.min(5, inferredCp + points)
+		end
+		comboSuccessSerial = comboSuccessSerial + 1
 	elseif CP_FINISHERS[name] then
 		pendingComboCast = { name = name, before = before, at = GetTime() }
 		inferredCp = 0
+		comboSuccessSerial = comboSuccessSerial + 1
 		return before
 	end
 end
@@ -1286,6 +1302,7 @@ end
 function AL.ResetComboPoints()
 	rogueComboChangedAt, rogueComboBefore = -math.huge, nil
 	inferredCp = 0
+	comboSuccessSerial = 0
 	pendingComboCast = nil
 end
 
@@ -1298,7 +1315,8 @@ function AL.ComboPoints()
 		local typed = Valid(SafePowerCall(UnitPower, "player", 4))
 		local value = primary and primary > 0 and primary or (typed and typed > 0 and typed or primary or typed)
 		-- A consumed point display can briefly retain its pre-finisher value.
-		if value == rogueComboBefore and GetTime() - rogueComboChangedAt < 0.5 then return inferredCp end
+		if value ~= nil and rogueComboBefore ~= nil and GetTime() - rogueComboChangedAt < 1
+			and (value == rogueComboBefore or value < inferredCp) then return inferredCp end
 		if value and value > 0 then inferredCp = value; return value end
 		-- Forever can return a readable zero even while points exist.
 		return inferredCp
@@ -2329,6 +2347,7 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 			}
 			if trackedComboClass then
 				lastSent.comboBefore = AL.ComboPoints()
+				lastSent.comboSerial = comboSuccessSerial
 				if name == "Slice and Dice" then RefreshRogueSliceDurations() end
 			end
 			if AL.playerClass == "HUNTER" then ComboRotationHook("OnCastSent", name, lastSent) end
@@ -2426,7 +2445,7 @@ debuffFrame:SetScript("OnEvent", function(_, event, unit, arg2, arg3, arg4)
 		-- self buff can still use the points saved before that old cast.
 		spentCombo = CP_FINISHERS[name] and sent.comboBefore or nil
 	else
-		spentCombo = AL.TrackComboCast(name)
+		spentCombo = AL.TrackComboCast(name, sent and sent.comboBefore, sent and sent.comboSerial)
 	end
 	local cd = SPELL_COOLDOWNS[name]
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
