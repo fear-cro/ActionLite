@@ -164,8 +164,8 @@ local function BuildRogueUI(page, ui)
 	local finishers = ui.Card(stack,
 		Text({ en = "FINISHERS", fr = "COUPS DE GRACE", pt = "FINALIZADORES", es = "REMATES", de = "FINISHER", zh = "终结技" }), nil, { id="finishers", group="damage" })
 	Check(finishers, "snd", "Slice and Dice", "Slice and Dice",
-		{ en = "Only while its player buff is absent. Leveling uses exactly one combo point. Slice and Dice is a player buff, not an enemy debuff." })
-	ui.Help(finishers, "Slice and Dice is used at exactly one combo point and only while its player buff is missing.")
+		{ en = "Only while its player buff is absent and at least one combo point is available. It normally activates at one point, but a multi-point opener may supply more. Slice and Dice is a player buff, not an enemy debuff." })
+	ui.Help(finishers, "Slice and Dice is used as soon as at least one combo point is available and only while its player buff is missing. Ordinary builders spend one point; multi-point openers such as Cheap Shot may spend their available points.")
 	Check(finishers, "deathMark", "Death Mark", "Death Mark",
 		"When learned, uses five combo points on rare, elite, rare-elite, or world-boss targets above 50% health so its delayed six-second damage can finish. Other targets keep the normal Eviscerate rules.")
 

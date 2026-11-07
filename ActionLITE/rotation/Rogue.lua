@@ -1296,9 +1296,9 @@ function M.NextSpell(s, inCombat, hostile)
 		if ReadyUsable("Blood Fury") then AddAction("Blood Fury", "burst", { burstGate }) end
 		if ReadyUsable("Berserking") then AddAction("Berserking", "burst", { burstGate }) end
 	end
-	if s.snd and cp == 1 and not AL.HasBuff("player", "Slice and Dice") and Ok("Slice and Dice")
+	if s.snd and cp >= 1 and not AL.HasBuff("player", "Slice and Dice") and Ok("Slice and Dice")
 		and FinisherAvailable("Slice and Dice") then
-		AddAction("Slice and Dice", "maintain buff at exactly 1 cp", { EnergyGate(energy, EnergyCost("Slice and Dice", 25), "Slice and Dice") })
+		AddAction("Slice and Dice", "establish missing buff with available combo points", { EnergyGate(energy, EnergyCost("Slice and Dice", 25), "Slice and Dice") })
 		AddAction(nil, "Pool energy for Slice and Dice"); return FinishDecision()
 	end
 
@@ -3119,9 +3119,9 @@ function M.NextSpell(s, inCombat, hostile)
 		if ReadyUsable("Blood Fury") then AddAction("Blood Fury", "burst", { burstGate }) end
 		if ReadyUsable("Berserking") then AddAction("Berserking", "burst", { burstGate }) end
 	end
-	if s.snd and (cp == 1 or AL.DPS60 and AL.DPS60.Active() and cp >= 1) and not AL.HasBuff("player", "Slice and Dice") and Ok("Slice and Dice")
+	if s.snd and cp >= 1 and not AL.HasBuff("player", "Slice and Dice") and Ok("Slice and Dice")
 		and FinisherAvailable("Slice and Dice") then
-		AddAction("Slice and Dice", "maintain buff at exactly 1 cp", { EnergyGate(energy, EnergyCost("Slice and Dice", 25), "Slice and Dice") })
+		AddAction("Slice and Dice", "establish missing buff with available combo points", { EnergyGate(energy, EnergyCost("Slice and Dice", 25), "Slice and Dice") })
 		AddAction(nil, "Pool energy for Slice and Dice"); return FinishDecision()
 	end
 
