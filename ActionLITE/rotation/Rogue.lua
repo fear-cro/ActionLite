@@ -335,6 +335,27 @@ local function WithinStealthRange()
 	return SafeValue(melee) and melee == true
 end
 
+-- Dungeon elites are commonly selected before the group reaches melee range.
+-- Prepare Stealth while that pre-pull window still exists instead of waiting
+-- for a protected ten-yard result and losing the opener when combat begins.
+local function DurablePullTarget()
+	local classification = SafeCall(UnitClassification, "target")
+	if not SafeValue(classification) or type(classification) ~= "string" then return false end
+	return classification == "elite" or classification == "rareelite" or classification == "worldboss"
+end
+
+local function ShouldPrepareStealth()
+	return WithinStealthRange() or DurablePullTarget()
+end
+
+-- IsStealthed remains useful when a dungeon aura scan is protected. Keep the
+-- cast-inferred Core state as a fallback and during the short aura transition.
+local function PlayerStealthed()
+	local active = SafeCall(IsStealthed)
+	if SafeValue(active) and (active == true or active == 1) then return true end
+	return AL.HasBuff("player", "Stealth") == true
+end
+
 -- Spell range is authoritative. An unknown spell range must not turn the
 -- ten-yard Stealth check into a claim that Backstab is in melee range.
 local function InMeleeRange(spell)
@@ -758,8 +779,27 @@ local function TryOpener(name, s)
 	return FinishDecision()
 end
 
--- Default Combat leveling should not enter Stealth for an opener its weapon
--- cannot use. Cheap Shot and Garrote remain deliberate non-dagger choices.
+local function PvEOpenerOrder(s)
+	local mode = SettingChoice(s, "openerMode", {
+		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
+	}, "BACKSTAB")
+	-- Backstab and Ambush require a dagger. With swords, never place either in
+	-- the candidate path: Cheap Shot is the preferred opener when learned and
+	-- Garrote is the earlier-level fallback.
+	if MainHandIsDagger() ~= true then
+		if mode == "GARROTE" then return { "Garrote", "Cheap Shot" } end
+		return { "Cheap Shot", "Garrote" }
+	end
+	local orders = {
+		AUTO = { "Backstab", "Ambush", "Cheap Shot", "Garrote" },
+		BACKSTAB = { "Backstab", "Cheap Shot", "Garrote", "Ambush" },
+		CHEAP_SHOT = { "Cheap Shot", "Ambush", "Garrote" },
+		AMBUSH = { "Ambush", "Cheap Shot", "Garrote" },
+		GARROTE = { "Garrote", "Cheap Shot", "Ambush" },
+	}
+	return orders[mode]
+end
+
 local function StealthSetupAllowed(s, pvp)
 	if pvp then
 		local choice = SettingChoice(s, "pvpOpenerMode", {
@@ -773,37 +813,16 @@ local function StealthSetupAllowed(s, pvp)
 			return Ok(spell) and ((spell ~= "Backstab" and spell ~= "Ambush") or MainHandIsDagger() == true)
 		end
 	end
-	local mode = SettingChoice(s, "openerMode", {
-		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
-	}, "BACKSTAB")
-	if mode == "CHEAP_SHOT" then return Ok("Cheap Shot") end
-	if mode == "GARROTE" then return Ok("Garrote") end
-	if MainHandIsDagger() == true then
-		if mode == "AMBUSH" and Ok("Ambush") then return true end
-		if mode == "BACKSTAB" and Ok("Backstab") then return true end
-		if mode == "AUTO" and (Ok("Backstab") or Ok("Ambush")) then return true end
+	for _, name in ipairs(PvEOpenerOrder(s)) do
+		if Ok(name) then return true end
 	end
-	-- Force Stealth near the target when a usable non-dagger fallback exists.
-	-- The opener order will try the selected dagger attack first, then Cheap
-	-- Shot or Garrote, so this cannot leave a non-dagger Rogue idle in Stealth.
-	return Ok("Cheap Shot") or Ok("Garrote")
+	return false
 end
 
 local function StealthOpener(s)
-	if not AL.HasBuff("player", "Stealth") then return nil end
+	if not PlayerStealthed() then return nil end
 	if not StealthSetupAllowed(s, false) then return nil end
-	local mode = SettingChoice(s, "openerMode", {
-		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
-	}, "BACKSTAB")
-
-	local orders = {
-		AUTO = { "Backstab", "Ambush", "Cheap Shot", "Garrote" },
-		BACKSTAB = { "Backstab", "Cheap Shot", "Garrote", "Ambush" },
-		CHEAP_SHOT = { "Cheap Shot", "Ambush", "Garrote" },
-		AMBUSH = { "Ambush", "Cheap Shot", "Garrote" },
-		GARROTE = { "Garrote", "Cheap Shot", "Ambush" },
-	}
-	for _, name in ipairs(orders[mode]) do
+	for _, name in ipairs(PvEOpenerOrder(s)) do
 		local spell, poolReason = TryOpener(name, s)
 		if spell then return spell, "stealth opener" end
 		if poolReason then return nil, poolReason end
@@ -823,7 +842,7 @@ local function HostilePlayerTarget(hostile)
 end
 
 local function PvPStealthOpener(s)
-	if not AL.HasBuff("player", "Stealth") then return nil end
+	if not PlayerStealthed() then return nil end
 	local mode = SettingChoice(s, "pvpOpenerMode", {
 		NONE = true, SAP = true, BACKSTAB = true, CHEAP_SHOT = true,
 		AMBUSH = true, GARROTE = true,
@@ -1202,7 +1221,7 @@ function M.NextSpell(s, inCombat, hostile)
 			local opener, reason = StealthOpener(s)
 			if opener or reason then return opener, reason end
 			if s.stealth and StealthSetupAllowed(s, pvp) and OkReady("Stealth")
-				and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
+				and not PlayerStealthed() and ShouldPrepareStealth() then
 				return "Stealth", "opener setup"
 			end
 			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -1367,7 +1386,7 @@ function M.GetUIState()
 		level = UnitLevel and UnitLevel("player") or nil,
 		energy = AL.Power(3),
 		combo = AL.ComboPoints(),
-		stealthed = AL.HasBuff("player", "Stealth"),
+		stealthed = PlayerStealthed(),
 		knownCount = knownCount,
 		enemyCount = ActiveEnemyCount(SettingNumber(profile, "aoeMinEnemies", 2, 2, 5)),
 		mainHandDagger = MainHandIsDagger(),
@@ -1670,6 +1689,22 @@ local function WithinStealthRange()
 	return SafeValue(melee) and melee == true
 end
 
+local function DurablePullTarget()
+	local classification = SafeCall(UnitClassification, "target")
+	if not SafeValue(classification) or type(classification) ~= "string" then return false end
+	return classification == "elite" or classification == "rareelite" or classification == "worldboss"
+end
+
+local function ShouldPrepareStealth()
+	return WithinStealthRange() or DurablePullTarget()
+end
+
+local function PlayerStealthed()
+	local active = SafeCall(IsStealthed)
+	if SafeValue(active) and (active == true or active == 1) then return true end
+	return AL.HasBuff("player", "Stealth") == true
+end
+
 -- Spell range is authoritative. An unknown spell range must not turn the
 -- ten-yard Stealth check into a claim that Backstab is in melee range.
 local function InMeleeRange(spell)
@@ -1959,27 +1994,14 @@ local function TryOpener(name, s)
 	return FinishDecision()
 end
 
-local function StealthSetupAllowed(s)
+local function PvEOpenerOrder(s)
 	local mode = SettingChoice(s, "openerMode", {
 		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
 	}, "BACKSTAB")
-	if mode == "CHEAP_SHOT" then return Ok("Cheap Shot") end
-	if mode == "GARROTE" then return Ok("Garrote") end
-	if MainHandIsDagger() == true then
-		if mode == "AMBUSH" and Ok("Ambush") then return true end
-		if mode == "BACKSTAB" and Ok("Backstab") then return true end
-		if mode == "AUTO" and (Ok("Backstab") or Ok("Ambush")) then return true end
+	if MainHandIsDagger() ~= true then
+		if mode == "GARROTE" then return { "Garrote", "Cheap Shot" } end
+		return { "Cheap Shot", "Garrote" }
 	end
-	return Ok("Cheap Shot") or Ok("Garrote")
-end
-
-local function StealthOpener(s)
-	if not AL.HasBuff("player", "Stealth") then return nil end
-	if not StealthSetupAllowed(s) then return nil end
-	local mode = SettingChoice(s, "openerMode", {
-		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
-	}, "BACKSTAB")
-
 	local orders = {
 		AUTO = { "Backstab", "Ambush", "Cheap Shot", "Garrote" },
 		BACKSTAB = { "Backstab", "Cheap Shot", "Garrote", "Ambush" },
@@ -1987,7 +2009,20 @@ local function StealthOpener(s)
 		AMBUSH = { "Ambush", "Cheap Shot", "Garrote" },
 		GARROTE = { "Garrote", "Cheap Shot", "Ambush" },
 	}
-	for _, name in ipairs(orders[mode]) do
+	return orders[mode]
+end
+
+local function StealthSetupAllowed(s)
+	for _, name in ipairs(PvEOpenerOrder(s)) do
+		if Ok(name) then return true end
+	end
+	return false
+end
+
+local function StealthOpener(s)
+	if not PlayerStealthed() then return nil end
+	if not StealthSetupAllowed(s) then return nil end
+	for _, name in ipairs(PvEOpenerOrder(s)) do
 		local spell, poolReason = TryOpener(name, s)
 		if spell then return spell, "stealth opener" end
 		if poolReason then return nil, poolReason end
@@ -2801,7 +2836,7 @@ SubtletyRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 		if stealth == nil then stealth = AL.HasBuff("player", "Stealth") end
 	end
 	if subStealth == true and subStealthAt and GetTime() - subStealthAt < 0.5 then stealth = true end
-	if not inCombat and s.stealth and not stealth and WithinStealthRange() and SubReady("Stealth") then
+	if not inCombat and s.stealth and not stealth and ShouldPrepareStealth() and SubReady("Stealth") then
 		AddAction("Stealth", "Subtlety: opener setup"); return FinishDecision()
 	end
 	if not melee then AddAction(nil, "Approach target"); return FinishDecision() end
@@ -2919,7 +2954,7 @@ AssassinationRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 		local opener, reason = StealthOpener(s)
 		if opener or reason then return opener, reason end
 		if s.stealth and StealthSetupAllowed(s) and SubReady("Stealth")
-			and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
+			and not PlayerStealthed() and ShouldPrepareStealth() then
 			AddAction("Stealth", "Assassination: opener setup"); return FinishDecision()
 		end
 	end
@@ -3028,7 +3063,7 @@ function M.NextSpell(s, inCombat, hostile)
 			local opener, reason = StealthOpener(s)
 			if opener or reason then return opener, reason end
 			if s.stealth and StealthSetupAllowed(s) and OkReady("Stealth")
-				and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
+				and not PlayerStealthed() and ShouldPrepareStealth() then
 				return "Stealth", "opener setup"
 			end
 			if not InMeleeRange("Sinister Strike") then return nil, "Approach target" end
@@ -3148,7 +3183,7 @@ function M.GetUIState()
 		level = UnitLevel and UnitLevel("player") or nil,
 		energy = AL.Power(3),
 		combo = RoguePoints(),
-		stealthed = AL.HasBuff("player", "Stealth"),
+		stealthed = PlayerStealthed(),
 		knownCount = knownCount,
 		enemyCount = ActiveEnemyCount(SettingNumber(profile, "aoeMinEnemies", 2, 2, 5)),
 		mainHandDagger = MainHandIsDagger(),
