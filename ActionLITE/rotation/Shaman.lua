@@ -1160,16 +1160,18 @@ local function MaintainCombatTotems(s, role, targetHP, snapshot)
 end
 
 local function AoEDamage(s, role, mana, count, snapshot, targetHP, moving)
-    if not Enabled(s,"aoe") or not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
+	if not Enabled(s,"aoe") then return end
 	local manaGate = ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false)
 	local damageGates = { manaGate }
 	local totemGates = { manaGate,
 		HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	-- Fire Nova is now the direct learned spell. Chain Lightning belongs only
-	-- to the caster Leveling path and requires AoE On, a confirmed count and a
-	-- stationary cast. Enhancement keeps its conservative melee priorities.
+	-- AoE On explicitly requests the learned, player-centred Fire Nova whenever
+	-- the selected target is close enough. Enemy counting remains mandatory for
+	-- Chain Lightning and Magma Totem, but it cannot suppress Fire Nova when
+	-- nearby nameplates are hidden or protected.
 	if Enabled(s,"firenova") and InMelee() then Offer("Fire Nova", "Close-range AoE", damageGates) end
+	if not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
 	if role == "ELEMENTAL" and not moving then Offer("Chain Lightning", "Ranged AoE", damageGates) end
 	if InMelee() and Enabled(s,"magma") and not snapshot["Magma Totem"] and not snapshot["?FIRE"] then
 		Offer("Magma Totem", "AoE", totemGates)
@@ -2806,10 +2808,12 @@ local function MaintainCombatTotems(s, role, targetHP, snapshot)
 end
 
 local function AoETotem(s, mana, count, snapshot, targetHP)
-    if not Enabled(s,"aoe") or not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
-    local gates = { ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false),
+	if not Enabled(s,"aoe") then return end
+	local manaGate = ManaGate(mana, SettingNumber(s,"aoeMinMana",30,0,100), false)
+	if Enabled(s,"firenova") and InMelee() then Offer("Fire Nova", "AoE Fire Nova", { manaGate }) end
+	if not count or count < SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
+	local gates = { manaGate,
         HealthGate("target", targetHP, SettingNumber(s,"totemMinTargetHP",45,0,100), false) }
-    if Enabled(s,"firenova") then Offer("Fire Nova", "AoE Fire Nova", gates) end
     if AL.DPS60 and AL.DPS60.Active() and not PlayerMoving() then Offer("Chain Lightning", "AoE chain", gates) end
 	if Enabled(s,"magma") and not snapshot["Magma Totem"] and not snapshot["?FIRE"] then
         Offer("Magma Totem", "AoE", gates)
@@ -2960,10 +2964,15 @@ local function EnhancementBurst(s,targetHP)
     if Enabled(s,"enhancementRacials") then Offer("Berserking","Enhancement Burst",gates) end
 end
 
+local function EnhancementFireNova(s,mana)
+	if Enabled(s,"aoe") and Enabled(s,"firenova") and UnitWithin("target",8)==true then
+		Offer("Fire Nova","Enhancement AoE",{ManaGate(mana,SettingNumber(s,"aoeMinMana",30,0,100),false)})
+	end
+end
+
 local function EnhancementAoE(s,mana,count,snapshot,moving,instant)
     if not Enabled(s,"aoe") or not count or count<SettingNumber(s,"aoeMinEnemies",2,2,5) then return end
     local gate=ManaGate(mana,SettingNumber(s,"aoeMinMana",30,0,100),false)
-    if Enabled(s,"firenova") and UnitWithin("target",8)==true then Offer("Fire Nova","Enhancement AoE",{gate}) end
     if Enabled(s,"lightningbolt") and Enabled(s,"enhancementMaelstrom") and instant then
         Offer("Lightning Bolt","Maelstrom Weapon",{gate,ManaGate(mana,SettingNumber(s,"lightningBoltMinMana",15,0,100),false)})
     end
@@ -2983,6 +2992,9 @@ local function EnhancementDamage(s,inCombat,mana,targetHP,moving,melee)
     local shock=ManaGate(mana,SettingNumber(s,"shockMinMana",25,0,100),false)
     if melee then
         local snapshot=TotemSnapshot()
+		-- Fire Nova is the explicit AoE-On action and must precede ordinary
+		-- Enhancement maintenance and single-target attacks.
+		EnhancementFireNova(s,mana)
         EnhancementTotems(s,targetHP,snapshot)
         EnhancementBurst(s,targetHP)
         if Enabled(s,"stormstrike") then Offer("Stormstrike","Enhancement Stormstrike") end
@@ -3044,11 +3056,16 @@ local function ElementalDamage(s,inCombat,mana,targetHP,moving)
     end
     local snapshot=TotemSnapshot()
     local minimum=SettingNumber(s,"aoeMinEnemies",2,2,5)
-    local closeCount=Enabled(s,"aoe") and EnemyCount(minimum) or nil
-    local closeAoE=closeCount and closeCount>=minimum and UnitWithin("target",8)==true
+	local closeTarget=Enabled(s,"aoe") and UnitWithin("target",8)==true
+	local closeCount=Enabled(s,"aoe") and EnemyCount(minimum) or nil
+	local closeAoE=closeTarget and closeCount and closeCount>=minimum
     local rangedCount=Enabled(s,"aoe") and Enabled(s,"elementalChainLightning") and EnemyCount(minimum,36) or nil
     local aoeMana=ManaGate(mana,SettingNumber(s,"aoeMinMana",30,0,100),false)
     local totemHP=HealthGate("target",targetHP,SettingNumber(s,"totemMinTargetHP",45,0,100),false)
+	-- Fire Nova follows the player's explicit AoE toggle even when Forever
+	-- cannot expose a reliable nearby-enemy count. It remains close-range,
+	-- learned-spell, cooldown and mana gated.
+	if closeTarget and Enabled(s,"firenova") then Offer("Fire Nova","Elemental AoE nova",{aoeMana}) end
     if Enabled(s,"totems") then
         local earth,water=PreferredEarthTotem(s,"ELEMENTAL"),PreferredWaterTotem(s,"ELEMENTAL")
         for _,choice in ipairs({{earth,"EARTH"},{water,"WATER"}}) do
@@ -3083,7 +3100,6 @@ local function ElementalDamage(s,inCombat,mana,targetHP,moving)
         Offer("Flame Shock","Elemental damage over time",{ManaGate(mana,SettingNumber(s,"shockMinMana",25,0,100),false),
             HealthGate("target",targetHP,SettingNumber(s,"flameShockMinTargetHP",35,0,100),false)})
     end
-    if closeAoE and Enabled(s,"firenova") then Offer("Fire Nova","Elemental AoE nova",{aoeMana}) end
     if rangedCount and rangedCount>=minimum and not moving
         and (not Enabled(s,"elementalChainClearcasting") or LightningMasteryActive() or ElementalChainProc()) then
         Offer("Chain Lightning","Elemental ranged AoE",{aoeMana,ManaGate(mana,SettingNumber(s,"elementalChainMana",30,0,100),false)})
