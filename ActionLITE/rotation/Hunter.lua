@@ -856,7 +856,10 @@ function M.NextSpell(s, inCombat, hostile)
                     if preferScorpid then Offer("Scorpid Sting", "weaken attacks", { stingGate })
                     elseif s.sting then Offer("Serpent Sting", "damage over time", { stingGate }) end
                 end
-                if s.aimed and not PlayerMoving() then Offer("Aimed Shot", "aimed shot") end
+                -- Multi-Shot and Aimed Shot share a cooldown in Forever.
+                -- AoE On reserves that cooldown for Multi-Shot even while the
+                -- AoE spell is briefly unusable or still on its cooldown.
+                if not s.aoe and s.aimed and not PlayerMoving() then Offer("Aimed Shot", "aimed shot") end
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				-- Sniper Shot is a learned stationary Marksmanship talent. Keep it
 				-- behind Aimed Shot and ahead of instant fillers, with both its real
@@ -1987,6 +1990,10 @@ local function MeleeRotation(s, petUp, mana, targetHP, inCombat)
 end
 
 local function ShotWindow(s,seconds,moving)
+    -- AoE explicitly reserves the shared Aimed Shot / Multi-Shot cooldown.
+    -- Do not hold ordinary fillers waiting for an Aimed Shot that is disabled
+    -- by the active AoE rotation.
+    if s.aoe then return true end
     if moving or not s.aimed or not Ok("Aimed Shot") then return true end
     local usable,shortage=SpellUsability("Aimed Shot")
     if usable==false or shortage==true or Bool((SafeCall(AL.InRange,"Aimed Shot")))==false then return true end
@@ -2021,7 +2028,7 @@ local function MarksmanshipRanged(s,mana,targetHP)
     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
     -- The strengthened Aimed Shot remains the stationary primary shot. The
     -- doubled Sniper Shot stays ahead of the strengthened instant Arcane Shot.
-    if s.aimed and not moving then Offer("Aimed Shot","Marksmanship primary shot") end
+    if not s.aoe and s.aimed and not moving then Offer("Aimed Shot","Marksmanship primary shot") end
     -- The reference has no Summon Hawk point. Preserve its checkbox for
     -- characters that actually learn it, without granting the talent.
     if s.summonHawk then Offer("Summon Hawk","learned guardian",{HealthGate("target",targetHP,40,false)}) end
@@ -2102,7 +2109,7 @@ local function BeastRanged(s,mana,targetHP)
         end
 		if s.multiShot ~= false then Offer("Multi-Shot","Beast Mastery AoE",gates) end
     end
-    if s.aimed and not moving then Offer("Aimed Shot","Beast Mastery primary shot") end
+    if not s.aoe and s.aimed and not moving then Offer("Aimed Shot","Beast Mastery primary shot") end
     if BeastWindow(s,moving) then
         if not AL.HasDebuff("target","Serpent Sting") and not AL.HasDebuff("target","Scorpid Sting") then
             local gates={HealthGate("target",targetHP,SettingNumber(s,"stingMinTargetHP",35,0,100),false),
@@ -2329,7 +2336,7 @@ function M.NextSpell(s, inCombat, hostile)
         if hostile then
             Mark(s, targetHP, petUp and "mark and send pet" or "mark")
             if UseMelee(s) then MeleeRotation(s, petUp, manaPercent, targetHP, false)
-            elseif BeastMastery(s) and s.aimed and not PlayerMoving() then
+            elseif BeastMastery(s) and not s.aoe and s.aimed and not PlayerMoving() then
                 Offer("Aimed Shot","Beast Mastery opener")
                 if EnsureAutoShot() then Offer("Auto Shot","opener") end
             elseif EnsureAutoShot() then Offer("Auto Shot", "opener") end
@@ -2368,7 +2375,7 @@ function M.NextSpell(s, inCombat, hostile)
                     if preferScorpid then Offer("Scorpid Sting", "weaken attacks", { stingGate })
                     elseif s.sting then Offer("Serpent Sting", "damage over time", { stingGate }) end
                 end
-                if s.aimed and not PlayerMoving() then Offer("Aimed Shot", "aimed shot") end
+                if not s.aoe and s.aimed and not PlayerMoving() then Offer("Aimed Shot", "aimed shot") end
                 if s.summonHawk then Offer("Summon Hawk", "hawk", { HealthGate("target", targetHP, 40, false) }) end
                 if s.arcane then Offer("Arcane Shot", "ranged filler", {
                     ManaGate(manaPercent, SettingNumber(s, "arcaneMinMana", 20, 0, 80), false) }) end
