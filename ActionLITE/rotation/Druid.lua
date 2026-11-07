@@ -342,6 +342,17 @@ local function InMelee(name)
     return Bool((SafeCall(AL.InRange, name))) == true
 end
 
+-- Demoralizing Roar is centered on the Druid. Require confirmed melee range,
+-- and when distance is readable use a four-yard safety margin so the icon is
+-- not shown while the target is only brushing the edge of the effect.
+local function DemoralizingRoarClose()
+	if not InMelee("Maul") then return false end
+	local squared, checked = SafeCall(UnitDistanceSquared, "target")
+	squared = Number(squared)
+	if squared and squared >= 0 and Bool(checked) ~= false then return squared <= 16 end
+	return true
+end
+
 local function ActiveEnemyCount()
     local action = _G.Action
     if action and action.MultiUnits then
@@ -656,13 +667,13 @@ end
 
 local function BearRotation(s)
     local rage = Power(1)
-    if s.bash and Bool((SafeCall(AL.TargetCasting))) == true and InMelee("Bash") then
+    if s.bash ~= false and Bool((SafeCall(AL.TargetCasting))) == true and InMelee("Bash") then
         Offer("Bash", "interrupt", nil, 1, 10)
     end
     if s.enrage and not AL.HasBuff("player", "Enrage") then
         Offer("Enrage", "rage", { PowerGate(1, rage, RULES.enrageBelowRage, true, true) })
     end
-    if s.enrage and not AL.HasDebuff("target", "Demoralizing Roar") and InMelee("Maul") then
+	if s.enrage and not AL.HasDebuff("target", "Demoralizing Roar") and DemoralizingRoarClose() then
         Offer("Demoralizing Roar", "mitigation", nil, 1, 10)
     end
     -- Lacerate is now a Feral talent learned during leveling.  Learned-spell
@@ -1385,7 +1396,7 @@ end
 
 local function BearRotation(s)
     local rage = Power(1)
-    if s.bash and Bool((SafeCall(AL.TargetCasting))) == true and InMelee("Bash") then
+    if s.bash ~= false and Bool((SafeCall(AL.TargetCasting))) == true and InMelee("Bash") then
         Offer("Bash", "interrupt", nil, 1, 10)
     end
     if s.enrage and not AL.HasBuff("player", "Enrage") then
@@ -2409,6 +2420,12 @@ function B.melee(unit)
  end
  return false
 end
+function B.demoClose()
+	if not B.melee("target") then return false end
+	local squared, checked=SafeCall(UnitDistanceSquared,"target");squared=Number(squared)
+	if squared and squared>=0 and Bool(checked)~=false then return squared<=16 end
+	return true
+end
 function B.needsTaunt(unit)
  unit=(unit or'target')..'target'
  if Bool((SafeCall(UnitExists,unit)))~=true then return false end
@@ -2587,7 +2604,7 @@ function B.rotation(s,inCombat,hostile)
     end
     if s.bearChallengingRoar and aoe and loose>=3 then B.offer('Challenging Roar','recover 3+ allies\' attackers',nil,1,15)end
     if melee then
-     if s.bash and Bool((SafeCall(AL.TargetCasting)))==true then B.offer('Bash','Bear stun interrupt',nil,1,10)end
+     if s.bash~=false and Bool((SafeCall(AL.TargetCasting)))==true then B.offer('Bash','Bear stun interrupt',nil,1,10)end
      if inCombat and B.buff('Frenzied Regeneration')then
       AddAction(AL.Ok('Attack')and'Attack'or nil,'preserve Rage for Frenzied Regeneration',{
        HealthGate('player',hp,M.BearSetting(s,'bearFrenziedHP'),true)})
@@ -2601,7 +2618,7 @@ function B.rotation(s,inCombat,hostile)
      B.offer('Faerie Fire','maintain own armor reduction',nil,0)
     end
     if melee then
-     if s.bearDemoRoar and B.dot('Demoralizing Roar')<=2 then B.offer('Demoralizing Roar','physical mitigation',nil,1,10)end
+     if s.bearDemoRoar and B.demoClose() and B.dot('Demoralizing Roar')<=2 then B.offer('Demoralizing Roar','physical mitigation',nil,1,10)end
      if inCombat and AL.burst then
       local threshold=M.BearSetting(s,'bearBurstMinTargetHP')
       local gates={threshold<=0 or HealthGate('target',HealthPercent('target'),threshold,false)}

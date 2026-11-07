@@ -57,8 +57,7 @@ AL.RegisterSimpleClassUI("HUNTER", {
             title="BEAST MASTERY AREA DAMAGE", id="beast-mastery-area-damage", build="beastMastery", group="aoe",
             controls={
 				{ type = "slider", key = "beastAoEMinMana", label = "Beast Mastery AoE minimum mana", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
-				{ type = "slider", key = "beastVolleyMinEnemies", label = "Beast Mastery Volley minimum enemies", min = 2, max = 5, step = 1, default = 4 },
-				{ type = "info", text = "Multi-Shot requires AoE On and enough confirmed engaged enemies. Optional Volley also requires its shared checkbox, mana setting and the higher of the shared enemy count and its own count (four by default). Volley keeps its existing OFF default, uses normal ground placement and completes its channel." },
+				{ type = "info", text = "AoE On requests learned Multi-Shot without relying on a visible enemy count. Optional Volley also requires its shared checkbox and mana setting. Volley keeps its existing OFF default, uses normal ground placement and completes its channel." },
 			},
 		},
 		{
@@ -166,7 +165,8 @@ AL.RegisterSimpleClassUI("HUNTER", {
 			id="aoe-burst", group="aoe",
 			controls = {
 				{ key = "aoe", label = { en = "Enable AoE mode", fr = "Activer l'AoE Multi-Shot", pt = "Ativar AoE Multi-Shot", es = "Activar AoE Multi-Shot", de = "Multi-Shot AoE aktivieren", zh = "启用Multi-Shot AoE" }, spell = "Multi-Shot" },
-				{ type = "slider", key = "aoeMinEnemies", label = { en = "Minimum enemies", fr = "Ennemis minimum", pt = "Mínimo de inimigos", es = "Enemigos mínimos", de = "Mindestanzahl Gegner", zh = "最少敌人数" },
+				{ key = "multiShot", label = "Use Multi-Shot in AoE", spell = "Multi-Shot", half = false },
+				{ type = "slider", key = "aoeMinEnemies", label = { en = "Explosive Trap: nearby enemies", fr = "Piege explosif : ennemis proches", pt = "Armadilha Explosiva: inimigos proximos", es = "Trampa explosiva: enemigos cercanos", de = "Sprengfalle: Gegner in Nahkampfreichweite", zh = "爆炸陷阱：附近敌人数" },
 					min = 2, max = 5, step = 1, default = 2, half = true },
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				{ key = "explosiveTrap", label = "Explosive Trap at close range", spell = "Explosive Trap" },
@@ -174,12 +174,12 @@ AL.RegisterSimpleClassUI("HUNTER", {
 				{ type = "slider", key = "volleyMinMana", label = "Volley minimum mana", min = 0, max = 100, step = 5, default = 35, suffix = " %" },
 				{ type = "info", text = "Explosive Trap requires AoE On and enough engaged enemies in melee. It shares the same tracked 30-second cooldown with Immolation, Freezing and Frost Trap. Optional Volley is ground-targeted, requires AoE On and a stationary player, and defaults OFF." },
 				{ type = "info", text = {
-					en = "Multi-Shot requires the selected number of confirmed enemies. An unknown count does not enable AoE.",
-					fr = "Multi-Shot nécessite le nombre choisi d'ennemis confirmés. Un nombre inconnu ne déclenche pas l'AoE.",
-					pt = "Multi-Shot exige o número escolhido de inimigos confirmados. Uma contagem desconhecida não ativa AoE.",
-					es = "Multi-Shot requiere el número elegido de enemigos confirmados. Una cantidad desconocida no activa AoE.",
-					de = "Multi-Shot benötigt die gewählte Anzahl bestätigter Gegner. Eine unbekannte Anzahl aktiviert kein AoE.",
-					zh = "Multi-Shot需要达到所选的已确认敌人数。未知数量不会启用AoE。",
+					en = "AoE On requests ranged Multi-Shot and optional Volley without an enemy-count check. The slider above applies only to nearby Explosive Trap targets.",
+					fr = "AoE actif propose Multi-Shot et Volley sans compter les ennemis. Le curseur ci-dessus ne concerne que Piege explosif a proximite.",
+					pt = "AoE ativado sugere Multi-Shot e Volley sem contar inimigos. O controle acima vale apenas para Armadilha Explosiva proxima.",
+					es = "AoE activado sugiere Multi-Shot y Volley sin contar enemigos. El control anterior solo afecta a Trampa explosiva cercana.",
+					de = "AoE An empfiehlt Multi-Shot und Volley ohne Gegnerzahlung. Der Regler oben gilt nur fur Sprengfalle im Nahbereich.",
+					zh = "开启 AoE 后，无需统计敌人数即可推荐多重射击和可选的乱射。上方滑块只影响近处的爆炸陷阱。",
 				} },
 
             },
@@ -197,4 +197,4 @@ AL.RegisterSimpleClassUI("HUNTER", {
 			},
 		},
 	},
-}, "0.13.4")
+}, "0.13.5")

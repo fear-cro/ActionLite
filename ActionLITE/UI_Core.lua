@@ -82,7 +82,7 @@ function AL.Version()
 	elseif GetAddOnMetadata then
 		v = GetAddOnMetadata("ActionLITE", "Version")
 	end
-	return v or "1.1.6"
+	return v or "1.1.7"
 end
 
 -- ----------------------------------------------------------------------------

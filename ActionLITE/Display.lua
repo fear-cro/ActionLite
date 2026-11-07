@@ -782,6 +782,36 @@ local function ResetRogueSecretVisual()
 	AL.rogueSecretVisual, AL.rotationSecretVisual = nil, nil
 end
 
+-- A target can disappear between display ticks. Clear every actionable output
+-- immediately so an input reader cannot press the previous target's spell and
+-- let the client or a macro acquire a different enemy before the next redraw.
+-- Cast Trail and the role/AoE/Burst controls are intentionally unaffected.
+function AL.ClearRecommendationDisplay()
+	AL.lastSuggestion = nil
+	ResetRogueSecretVisual()
+	SetSharpTexture(icon, idleIcon)
+	icon:SetVertexColor(1, 1, 1, 1)
+	for _, texture in ipairs({ A3Tex, A6Tex }) do
+		texture:Hide()
+		SetSharpTexture(texture, nil)
+		texture:SetVertexColor(1, 1, 1, 1)
+		texture:SetAlpha(1)
+	end
+	for _, texture in ipairs({ priestHealOverlay, A3PriestHealTex, A6PriestHealTex }) do
+		SetSharpTexture(texture, nil)
+		texture:SetVertexColor(1, 1, 1, 0)
+	end
+	if AL.HealingEngine and AL.HealingEngine.ClearVisuals then
+		pcall(AL.HealingEngine.ClearVisuals, AL.HealingEngine)
+	end
+	if AL.UpdateGlow then pcall(AL.UpdateGlow, nil) end
+	pcall(UpdateKeybind, nil)
+	pcall(UpdateSwipe, nil)
+	if type(AL.ObserveDisplayedSpell) == "function" then
+		AL.ObserveDisplayedSpell(nil)
+	end
+end
+
 local function UpdateRogueSecretVisual(spell, reason)
 	local rotation = AL.rotations and AL.rotations[AL.playerClass]
 	local plan = rotation and rotation.SecretVisualPlan and rotation.SecretVisualPlan(spell, reason)
@@ -829,8 +859,29 @@ local poolingIcon = "Interface\\Icons\\INV_Stone_WeightStone_07"
 -- when the main icon is hidden.
 local driver = CreateFrame("Frame")
 driver:RegisterEvent("PLAYER_REGEN_DISABLED")
-driver:SetScript("OnEvent", function()
-	drinkReminder:Hide()
+driver:RegisterEvent("PLAYER_TARGET_CHANGED")
+driver:RegisterEvent("PLAYER_DEAD")
+
+-- Clear a dying target before the next 0.15-second recommendation tick. A
+-- readable death is sufficient; protected/unknown health never clears a live
+-- suggestion. This also closes the short window where an Attack macro could
+-- run once more and acquire a different enemy.
+if not pcall(driver.RegisterUnitEvent, driver, "UNIT_HEALTH", "target") then
+	pcall(driver.RegisterEvent, driver, "UNIT_HEALTH")
+end
+driver:SetScript("OnEvent", function(_, event, unit)
+	if event == "UNIT_HEALTH" then
+		if (issecretvalue and issecretvalue(unit)) or unit ~= "target" then return end
+		if AL.SafeBoolean(UnitIsDeadOrGhost, "target") == true then
+			AL.ClearRecommendationDisplay()
+		end
+		return
+	end
+	if event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_DEAD" then
+		AL.ClearRecommendationDisplay()
+	else
+		drinkReminder:Hide()
+	end
 end)
 local elapsed = 0
 local lastVisualError

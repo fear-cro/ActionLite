@@ -259,7 +259,7 @@ AL.RegisterSimpleClassUI("DRUID", {
 			},
 		},
 	},
-}, "0.13.3")
+}, "0.13.4")
 
 
 -- Keep new Bear slider getters on the same bounded settings as the rotation,
@@ -280,5 +280,5 @@ if originalBuilder and AL.RegisterClassUI then
         end
         return originalBuilder(page,adapter)
     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-    end,"0.13.3")
+    end,"0.13.4")
 end

@@ -412,6 +412,154 @@ function S.Stop(reason)
     S.Notify()
 end
 
+-- Keep the combat evidence before the large API and frame snapshots. Many
+-- paste targets truncate a multi-megabyte Results export at 50 KB; the full
+-- report remains below this bounded summary for anyone who can send it whole.
+local function SummaryText(value, limit)
+    if type(value) ~= "string" then return P.Copy(value) end
+    return #value > limit and value:sub(1, limit) .. "..." or value
+end
+
+local function SummaryProfile(report, token)
+    local configurations = report.configurations
+    local config = type(configurations) == "table" and configurations[#configurations]
+    config = type(config) == "table" and config.configuration or report.configuration
+    local classProfile = type(config) == "table" and type(config.profiles) == "table"
+        and config.profiles[token]
+    local effective = type(classProfile) == "table" and (classProfile.effective or classProfile.stored)
+    if type(effective) ~= "table" then return {} end
+    local keys, settings = {}, {}
+    for key, value in pairs(effective) do
+        if type(key) == "string" and (type(value) == "boolean" or type(value) == "number"
+            or type(value) == "string") then keys[#keys + 1] = key end
+    end
+    table.sort(keys)
+    local used = 0
+    for _, key in ipairs(keys) do
+        local value = effective[key]
+        if type(value) == "string" then value = SummaryText(value, 80) end
+        local length = #P.JSON(key) + #P.JSON(value) + 2
+        if used + length > 6000 then break end
+        settings[key], used = value, used + length
+    end
+    local disabled = {}
+    for name, enabled in pairs(type(effective.spells) == "table" and effective.spells or {}) do
+        if type(name) == "string" and enabled == false then disabled[#disabled + 1] = name end
+    end
+    table.sort(disabled)
+    if #disabled > 40 then
+        for i = #disabled, 41, -1 do disabled[i] = nil end
+        settings.disabledSpellsTruncated = true
+    end
+    settings.disabledSpells = disabled
+    return settings
+end
+
+local function SummaryEvent(row)
+    if type(row) ~= "table" or type(row.event) ~= "string" then return end
+    local event = row.event
+    local detail = type(row.detail) == "table" and row.detail or nil
+    local relevant = event == "ActionLITE rotation" or event == "ActionLITE rotation baseline"
+        or event == "ActionLITE cast"
+        or event == "ActionLITE combat" or event == "ActionLITE power"
+        or event == "ActionLITE error" or event == "Lua error / taint"
+        or event == "ActionLITE addon"
+        or (event == "ActionLITE system" and detail
+            and (detail.level == "warn" or detail.level == "error"))
+        or event == "UI_ERROR_MESSAGE" or event == "PLAYER_REGEN_DISABLED"
+        or event == "PLAYER_REGEN_ENABLED" or event == "UI control changed"
+        or event:find("^UNIT_SPELLCAST") ~= nil
+    if not relevant then return end
+    local result = { at = row.at, phase = row.phase, event = event }
+    if detail then
+        -- ActionLITE log rows already have classified, copied text. Do not
+        -- bring stack traces, frame trees, or raw API values into the digest.
+        result.clock = SummaryText(detail.clock, 24)
+        result.level = SummaryText(detail.level, 16)
+        result.message = SummaryText(detail.msg or detail.message or detail.spell, 130)
+        result.reason = SummaryText(detail.reason, 100)
+        result.detail = SummaryText(detail.detail, 180)
+        if type(detail.arguments) == "table" then
+            result.arguments = {}
+            for i = 1, math.min(#detail.arguments, 4) do
+                local argument = detail.arguments[i]
+                result.arguments[i] = type(argument) == "string" and SummaryText(argument, 60)
+                    or P.Copy(argument)
+            end
+        elseif #detail > 0 then
+            result.arguments = {}
+            for i = 1, math.min(#detail, 4) do
+                local argument = detail[i]
+                result.arguments[i] = type(argument) == "string" and SummaryText(argument, 60)
+                    or P.Copy(argument)
+            end
+        end
+    end
+    return result
+end
+
+local function CombatSummary(report, automatic)
+    local token = P.Copy(AL.playerClass)
+    local summary = { format = "ActionLiteDebug combat summary 1",
+        addonVersion = P.Copy(report.addonVersion), buildId = P.Copy(report.componentVersions
+            and report.componentVersions.buildId or AL.buildId),
+        playerClass = token, settings = SummaryProfile(report, token),
+        startedInCombat = P.Copy(report.startedInCombat), stopReason = P.Copy(report.stopReason),
+        coverage = P.Copy(report.coverage), newErrorOccurrences = P.Copy(report.newErrorOccurrences),
+        eventsFirst = {}, eventsRecent = {}, relevantEventCount = 0 }
+    local events = type(report.timeline) == "table" and report.timeline or {}
+    local first, tail = {}, {}
+    for _, row in ipairs(events) do
+        local compact = SummaryEvent(row)
+        if compact then
+            summary.relevantEventCount = summary.relevantEventCount + 1
+            if #first < 18 then first[#first + 1] = compact
+            else
+                tail[#tail + 1] = compact
+                if #tail > 65 then table.remove(tail, 1) end
+            end
+        end
+    end
+    -- Opening and ending evidence both matter. Allocate separate byte budgets
+    -- so a verbose opener cannot hide the outcome of the encounter.
+    local function AddBounded(destination, source, maxBytes, newestFirst)
+        local used = 0
+        if newestFirst then
+            for i = #source, 1, -1 do
+                local row = source[i]
+                local length = #P.JSON(row)
+                if used + length > maxBytes then break end
+                table.insert(destination, 1, row)
+                used = used + length
+            end
+        else
+            for _, row in ipairs(source) do
+                local length = #P.JSON(row)
+                if used + length > maxBytes then break end
+                destination[#destination + 1], used = row, used + length
+            end
+        end
+    end
+    AddBounded(summary.eventsFirst, first, 4500)
+    AddBounded(summary.eventsRecent, tail, 8500, true)
+    summary.omittedEvents = summary.relevantEventCount - #summary.eventsFirst - #summary.eventsRecent
+    if #events == 0 and type(automatic.recentLog) == "table" then
+        summary.recentLog = {}
+        local count = #automatic.recentLog
+        local used = 0
+        for i = math.max(1, count - 35), count do
+            local entry = automatic.recentLog[i]
+            local compact = SummaryEvent({ event = "ActionLITE " .. tostring(entry.cat), detail = entry })
+            if compact then
+                local length = #P.JSON(compact)
+                if used + length > 8500 then break end
+                summary.recentLog[#summary.recentLog + 1], used = compact, used + length
+            end
+        end
+    end
+    return "COMBAT SUMMARY (bounded; full report follows)\n" .. P.JSON(summary) .. "\nFULL REPORT\n"
+end
+
 function S.Results()
     P = ns.Probe
     AttachLogger()
@@ -450,7 +598,8 @@ function S.Results()
         end
     end
     report.automaticErrors = automatic
-    return "ActionLiteDebug\nWoW Forever - ActionLITE bug report\nSelect All, copy, and paste this complete report.\n\n" .. P.JSON(report), report
+    return "ActionLiteDebug\nWoW Forever - ActionLITE bug report\nSelect All, copy, and paste this complete report.\n\n"
+        .. CombatSummary(report, automatic) .. P.JSON(report), report
 end
 function S.Data() return data end
 function S.Current() return data end

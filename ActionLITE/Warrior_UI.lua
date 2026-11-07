@@ -1,11 +1,11 @@
 local ADDON, AL = ...
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-local UI_VERSION = "0.10.7"
+local UI_VERSION = "0.10.8"
 local L = AL.L
 
 -- ============================================================================
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
--- ActionLITE - Warrior_UI.lua - v0.10.7
+-- ActionLITE - Warrior_UI.lua - v0.10.8
 -- ----------------------------------------------------------------------------
 -- Warrior options page with a compact two-column layout.
 -- No combat rules here: all displayed values come from
@@ -114,6 +114,10 @@ local function BuildWarriorUI(page, ui)
 		label = "Demoralizing Shout", icon = SpellIcon("Demoralizing Shout"), half = true,
 		tooltip = { "Demoralizing Shout", L("DEMO_HELP") },
 	})
+	ui.SettingCheck(dpsCore, "demoAoEOnly", {
+		label = "Use Demoralizing Shout in AoE only", icon = SpellIcon("Demoralizing Shout"), half = false,
+		tooltip = { "AoE-only Demoralizing Shout", "When enabled, Demoralizing Shout is withheld against one target and used only when two or more nearby enemies are confirmed engaged with the player. This applies to DPS and Tank roles." },
+	})
 	ui.Divider(dpsCore)
 	ui.Slider(dpsCore, {
 		label = L("SUNDER_STACKS"), half = true,
@@ -215,6 +219,10 @@ local function BuildWarriorUI(page, ui)
 	ui.SettingCheck(tank, "tankAutoStance", {
 		label = "Defensive Stance", icon = SpellIcon("Defensive Stance"), half = true,
 		tooltip = { "Defensive Stance", L("TANK_STANCE_HELP") },
+	})
+	ui.SettingCheck(tank, "tankDisableAutoTargeting", {
+		label = "Disable automatic targeting / Charge opener", icon = SpellIcon("Charge"), half = false,
+		tooltip = { "Manual tank engagement", "Stops ActionLITE from suggesting out-of-combat Attack or Charge openers and suppresses in-combat Charge. Select and engage each new target manually; the normal Tank rotation resumes in combat." },
 	})
 	ui.SettingCheck(tank, "tankTaunt", {
 		label = "Taunt", icon = SpellIcon("Taunt"), half = true,

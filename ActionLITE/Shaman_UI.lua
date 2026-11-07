@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-local UI_VERSION = "0.20.0"
+local UI_VERSION = "0.20.1"
 
 -- Dedicated Shaman interface. Only UI text is localized here;
 -- spell names and profile keys remain identical in both languages.
@@ -20,6 +20,11 @@ end
 local function BuildShamanUI(page, ui)
 	local rotation = AL.rotations and AL.rotations.SHAMAN
 	if rotation and rotation.NormalizeBuild then rotation.NormalizeBuild(ui.Profile()) end
+	-- Flame Shock wins migration conflicts because it is the newer explicit
+	-- opener choice. Both opener checkboxes may still remain off.
+	if ui.Profile().flameShockTag == true and ui.Profile().earthShockTag == true then
+		ui.Profile().earthShockTag = false
+	end
 	local theme = ui.Theme
 	local stack = ui.Body(page)
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -33,7 +38,7 @@ local function BuildShamanUI(page, ui)
 		return ui.SpellIcon(name, spellIDs[name])
 	end
 
-	local function Check(card, key, label, spell, help, full)
+	local function Check(card, key, label, spell, help, full, changed)
 		return ui.SettingCheck(card, key, {
 			label = Text(label),
 			icon = spell and SpellIcon(spell) or nil,
@@ -42,6 +47,7 @@ local function BuildShamanUI(page, ui)
 			onChange = function()
 				local profile=ui.Profile()
 				if key=="leveling" then rotation.SetBuild(key,true,profile) end
+				if changed then changed(profile) end
 				ui.Repaint()
 			end,
 		})
@@ -161,7 +167,12 @@ local function BuildShamanUI(page, ui)
 		{ en = "Always checked before healing, maintenance and damage.", fr = "Toujours verifie avant les soins, la maintenance et les degats.", pt = "Sempre verificado antes de cura, manutenção e dano.", es = "Siempre se comprueba antes de sanación, mantenimiento y daño.", de = "Wird immer vor Heilung, Pflege und Schaden geprüft.", zh = "始终在治疗、维持和伤害之前检查。" }, true)
 	Check(offense, "earthShockTag",
 		{ en = "Earth Shock to tag a target", fr = "Earth Shock pour engager une cible", pt = "Earth Shock para iniciar no alvo", es = "Earth Shock para iniciar contra el objetivo", de = "Earth Shock zum Anpullen", zh = "用 Earth Shock 抢怪起手" }, "Earth Shock",
-		{ en = "Optional opener before combat. Suggest Earth Shock once per enemy when learned, ready and in range; then return to the normal rotation. Independent of Earth Shock damage.", fr = "Ouverture facultative avant combat. Suggere Earth Shock une fois par ennemi s'il est appris, pret et a portee, puis reprend la rotation normale.", pt = "Abertura opcional antes do combate. Sugere Earth Shock uma vez por inimigo quando aprendido, pronto e ao alcance; depois retoma a rotação normal.", es = "Inicio opcional antes del combate. Sugiere Earth Shock una vez por enemigo cuando esté aprendido, listo y al alcance; luego vuelve a la rotación normal.", de = "Optionaler Auftakt vor dem Kampf. Earth Shock wird einmal pro Gegner empfohlen, wenn er gelernt, bereit und in Reichweite ist; danach läuft die normale Rotation weiter.", zh = "可选的战前起手：已学会、可用且在射程内时，对每个敌人建议一次 Earth Shock，然后继续正常循环。" }, true)
+		{ en = "Optional opener before combat. Suggest Earth Shock once per enemy when learned, ready and in range. Selecting it clears the Flame Shock opener; both may be off.", fr = "Ouverture facultative avant le combat. Suggere Earth Shock une fois par ennemi. Le selectionner desactive l'ouverture Flame Shock; les deux peuvent etre desactives.", pt = "Abertura opcional antes do combate. Sugere Earth Shock uma vez por inimigo. Selecioná-lo desativa a abertura com Flame Shock; ambos podem ficar desativados.", es = "Inicio opcional antes del combate. Sugiere Earth Shock una vez por enemigo. Seleccionarlo desactiva el inicio con Flame Shock; ambos pueden estar desactivados.", de = "Optionaler Auftakt vor dem Kampf. Earth Shock wird einmal pro Gegner empfohlen. Die Auswahl deaktiviert den Flame-Shock-Auftakt; beide können aus sein.", zh = "可选战前起手：每个敌人建议一次 Earth Shock。选择后会关闭 Flame Shock 起手；两者也可同时关闭。" }, true,
+		function(profile) if profile.earthShockTag == true then profile.flameShockTag = false end end)
+	Check(offense, "flameShockTag",
+		{ en = "Flame Shock to open on a target", fr = "Flame Shock pour engager une cible", pt = "Flame Shock para iniciar no alvo", es = "Flame Shock para iniciar contra el objetivo", de = "Flame Shock zum Anpullen", zh = "用 Flame Shock 起手" }, "Flame Shock",
+		{ en = "Optional opener before combat. Suggest Flame Shock once per enemy when learned, ready and in range. Selecting it clears the Earth Shock opener; both may be off.", fr = "Ouverture facultative avant le combat. Suggere Flame Shock une fois par ennemi. Le selectionner desactive l'ouverture Earth Shock; les deux peuvent etre desactives.", pt = "Abertura opcional antes do combate. Sugere Flame Shock uma vez por inimigo. Selecioná-lo desativa a abertura com Earth Shock; ambos podem ficar desativados.", es = "Inicio opcional antes del combate. Sugiere Flame Shock una vez por enemigo. Seleccionarlo desactiva el inicio con Earth Shock; ambos pueden estar desactivados.", de = "Optionaler Auftakt vor dem Kampf. Flame Shock wird einmal pro Gegner empfohlen. Die Auswahl deaktiviert den Earth-Shock-Auftakt; beide können aus sein.", zh = "可选战前起手：每个敌人建议一次 Flame Shock。选择后会关闭 Earth Shock 起手；两者也可同时关闭。" }, true,
+		function(profile) if profile.flameShockTag == true then profile.earthShockTag = false end end)
 	Check(offense, "flameshock", "Flame Shock", "Flame Shock")
 	Check(offense, "stormstrike", "Stormstrike", "Stormstrike")
 	Check(offense, "earthshock",

@@ -175,6 +175,7 @@ function State.Runtime(detail)
     local result = { lastSuggestion = P.Copy(AL.lastSuggestion), burst = P.Copy(AL.burst),
         queue = P.Copy(AL.queue), known = P.Copy(AL.known), unlearned = P.Copy(AL.unlearned),
         rangeSpellRefs = P.Copy(AL.rangeSpellRefs), futureSpells = P.Copy(AL.futureSpells),
+        localNames = detail ~= false and P.Copy(AL.localNames) or nil,
         core = Getter(AL.DebugState), manaSources = Getter(AL.ManaDebugSources),
         rotation = {}, visualPlan = P.Copy(AL.rotationSecretVisual),
         resourceDisplay = Getter(AL.ResourceDebugState), buildId = AL.buildId,
@@ -195,6 +196,7 @@ function State.Runtime(detail)
         local id, name = entry[1], entry[2]
         local reference = AL.rangeSpellRefs and AL.rangeSpellRefs[name]
         result.spells[#result.spells + 1] = { name = name, baseID = id,
+            localizedName = P.Copy(AL.localNames and AL.localNames[name]),
             learnedID = P.Copy(reference and reference.id), learned = P.Copy(AL.known and AL.known[name]),
             disabled = profile.spells and profile.spells[name] == false or false,
             iconOverride = P.Copy(profile.icons and profile.icons[name]),

@@ -1,6 +1,6 @@
 # Writing ActionLITE rotations
 
-This guide describes the v1.1.6 class-rotation and HealingEngine contracts for WoW Forever.
+This guide describes the v1.1.7 class-rotation and HealingEngine contracts for WoW Forever.
 
 ## Repository layout
 
@@ -62,7 +62,7 @@ Declarative class pages use controls such as:
 
 Dedicated class pages use `ui.SettingCheck` and `ui.Slider`. Always bind the UI and rotation to the same profile key. The integrated debugger records registered controls and their saved/effective values automatically.
 
-Version 1.1.6 exposes one combat path: **Leveling Rotation**. It must select only spells confirmed learned in the live spellbook, while respecting each spell permission, cooldown, resource requirement and range result. Level-60 preset implementations may remain dormant in source for later validation, but they must not render in the UI or receive public dispatch. Future public build selectors must preserve the user's spell permissions, icon assignments and unrelated settings.
+Version 1.1.7 exposes one combat path: **Leveling Rotation**. It must select only spells confirmed learned in the live spellbook, while respecting each spell permission, cooldown, resource requirement and range result. Level-60 preset implementations may remain dormant in source for later validation, but they must not render in the UI or receive public dispatch. Future public build selectors must preserve the user's spell permissions, icon assignments and unrelated settings.
 
 ## Rotation role modes
 

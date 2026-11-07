@@ -70,6 +70,7 @@ local M = {
 		concussive = true,
 		survivalMelee = false,
 		aoe = false,
+		multiShot = true,
 		drink = true,
 		petMendHP = 50,
 		drinkMana = 30,
@@ -843,11 +844,9 @@ function M.NextSpell(s, inCombat, hostile)
                     end
                 end
                 if s.concussive and TargetTargetsPlayer() then Offer("Concussive Shot", "keep distance") end
-                local minimum = SettingNumber(s, "aoeMinEnemies", 2, 2, 5)
-                local count = s.aoe and ActiveEnemyCount(minimum)
-                if count and count >= minimum then Offer("Multi-Shot", "aoe") end
+				if s.aoe and s.multiShot ~= false then Offer("Multi-Shot", "AoE selected") end
                 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-                if s.volley and count and count >= minimum and not PlayerMoving() then
+				if s.aoe and s.volley and not PlayerMoving() then
                     Offer("Volley", "ranged area damage", {
                         ManaGate(manaPercent, SettingNumber(s, "volleyMinMana", 35, 0, 100), false) })
                 end
@@ -1020,7 +1019,7 @@ local M = {
         leveling = true,
 		beastMastery = false,
 		beastStingMinMana = 30, beastHawkMinMana = 0,
-		beastBurstMinMana = 35, beastAoEMinMana = 35, beastVolleyMinEnemies = 4,
+		beastBurstMinMana = 35, beastAoEMinMana = 35,
 		bestialWrath = true, intimidation = false,
 		beastBerserking = true, beastElune = true,
 		aspect = true,
@@ -2012,13 +2011,11 @@ local function MarksmanshipRanged(s,mana,targetHP)
         if s.bloodFury then Offer("Blood Fury","Marksmanship Burst",{gate}) end
     end
     if s.concussive and TargetTargetsPlayer() then Offer("Concussive Shot","keep distance") end
-    -- Multi-Shot shares Aimed's timer, but is an area attack and belongs only
-    -- to AoE On. Never spend that timer on Multi-Shot against one target.
-    local minimum=SettingNumber(s,"aoeMinEnemies",2,2,5)
-    local count=s.aoe and ActiveEnemyCount(minimum)
-    if count and count>=minimum and not moving then
-        Offer("Multi-Shot","Marksmanship AoE")
-        if s.volley then Offer("Volley","ranged ground AoE",{
+	-- AoE On is an explicit player choice. Ranged enemies may not be visible
+	-- to melee/nameplate counters, so do not gate ranged AoE on that count.
+	if s.aoe then
+		if s.multiShot ~= false then Offer("Multi-Shot","Marksmanship AoE") end
+		if s.volley and not moving then Offer("Volley","ranged ground AoE",{
             ManaGate(mana,SettingNumber(s,"volleyMinMana",35,0,100),false)}) end
     end
     -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -2097,15 +2094,13 @@ end
 local function BeastRanged(s,mana,targetHP)
     local moving=PlayerMoving()
     if s.concussive and TargetTargetsPlayer() then Offer("Concussive Shot","keep distance") end
-    local minimum=SettingNumber(s,"aoeMinEnemies",2,2,5)
-    local count=s.aoe and ActiveEnemyCount(5)
-    if count and count>=minimum and not moving then
+	if s.aoe then
         local gates={ManaGate(mana,SettingNumber(s,"beastAoEMinMana",35,0,100),false)}
-        if s.volley and count>=math.max(minimum,SettingNumber(s,"beastVolleyMinEnemies",4,2,5)) then
+		if s.volley and not moving then
             Offer("Volley","Beast Mastery ranged ground AoE",BeastGates(gates,
                 ManaGate(mana,SettingNumber(s,"volleyMinMana",35,0,100),false)))
         end
-        Offer("Multi-Shot","Beast Mastery AoE",gates)
+		if s.multiShot ~= false then Offer("Multi-Shot","Beast Mastery AoE",gates) end
     end
     if s.aimed and not moving then Offer("Aimed Shot","Beast Mastery primary shot") end
     if BeastWindow(s,moving) then
@@ -2361,11 +2356,9 @@ function M.NextSpell(s, inCombat, hostile)
                         SettingNumber(s, "burstMinTargetHP", 40, 0, 100), false) })
                 end
                 if s.concussive and TargetTargetsPlayer() then Offer("Concussive Shot", "keep distance") end
-                local minimum = SettingNumber(s, "aoeMinEnemies", 2, 2, 5)
-                local count = s.aoe and ActiveEnemyCount(minimum)
-                if count and count >= minimum then
-                    Offer("Multi-Shot", "aoe")
-                    if Survival(s) and s.volley and not PlayerMoving() then
+				if s.aoe then
+					if s.multiShot ~= false then Offer("Multi-Shot", "aoe") end
+					if s.volley and not PlayerMoving() then
                         Offer("Volley","ranged ground AoE",{ManaGate(manaPercent,SettingNumber(s,"volleyMinMana",35,0,100),false)})
                     end
                 end

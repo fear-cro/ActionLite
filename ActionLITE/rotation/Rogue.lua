@@ -70,6 +70,8 @@ local M = {
 		bladeFlurry = true,
 		shank = true,
 		deathMark = true,
+		eureka = true,
+		escapeArtist = true,
 		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 		mutilate = true,
 		hemorrhage = true,
@@ -100,6 +102,8 @@ M.spells = {
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	{ 1316709, "Death Mark" },
 	{ 5277, "Evasion" },
+	{ 1259812, "Eureka!" },
+	{ 20589, "Escape Artist" },
 	{ 2098, "Eviscerate" },
 	{ 8647, "Expose Armor" },
 	{ 1966, "Feint" },
@@ -163,6 +167,43 @@ local function SafeCall(reader, ...)
 	if type(reader) ~= "function" then return nil end
 	local ok, a, b, c, d = pcall(reader, ...)
 	if ok then return a, b, c, d end
+end
+
+-- ActionLITE v1.1.7: Escape Artist is utility, not a general damage cooldown.
+-- Prefer a readable loss-of-control/root API; localized UI errors provide a
+-- short fallback without scanning protected combat auras.
+local escapeArtistNeededUntil = 0
+local escapeArtistEvents = CreateFrame("Frame")
+pcall(escapeArtistEvents.RegisterEvent, escapeArtistEvents, "UI_ERROR_MESSAGE")
+pcall(escapeArtistEvents.RegisterEvent, escapeArtistEvents, "PLAYER_REGEN_ENABLED")
+escapeArtistEvents:SetScript("OnEvent", function(_, event, _, message)
+	if event == "PLAYER_REGEN_ENABLED" then escapeArtistNeededUntil = 0; return end
+	if not SafeValue(message) or type(message) ~= "string" then return end
+	for _, key in ipairs({ "SPELL_FAILED_ROOTED", "ERR_ATTACK_ROOTED", "ERR_CANT_MOVE" }) do
+		local localized = _G[key]
+		if type(localized) == "string" and message == localized then
+			escapeArtistNeededUntil = GetTime() + 3
+			return
+		end
+	end
+end)
+
+local function EscapeArtistNeeded()
+	if type(UnitIsRooted) == "function" then
+		local rooted = SafeCall(UnitIsRooted, "player")
+		if SafeValue(rooted) and (rooted == true or rooted == 1) then return true end
+	end
+	local loss = C_LossOfControl
+	local count = loss and SafeCall(loss.GetActiveLossOfControlDataCount)
+	count = SafeValue(count) and type(count) == "number" and count or nil
+	if count then
+		for index = 1, math.min(20, math.max(0, math.floor(count))) do
+			local data = SafeCall(loss.GetActiveLossOfControlData, index)
+			if SafeValue(data) and type(data) == "table" and SafeValue(data.locType)
+				and (data.locType == "ROOT" or data.locType == "SNARE") then return true end
+		end
+	end
+	return GetTime() < escapeArtistNeededUntil
 end
 
 local function ReadableNumber(value)
@@ -690,7 +731,7 @@ local function TryOpener(name, s)
 	if name == "Sap" and (sapHoldUntil > GetTime() or AL.HasDebuff("target", "Sap")) then return nil end
 	if openerBlocked and (name == "Backstab" or name == "Ambush" or name == "Garrote") then return nil end
 	if name == "Backstab" or name == "Ambush" then
-		if MainHandIsDagger() == false or openerBlocked then return nil end
+		if MainHandIsDagger() ~= true or openerBlocked then return nil end
 	end
 	if name == "Backstab" or name == "Ambush" or name == "Garrote" then
 		if ReadablePositionalUsable(name) == false then return nil end
@@ -709,8 +750,35 @@ local function TryOpener(name, s)
 	return FinishDecision()
 end
 
+-- Default Combat leveling should not enter Stealth for an opener its weapon
+-- cannot use. Cheap Shot and Garrote remain deliberate non-dagger choices.
+local function StealthSetupAllowed(s, pvp)
+	if pvp then
+		local choice = SettingChoice(s, "pvpOpenerMode", {
+			NONE = true, SAP = true, BACKSTAB = true, CHEAP_SHOT = true,
+			AMBUSH = true, GARROTE = true,
+		}, "NONE")
+		local selected = { SAP = "Sap", BACKSTAB = "Backstab", CHEAP_SHOT = "Cheap Shot",
+			AMBUSH = "Ambush", GARROTE = "Garrote" }
+		local spell = selected[choice]
+		if spell then
+			return Ok(spell) and ((spell ~= "Backstab" and spell ~= "Ambush") or MainHandIsDagger() == true)
+		end
+	end
+	local mode = SettingChoice(s, "openerMode", {
+		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
+	}, "BACKSTAB")
+	if mode == "CHEAP_SHOT" then return Ok("Cheap Shot") end
+	if mode == "GARROTE" then return Ok("Garrote") end
+	if MainHandIsDagger() ~= true then return false end
+	if mode == "AMBUSH" then return Ok("Ambush") end
+	if mode == "BACKSTAB" then return Ok("Backstab") end
+	return Ok("Backstab") or Ok("Ambush")
+end
+
 local function StealthOpener(s)
 	if not AL.HasBuff("player", "Stealth") then return nil end
+	if not StealthSetupAllowed(s, false) then return nil end
 	local mode = SettingChoice(s, "openerMode", {
 		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
 	}, "BACKSTAB")
@@ -838,7 +906,7 @@ local function PoisonAction(s)
 	end
 end
 
-local function Builder(s)
+local function Builder(s, atComboCap)
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	-- Learned talent builders are selected only when their weapon, range,
 	-- cooldown and non-resource usability requirements are confirmed. A readable
@@ -848,13 +916,13 @@ local function Builder(s)
 		local usable, shortage = SpellUsability(name)
 		return usable ~= false or shortage == true
 	end
-	if LevelingGhostlyReady() and Candidate("Ghostly Strike", s.ghostlyStrike) then
+	if not atComboCap and LevelingGhostlyReady() and Candidate("Ghostly Strike", s.ghostlyStrike) then
 		return "Ghostly Strike", 40
 	end
-	if TwoDaggers() and Candidate("Mutilate", s.mutilate) then
+	if not atComboCap and TwoDaggers() and Candidate("Mutilate", s.mutilate) then
 		return "Mutilate", 60
 	end
-	if Candidate("Hemorrhage", s.hemorrhage) then
+	if not atComboCap and Candidate("Hemorrhage", s.hemorrhage) then
 		return "Hemorrhage", 35
 	end
 	-- No reliable behind-target signal is supplied. Backstab remains a Stealth
@@ -1120,7 +1188,8 @@ function M.NextSpell(s, inCombat, hostile)
 			end
 			local opener, reason = StealthOpener(s)
 			if opener or reason then return opener, reason end
-			if s.stealth and OkReady("Stealth") and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
+			if s.stealth and StealthSetupAllowed(s, pvp) and OkReady("Stealth")
+				and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
 				return "Stealth", "opener setup"
 			end
 			-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -1140,6 +1209,9 @@ function M.NextSpell(s, inCombat, hostile)
 		return nil, "Ready"
 	end
 	if not hostile then return nil, "No target" end
+	if s.escapeArtist ~= false and EscapeArtistNeeded() and ReadyUsable("Escape Artist") then
+		return "Escape Artist", "remove detected root or snare"
+	end
 	if pvp then
 		local opener, reason = PvPStealthOpener(s)
 		if opener or reason then return opener, reason end
@@ -1189,6 +1261,9 @@ function M.NextSpell(s, inCombat, hostile)
 			EnergyGate(energy, EnergyCost("Blade Flurry", 25), "Blade Flurry") })
 	end
 	if burstActive and meleeTarget then
+		if s.eureka ~= false and ReadyUsable("Eureka!") and not AL.HasBuff("player", "Eureka!") then
+			AddAction("Eureka!", "burst racial", { burstGate })
+		end
 		if ReadyUsable("Blood Fury") then AddAction("Blood Fury", "burst", { burstGate }) end
 		if ReadyUsable("Berserking") then AddAction("Berserking", "burst", { burstGate }) end
 	end
@@ -1231,14 +1306,19 @@ function M.NextSpell(s, inCombat, hostile)
 		AddAction("Expose Armor", tostring(cp) .. " cp", { finishGate, EnergyGate(energy, EnergyCost("Expose Armor", 25), "Expose Armor") })
 		AddAction(nil, "Pool energy for Expose Armor", { finishGate })
 	end
-	if cp >= 5 and targetHP == nil and eviscerateAllowed and not CurveAvailable("health") then
-		AddAction(AL.known["Attack"] and "Attack" or nil, "Hold five combo points until target health is readable")
-		return FinishDecision()
-	end
 	if cp >= 5 then
-		-- Do not waste capped combo points on another builder. Attack remains a
-		-- usable fallback instead of leaving the display on a pooling icon.
-		AddAction(AL.known["Attack"] and "Attack" or nil, "Hold five combo points for a finisher")
+		-- At the cap, Sinister Strike still deals damage while the target is
+		-- above the execute threshold. Its extra point is wasted, but holding
+		-- Attack alone stops the leveling rotation from using Energy at all.
+		local builder, minimum = Builder(s, true)
+		if builder then
+			minimum = math.max(minimum, EnergyCost(builder, 45))
+			AddAction(builder, "five-point damage above finisher health", {
+				EnergyGate(energy, minimum, builder) })
+			AddAction(nil, "Pool energy for " .. builder)
+		else
+			AddAction(AL.known["Attack"] and "Attack" or nil, "Five points; no available builder")
+		end
 		return FinishDecision()
 	end
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
@@ -1246,10 +1326,11 @@ function M.NextSpell(s, inCombat, hostile)
 	-- it so a guaranteed Boot Knife proc cannot waste points at the cap.
 	if s.shank and cp <= 3 and LevelingShankReady() and ShankEligible()
 		and InMeleeRange("Shank") then
+		-- Shank is a net Energy gain. If Energy is too high to benefit from it,
+		-- fall through to the normal builder instead of pooling forever.
 		AddAction("Shank", "energy-generating strike", {
 			EnergyGate(energy, EnergyCost("Shank", 5), "Shank"),
 			EnergyAtMost(energy, 60) })
-		AddAction(nil, "Pool energy for Shank"); return FinishDecision()
 	end
 	local builder, minimumEnergy = Builder(s)
 	if builder then
@@ -1379,6 +1460,8 @@ M.spells = {
 	{ 1316709, "Death Mark" },
 	{ 1725, "Distract" },
 	{ 5277, "Evasion" },
+	{ 1259812, "Eureka!" },
+	{ 20589, "Escape Artist" },
 	{ 2098, "Eviscerate" },
 	{ 8647, "Expose Armor" },
 	{ 1966, "Feint" },
@@ -1840,7 +1923,7 @@ local function TryOpener(name, s)
 	if not Ok(name) or not InMeleeRange(name) then return nil end
 	if openerBlocked and (name == "Backstab" or name == "Ambush" or name == "Garrote") then return nil end
 	if name == "Backstab" or name == "Ambush" then
-		if MainHandIsDagger() == false or openerBlocked then return nil end
+		if MainHandIsDagger() ~= true or openerBlocked then return nil end
 	end
 	if name == "Backstab" or name == "Ambush" or name == "Garrote" then
 		if ReadablePositionalUsable(name) == false then return nil end
@@ -1859,8 +1942,21 @@ local function TryOpener(name, s)
 	return FinishDecision()
 end
 
+local function StealthSetupAllowed(s)
+	local mode = SettingChoice(s, "openerMode", {
+		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
+	}, "BACKSTAB")
+	if mode == "CHEAP_SHOT" then return Ok("Cheap Shot") end
+	if mode == "GARROTE" then return Ok("Garrote") end
+	if MainHandIsDagger() ~= true then return false end
+	if mode == "AMBUSH" then return Ok("Ambush") end
+	if mode == "BACKSTAB" then return Ok("Backstab") end
+	return Ok("Backstab") or Ok("Ambush")
+end
+
 local function StealthOpener(s)
 	if not AL.HasBuff("player", "Stealth") then return nil end
+	if not StealthSetupAllowed(s) then return nil end
 	local mode = SettingChoice(s, "openerMode", {
 		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
 	}, "BACKSTAB")
@@ -1975,13 +2071,14 @@ end
 -- own successful casts. Talent spells are gated by learning, not a guessed level.
 local combatCooldowns = { ["Adrenaline Rush"] = 300, ["Blade Flurry"] = 120,
 	["Blood Fury"] = 120, ["Berserking"] = 180, ["Cold Blood"] = 180,
+	["Eureka!"] = 120, ["Escape Artist"] = 120,
 	["Ghostly Strike"] = 20, ["Premeditation"] = 120, ["Preparation"] = 600, ["Vanish"] = 300, ["Stealth"] = 10,
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	["Shank"] = 10, ["Death Mark"] = 10 }
 local combatDurations = { ["Adrenaline Rush"] = 15, ["Blade Flurry"] = 15,
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	["Blood Fury"] = 15, ["Berserking"] = 15, ["Ghostly Strike"] = 7, ["Vanish"] = 10,
-	["Cold Blood"] = math.huge }
+	["Cold Blood"] = math.huge, ["Eureka!"] = 8, ["Escape Artist"] = 3 }
 local combatEnds, combatCastAt, combatBuffEnds, combatRetry = {}, {}, {}, {}
 local combatIDs = {}
 for _, entry in ipairs(M.spells) do combatIDs[entry[2]] = entry[1] end
@@ -2802,7 +2899,8 @@ AssassinationRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 	if not inCombat then
 		local opener, reason = StealthOpener(s)
 		if opener or reason then return opener, reason end
-		if s.stealth and SubReady("Stealth") and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
+		if s.stealth and StealthSetupAllowed(s) and SubReady("Stealth")
+			and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
 			AddAction("Stealth", "Assassination: opener setup"); return FinishDecision()
 		end
 	end
@@ -2910,7 +3008,8 @@ function M.NextSpell(s, inCombat, hostile)
 		if hostile then
 			local opener, reason = StealthOpener(s)
 			if opener or reason then return opener, reason end
-			if s.stealth and OkReady("Stealth") and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
+			if s.stealth and StealthSetupAllowed(s) and OkReady("Stealth")
+				and not AL.HasBuff("player", "Stealth") and WithinStealthRange() then
 				return "Stealth", "opener setup"
 			end
 			if not InMeleeRange("Sinister Strike") then return nil, "Approach target" end
@@ -3040,7 +3139,7 @@ function M.GetUIState()
 end
 
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-for _, name in ipairs({ "Adrenaline Rush", "Blade Flurry", "Blood Fury", "Berserking", "Cold Blood", "Preparation", "Slice and Dice", "Evasion", "Vanish", "Stealth" }) do
+for _, name in ipairs({ "Adrenaline Rush", "Blade Flurry", "Blood Fury", "Berserking", "Eureka!", "Escape Artist", "Cold Blood", "Preparation", "Slice and Dice", "Evasion", "Vanish", "Stealth" }) do
 	AL.selfCastSpells = AL.selfCastSpells or {}
 	AL.selfCastSpells[name] = true
 end

@@ -65,6 +65,7 @@ local M = {
 		flameshock = true,
 		earthshock = true,
 		earthShockTag = false,
+		flameShockTag = false,
 		frostshock = true,
 		stormstrike = true,
 		lightningbolt = true,
@@ -293,6 +294,12 @@ local function TargetAlreadyTagged()
     if taggedCurrentTarget then return true end
     local guid = SelectedTargetGUID()
     return guid and taggedByGUID[guid] == true or false
+end
+local function SelectedTagOpener(s)
+	-- The UI keeps these mutually exclusive. Flame Shock wins malformed or
+	-- imported profiles that contain both flags, while both may remain off.
+	if s and s.flameShockTag == true then return "Flame Shock" end
+	if s and s.earthShockTag == true then return "Earth Shock" end
 end
 local function Percent(value)
     value = Number(value)
@@ -823,9 +830,11 @@ end
 local function CooldownReady(name)
     if SHOCKS[name] then
         if shockCastAt and GetTime() - shockCastAt < 0.5 then return false end
+        -- A successful Shock starts the shared cooldown. A GCD-only or stale
+        -- readable result for a different Shock must not clear that lock.
+        if GetTime() < shockLockUntil then return false end
         local ready = ReadableCooldown(name)
         if ready ~= nil then return ready end
-        if GetTime() < shockLockUntil then return false end
     end
     local localCD = localCooldowns[name]
     if localCD then
@@ -1183,12 +1192,13 @@ function M.NextSpell(s, inCombat, hostile)
         if hostile then
             local melee = InMelee()
             if not inCombat then
-                -- Tagging is optional and independent of the normal Earth
-                -- Shock damage checkbox. Offer checks learned spell, cooldown,
+				-- Tagging is optional and independent of the normal Shock damage
+				-- checkboxes. Offer checks learned spell, cooldown,
                 -- usability, affordability and known out-of-range results.
-                if Enabled(s,"earthShockTag") and not TargetAlreadyTagged()
+				local tagOpener = SelectedTagOpener(s)
+				if tagOpener and not TargetAlreadyTagged()
                     and Bool((SafeCall(UnitIsDeadOrGhost,"target"))) ~= true then
-                    Offer("Earth Shock","Tag pull")
+					Offer(tagOpener, tagOpener .. " opener")
                 end
                 if not melee then LightningBolt(s,mana,moving,"Ranged pull")
                 else MaintainCombatTotems(s,role,targetHP,TotemSnapshot());MeleeAttack("Opener") end
@@ -1226,7 +1236,7 @@ end
 function M.OnCastResult(name, result, sent)
     if result ~= "UNIT_SPELLCAST_SUCCEEDED" or not name then return end
     local now = GetTime()
-    if name == "Earth Shock" then
+	if name == "Earth Shock" or name == "Flame Shock" then
         local guid = SafeValue(sent) and type(sent) == "table" and sent.targetGUID or nil
         if not (SafeValue(guid) and type(guid) == "string" and guid ~= "") then
             guid = SelectedTargetGUID()
@@ -2347,6 +2357,9 @@ local function EnhancementReady(name)
     local record=enh.cooldowns[name]
     if SHOCKS[name] then record=enh.cooldowns.shock end
     if record and GetTime()-record.at<0.5 then return false end
+    if SHOCKS[name] and (GetTime()<shockLockUntil or record and record.ends>GetTime()) then
+        return false -- A per-rank/GCD read cannot clear a confirmed shared Shock cooldown.
+    end
     if name=="Chain Lightning" and Enabled(AL.S(),"elemental") and LightningMasteryActive() then return true end
     local info=SafeCall(C_Spell and C_Spell.GetSpellCooldown,LearnedID(name) or name)
     if SafeValue(info) and type(info)=="table" then
@@ -2379,9 +2392,10 @@ end
 local function CooldownReady(name)
     if SHOCKS[name] then
         if shockCastAt and GetTime() - shockCastAt < 0.5 then return false end
+        -- Honor the shared Shock lock before trusting a per-spell GCD read.
+        if GetTime() < shockLockUntil then return false end
         local ready = ReadableCooldown(name)
         if ready ~= nil then return ready end
-        if GetTime() < shockLockUntil then return false end
     end
     local localCD = localCooldowns[name]
     if localCD then
