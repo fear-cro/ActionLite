@@ -106,11 +106,10 @@ local function BuildRogueUI(page, ui)
 		{ en = "Preferred opener", fr = "Ouverture preferee", pt = "Abertura preferida", es = "Apertura preferida", de = "Bevorzugter Eröffner", zh = "首选起手技" }, {
 			{ label = { en = "Automatic", fr = "Automatique", pt = "Automático", es = "Automático", de = "Automatisch", zh = "自动" }, value = "AUTO" },
 			{ label = "Backstab", value = "BACKSTAB" },
-			{ label = "Cheap Shot", value = "CHEAP_SHOT" },
 			{ label = "Ambush", value = "AMBUSH" },
 			{ label = "Garrote", value = "GARROTE" },
 		}, "BACKSTAB")
-	ui.Help(opening, "When Stealth setup is enabled, selecting an elite prepares Stealth before the pull; ordinary targets still use the nearby range check. Backstab and Ambush require a dagger and are never attempted with swords. A sword Rogue uses the selected Garrote opener first, or Cheap Shot when selected or used as a learned fallback; Garrote still requires rear position.")
+	ui.Help(opening, "When Stealth setup is enabled, selecting an elite prepares Stealth before the pull; ordinary targets still use the nearby range check. Backstab and Ambush require a dagger and are never attempted with swords. Sword Rogues use Garrote for PvE Stealth openers, and Garrote still requires rear position. Cheap Shot is available only in the separate PvP opener selector.")
 
 	local targeting = ui.Card(stack, "TARGETING", "Optional next-target support", { id="targeting", group="preparation" })
 	Check(targeting, "autoTargetOnKill", "Target next enemy after a kill", "Target Next Enemy",

@@ -783,19 +783,16 @@ local function PvEOpenerOrder(s)
 	local mode = SettingChoice(s, "openerMode", {
 		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
 	}, "BACKSTAB")
-	-- Backstab and Ambush require a dagger. With swords, never place either in
-	-- the candidate path: Cheap Shot is the preferred opener when learned and
-	-- Garrote is the earlier-level fallback.
-	if MainHandIsDagger() ~= true then
-		if mode == "GARROTE" then return { "Garrote", "Cheap Shot" } end
-		return { "Cheap Shot", "Garrote" }
-	end
+	-- Cheap Shot is PvP-only. Swords have one automatic PvE Stealth attack:
+	-- Garrote. Backstab and Ambush remain dagger-only, and a legacy saved
+	-- CHEAP_SHOT preference is migrated safely into the Garrote PvE path.
+	if MainHandIsDagger() ~= true then return { "Garrote" } end
 	local orders = {
-		AUTO = { "Backstab", "Ambush", "Cheap Shot", "Garrote" },
-		BACKSTAB = { "Backstab", "Cheap Shot", "Garrote", "Ambush" },
-		CHEAP_SHOT = { "Cheap Shot", "Ambush", "Garrote" },
-		AMBUSH = { "Ambush", "Cheap Shot", "Garrote" },
-		GARROTE = { "Garrote", "Cheap Shot", "Ambush" },
+		AUTO = { "Backstab", "Ambush", "Garrote" },
+		BACKSTAB = { "Backstab", "Garrote", "Ambush" },
+		CHEAP_SHOT = { "Garrote", "Backstab", "Ambush" },
+		AMBUSH = { "Ambush", "Garrote", "Backstab" },
+		GARROTE = { "Garrote", "Backstab", "Ambush" },
 	}
 	return orders[mode]
 end
@@ -1998,16 +1995,16 @@ local function PvEOpenerOrder(s)
 	local mode = SettingChoice(s, "openerMode", {
 		AUTO = true, BACKSTAB = true, CHEAP_SHOT = true, AMBUSH = true, GARROTE = true,
 	}, "BACKSTAB")
-	if MainHandIsDagger() ~= true then
-		if mode == "GARROTE" then return { "Garrote", "Cheap Shot" } end
-		return { "Cheap Shot", "Garrote" }
-	end
+	-- Cheap Shot is PvP-only. Swords have one automatic PvE Stealth attack:
+	-- Garrote. Backstab and Ambush remain dagger-only, and a legacy saved
+	-- CHEAP_SHOT preference is migrated safely into the Garrote PvE path.
+	if MainHandIsDagger() ~= true then return { "Garrote" } end
 	local orders = {
-		AUTO = { "Backstab", "Ambush", "Cheap Shot", "Garrote" },
-		BACKSTAB = { "Backstab", "Cheap Shot", "Garrote", "Ambush" },
-		CHEAP_SHOT = { "Cheap Shot", "Ambush", "Garrote" },
-		AMBUSH = { "Ambush", "Cheap Shot", "Garrote" },
-		GARROTE = { "Garrote", "Cheap Shot", "Ambush" },
+		AUTO = { "Backstab", "Ambush", "Garrote" },
+		BACKSTAB = { "Backstab", "Garrote", "Ambush" },
+		CHEAP_SHOT = { "Garrote", "Backstab", "Ambush" },
+		AMBUSH = { "Ambush", "Garrote", "Backstab" },
+		GARROTE = { "Garrote", "Backstab", "Ambush" },
 	}
 	return orders[mode]
 end
