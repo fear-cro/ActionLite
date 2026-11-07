@@ -164,8 +164,11 @@ local function BuildRogueUI(page, ui)
 	local finishers = ui.Card(stack,
 		Text({ en = "FINISHERS", fr = "COUPS DE GRACE", pt = "FINALIZADORES", es = "REMATES", de = "FINISHER", zh = "终结技" }), nil, { id="finishers", group="damage" })
 	Check(finishers, "snd", "Slice and Dice", "Slice and Dice",
-		{ en = "Only while its player buff is absent and at least one combo point is available. It normally activates at one point, but a multi-point opener may supply more. Slice and Dice is a player buff, not an enemy debuff." })
-	ui.Help(finishers, "Slice and Dice is used as soon as at least one combo point is available and only while its player buff is missing. Ordinary builders spend one point; multi-point openers such as Cheap Shot may spend their available points.")
+		{ en = "Only while its player buff is absent and the selected combo-point threshold has been reached. Slice and Dice is a player buff, not an enemy debuff." })
+	ComboSlider(finishers, "sndMinCP",
+		{ en = "Slice and Dice combo points", fr = "Points de combo Slice and Dice", pt = "Pontos de combo Slice and Dice", es = "Puntos de combo Slice and Dice", de = "Combopunkte für Slice and Dice", zh = "Slice and Dice 连击点" }, 2,
+		{ en = "Minimum combo points before suggesting Slice and Dice. Default: 2. The buff must be missing.", fr = "Nombre minimal de points de combo avant de proposer Slice and Dice. Valeur par défaut : 2. L'amélioration doit être absente.", pt = "Pontos de combo mínimos antes de sugerir Slice and Dice. Padrão: 2. O bônus deve estar ausente.", es = "Puntos de combo mínimos antes de sugerir Slice and Dice. Valor predeterminado: 2. El beneficio debe estar ausente.", de = "Minimale Combopunkte, bevor Slice and Dice vorgeschlagen wird. Standard: 2. Der Stärkungseffekt darf nicht aktiv sein.", zh = "建议 Slice and Dice 前所需的最低连击点。默认值：2。该增益必须尚未激活。" })
+	ui.Help(finishers, "Slice and Dice is suggested only when its player buff is missing and the selected combo-point threshold has been reached. The rotation reserves points and keeps building until that threshold; Cheap Shot supplies two points and therefore satisfies the default setting.")
 	Check(finishers, "deathMark", "Death Mark", "Death Mark",
 		"When learned, uses five combo points on rare, elite, rare-elite, or world-boss targets above 50% health so its delayed six-second damage can finish. Other targets keep the normal Eviscerate rules.")
 

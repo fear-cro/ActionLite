@@ -65,6 +65,7 @@ local M = {
 		evasion = true,
 		vanish = false,
 		snd = true,
+		sndMinCP = 2,
 		rupture = false,
 		expose = false,
 		bladeFlurry = true,
@@ -226,6 +227,15 @@ end
 local function SettingChoice(s, key, allowed, defaultValue)
 	local value = s and s[key]
 	return allowed[value] and value or defaultValue
+end
+
+local function SliceAndDicePoints(s)
+	return SettingNumber(s, "sndMinCP", 2, 1, 5)
+end
+
+local function SliceAndDiceReserved(s, cp, active)
+	return s.snd and Ok("Slice and Dice") and not active
+		and cp < SliceAndDicePoints(s)
 end
 
 local function ReadyUsable(name)
@@ -1296,9 +1306,12 @@ function M.NextSpell(s, inCombat, hostile)
 		if ReadyUsable("Blood Fury") then AddAction("Blood Fury", "burst", { burstGate }) end
 		if ReadyUsable("Berserking") then AddAction("Berserking", "burst", { burstGate }) end
 	end
-	if s.snd and cp >= 1 and not AL.HasBuff("player", "Slice and Dice") and Ok("Slice and Dice")
+	local sndActive = AL.HasBuff("player", "Slice and Dice")
+	local sndPoints = SliceAndDicePoints(s)
+	local reserveSnd = SliceAndDiceReserved(s, cp, sndActive)
+	if s.snd and cp >= sndPoints and not sndActive and Ok("Slice and Dice")
 		and FinisherAvailable("Slice and Dice") then
-		AddAction("Slice and Dice", "establish missing buff with available combo points", { EnergyGate(energy, EnergyCost("Slice and Dice", 25), "Slice and Dice") })
+		AddAction("Slice and Dice", "establish missing buff at selected combo points", { EnergyGate(energy, EnergyCost("Slice and Dice", 25), "Slice and Dice") })
 		AddAction(nil, "Pool energy for Slice and Dice"); return FinishDecision()
 	end
 
@@ -1318,19 +1331,19 @@ function M.NextSpell(s, inCombat, hostile)
 			EnergyGate(energy, EnergyCost("Death Mark", 25), "Death Mark") })
 		AddAction(nil, "Pool energy for Death Mark", { survivalGate })
 	end
-	if eviscerateAllowed and cp >= finishCP then
+	if not reserveSnd and eviscerateAllowed and cp >= finishCP then
 		if FinisherAvailable("Eviscerate") then
 			AddAction("Eviscerate", tostring(cp) .. " cp at/below 50% target health", {
 				finishGate, EnergyGate(energy, EnergyCost("Eviscerate", 35), "Eviscerate") })
 			AddAction(nil, "Pool energy for Eviscerate", { finishGate })
 		end
 	end
-	if not eviscerateAllowed and s.rupture and cp >= SettingNumber(s, "ruptureMinCP", 4, 1, 5)
+	if not reserveSnd and not eviscerateAllowed and s.rupture and cp >= SettingNumber(s, "ruptureMinCP", 4, 1, 5)
 		and not AL.HasDebuff("target", "Rupture") and Ok("Rupture") and FinisherAvailable("Rupture") then
 		AddAction("Rupture", tostring(cp) .. " cp", { finishGate, EnergyGate(energy, EnergyCost("Rupture", 25), "Rupture") })
 		AddAction(nil, "Pool energy for Rupture", { finishGate })
 	end
-	if not eviscerateAllowed and s.expose and cp >= SettingNumber(s, "exposeMinCP", 4, 1, 5)
+	if not reserveSnd and not eviscerateAllowed and s.expose and cp >= SettingNumber(s, "exposeMinCP", 4, 1, 5)
 		and not AL.HasDebuff("target", "Expose Armor") and Ok("Expose Armor") and FinisherAvailable("Expose Armor") then
 		AddAction("Expose Armor", tostring(cp) .. " cp", { finishGate, EnergyGate(energy, EnergyCost("Expose Armor", 25), "Expose Armor") })
 		AddAction(nil, "Pool energy for Expose Armor", { finishGate })
@@ -1435,6 +1448,7 @@ local M = {
 		evasion = true,
 		vanish = false,
 		snd = true,
+		sndMinCP = 2,
 		autoTargetOnKill = false,
 		rupture = false,
 		expose = false,
@@ -1576,6 +1590,15 @@ end
 local function SettingChoice(s, key, allowed, defaultValue)
 	local value = s and s[key]
 	return allowed[value] and value or defaultValue
+end
+
+local function SliceAndDicePoints(s)
+	return SettingNumber(s, "sndMinCP", 2, 1, 5)
+end
+
+local function SliceAndDiceReserved(s, cp, active)
+	return s.snd and Ok("Slice and Dice") and not active
+		and cp < SliceAndDicePoints(s)
 end
 
 local SubReady, SubCastResult, SubTargetChanged, SubAura, SubTalent, RoguePoints, SubtletyRotation, AssassinationRotation
@@ -2242,10 +2265,13 @@ local function CombatRotation(s, cp, energy, targetHP)
 	if not ConfirmedHostileTarget() or not InMeleeRange("Sinister Strike") then
 		AddAction(nil, "Approach target"); return FinishDecision()
 	end
-	-- A first point establishes Slice and Dice. If an opener/proc grants more
-	-- points, still repair a missing buff; never refresh it while it is active.
+	-- The selected combo-point threshold establishes Slice and Dice. Repair a
+	-- missing buff at or above that threshold; never refresh it while active.
+	local sndActive = AL.HasBuff("player", "Slice and Dice")
+	local sndPoints = SliceAndDicePoints(s)
+	local reserveSnd = SliceAndDiceReserved(s, cp, sndActive)
 	local maintainSnd = false
-	if s.snd and cp >= 1 and not AL.HasBuff("player", "Slice and Dice") and Ok("Slice and Dice")
+	if s.snd and cp >= sndPoints and not sndActive and Ok("Slice and Dice")
 		and FinisherAvailable("Slice and Dice") then
 		AddAction("Slice and Dice", "Combat: establish missing player buff", {
 			EnergyGate(energy, EnergyCost("Slice and Dice", 25), "Slice and Dice") })
@@ -2288,7 +2314,7 @@ local function CombatRotation(s, cp, energy, targetHP)
 	-- Five-point finishers prevent combo-point waste above the leveling execute
 	-- threshold. Preserve the normal-target <=50% one-point execute fallback.
 	local execute = cp >= EvisceratePoints() and HealthGate("target", targetHP, 50, true)
-	local finish = cp >= 5 or execute
+	local finish = not reserveSnd and (cp >= 5 or execute)
 	local finishers = {}
 	if Ok("Eviscerate") then finishers[1] = "Eviscerate"
 	else
@@ -2857,7 +2883,9 @@ SubtletyRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 		AddAction(nil, "Pool energy"); return FinishDecision()
 	end
 	local snd = SubSndActive()
-	local maintainSnd = s.snd and cp >= 1 and not snd and Ok("Slice and Dice") and FinisherAvailable("Slice and Dice")
+	local sndPoints = SliceAndDicePoints(s)
+	local reserveSnd = SliceAndDiceReserved(s, cp, snd)
+	local maintainSnd = s.snd and cp >= sndPoints and not snd and Ok("Slice and Dice") and FinisherAvailable("Slice and Dice")
 	if maintainSnd then SubOffer("Slice and Dice", "Subtlety: missing player buff", energy, 25) end
 
 	-- AoE branch: the reference has no area attack. A learned Blade Flurry
@@ -2889,7 +2917,7 @@ SubtletyRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 	end
 	if maintainSnd then AddAction(nil, "Pool energy for Slice and Dice"); return FinishDecision() end
 	local finishPoints = EvisceratePoints() == 1 and SettingNumber(s, "subtletyEviscerateCP", 4, 1, 5) or 5
-	if cp >= EvisceratePoints() and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
+	if not reserveSnd and cp >= EvisceratePoints() and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
 		local execute = HealthGate("target", targetHP, 50, true)
 		SubOffer("Eviscerate", "Subtlety: low-health execute", energy, 35, { execute })
 		AddAction(nil, "Pool energy for Eviscerate", { execute })
@@ -2901,7 +2929,7 @@ SubtletyRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 		if SafeValue(unit) and type(unit) == "table" then remaining = ReadableNumber((SafeCall(unit.TimeToDie, unit))) end
 	end
 	local ruptureLife = 8 + ((SubTalent("Blood Splatter") or 0) > 0 and 6 or 0)
-	if s.subtletyRupture and (not remaining or remaining <= 0 or remaining > ruptureLife)
+	if not reserveSnd and s.subtletyRupture and (not remaining or remaining <= 0 or remaining > ruptureLife)
 		and cp >= SettingNumber(s, "subtletyRuptureCP", 3, 1, 5) and not SubDot("Rupture")
 		and Ok("Rupture") and FinisherAvailable("Rupture") then
 		local healthGate = HealthGate("target", targetHP, SettingNumber(s, "subtletyRuptureHP", 50, 0, 100), false)
@@ -2912,17 +2940,17 @@ SubtletyRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 	-- Death Mark is delayed by six seconds, so do not spend five points on it
 	-- for a target below the configured survival floor. Rupture stays ahead so
 	-- its doubled storage rate is present when the mark begins.
-	if s.subtletyDeathMark and cp >= 5 and (not remaining or remaining <= 0 or remaining > 6)
+	if not reserveSnd and s.subtletyDeathMark and cp >= 5 and (not remaining or remaining <= 0 or remaining > 6)
 		and Ok("Death Mark") and SubReady("Death Mark") and not SubDot("Death Mark") then
 		local healthGate = HealthGate("target", targetHP, SettingNumber(s, "subtletyDeathMarkHP", 50, 0, 100), false)
 		SubOffer("Death Mark", "Subtlety: five-point damage mark", energy, 25, { healthGate })
 		AddAction(nil, "Pool energy for Death Mark", { healthGate })
 	end
-	if cp >= finishPoints and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
+	if not reserveSnd and cp >= finishPoints and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
 		SubOffer("Eviscerate", "Subtlety: damage finisher", energy, 35)
 		AddAction(nil, "Pool energy for Eviscerate"); return FinishDecision()
 	end
-	if not Ok("Eviscerate") and s.expose and cp >= SettingNumber(s, "exposeMinCP", 4, 1, 5)
+	if not reserveSnd and not Ok("Eviscerate") and s.expose and cp >= SettingNumber(s, "exposeMinCP", 4, 1, 5)
 		and Ok("Expose Armor") and FinisherAvailable("Expose Armor") and not AL.HasDebuff("target", "Expose Armor") then
 		SubOffer("Expose Armor", "Subtlety: enabled finisher fallback", energy, 25)
 		AddAction(nil, "Pool energy for Expose Armor"); return FinishDecision()
@@ -2960,7 +2988,9 @@ AssassinationRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 	end
 	if inCombat then
 		local snd = SubSndActive()
-		if s.snd and cp >= 1 and not snd and Ok("Slice and Dice") and FinisherAvailable("Slice and Dice") then
+		local sndPoints = SliceAndDicePoints(s)
+		local reserveSnd = SliceAndDiceReserved(s, cp, snd)
+		if s.snd and cp >= sndPoints and not snd and Ok("Slice and Dice") and FinisherAvailable("Slice and Dice") then
 			SubOffer("Slice and Dice", "Assassination: missing player buff", energy, 25)
 			AddAction(nil, "Pool energy for Slice and Dice"); return FinishDecision()
 		end
@@ -2984,16 +3014,16 @@ AssassinationRotation = function(s, inCombat, hostile, cp, energy, targetHP)
 			end end
 		end
 		local required = EvisceratePoints() == 1 and SettingNumber(s, "assassinationEviscerateCP", 4, 1, 5) or 5
-		if cp >= EvisceratePoints() and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
+		if not reserveSnd and cp >= EvisceratePoints() and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
 			local execute = HealthGate("target", targetHP, 50, true)
 			SubOffer("Eviscerate", "Assassination: low-health execute", energy, 35, { execute })
 			AddAction(nil, "Pool energy for Eviscerate", { execute })
 		end
-		if cp >= required and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
+		if not reserveSnd and cp >= required and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
 			SubOffer("Eviscerate", "Assassination: damage finisher", energy, 35)
 			AddAction(nil, "Pool energy for Eviscerate"); return FinishDecision()
 		end
-		if not Ok("Eviscerate") then
+		if not reserveSnd and not Ok("Eviscerate") then
 			for _, row in ipairs({ { "Rupture", "rupture", "ruptureMinCP" }, { "Expose Armor", "expose", "exposeMinCP" } }) do
 				local name = row[1]
 				if s[row[2]] and cp >= SettingNumber(s, row[3], 4, 1, 5) and Ok(name)
@@ -3119,9 +3149,12 @@ function M.NextSpell(s, inCombat, hostile)
 		if ReadyUsable("Blood Fury") then AddAction("Blood Fury", "burst", { burstGate }) end
 		if ReadyUsable("Berserking") then AddAction("Berserking", "burst", { burstGate }) end
 	end
-	if s.snd and cp >= 1 and not AL.HasBuff("player", "Slice and Dice") and Ok("Slice and Dice")
+	local sndActive = AL.HasBuff("player", "Slice and Dice")
+	local sndPoints = SliceAndDicePoints(s)
+	local reserveSnd = SliceAndDiceReserved(s, cp, sndActive)
+	if s.snd and cp >= sndPoints and not sndActive and Ok("Slice and Dice")
 		and FinisherAvailable("Slice and Dice") then
-		AddAction("Slice and Dice", "establish missing buff with available combo points", { EnergyGate(energy, EnergyCost("Slice and Dice", 25), "Slice and Dice") })
+		AddAction("Slice and Dice", "establish missing buff at selected combo points", { EnergyGate(energy, EnergyCost("Slice and Dice", 25), "Slice and Dice") })
 		AddAction(nil, "Pool energy for Slice and Dice"); return FinishDecision()
 	end
 
@@ -3129,7 +3162,7 @@ function M.NextSpell(s, inCombat, hostile)
         local automatic = AL.known["Mutilate"] and "ASSASSINATION" or AL.known["Hemorrhage"] and "SUBTLETY" or "COMBAT"
         local build = AL.DPS60.Build("ROGUE", s, automatic)
         local required = build == "ASSASSINATION" and EvisceratePoints() == 1 and 4 or 5
-        if cp >= required and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
+        if not reserveSnd and cp >= required and Ok("Eviscerate") and FinisherAvailable("Eviscerate") then
             AddAction("Eviscerate", tostring(cp) .. " cp - " .. build, { EnergyGate(energy, EnergyCost("Eviscerate", 35), "Eviscerate") })
             AddAction(nil, "Pool energy for Eviscerate"); return FinishDecision()
         end
@@ -3141,19 +3174,19 @@ function M.NextSpell(s, inCombat, hostile)
 	local finishCP = EvisceratePoints()
 	local eviscerateAllowed = Ok("Eviscerate")
 	local finishGate = HealthGate("target", targetHP, 50, true)
-	if eviscerateAllowed and cp >= finishCP then
+	if not reserveSnd and eviscerateAllowed and cp >= finishCP then
 		if FinisherAvailable("Eviscerate") then
 			AddAction("Eviscerate", tostring(cp) .. " cp at/below 50% target health", {
 				finishGate, EnergyGate(energy, EnergyCost("Eviscerate", 35), "Eviscerate") })
 			AddAction(nil, "Pool energy for Eviscerate", { finishGate })
 		end
 	end
-	if not eviscerateAllowed and s.rupture and cp >= SettingNumber(s, "ruptureMinCP", 4, 1, 5)
+	if not reserveSnd and not eviscerateAllowed and s.rupture and cp >= SettingNumber(s, "ruptureMinCP", 4, 1, 5)
 		and not AL.HasDebuff("target", "Rupture") and Ok("Rupture") and FinisherAvailable("Rupture") then
 		AddAction("Rupture", tostring(cp) .. " cp", { finishGate, EnergyGate(energy, EnergyCost("Rupture", 25), "Rupture") })
 		AddAction(nil, "Pool energy for Rupture", { finishGate })
 	end
-	if not eviscerateAllowed and s.expose and cp >= SettingNumber(s, "exposeMinCP", 4, 1, 5)
+	if not reserveSnd and not eviscerateAllowed and s.expose and cp >= SettingNumber(s, "exposeMinCP", 4, 1, 5)
 		and not AL.HasDebuff("target", "Expose Armor") and Ok("Expose Armor") and FinisherAvailable("Expose Armor") then
 		AddAction("Expose Armor", tostring(cp) .. " cp", { finishGate, EnergyGate(energy, EnergyCost("Expose Armor", 25), "Expose Armor") })
 		AddAction(nil, "Pool energy for Expose Armor", { finishGate })
