@@ -241,6 +241,11 @@ local TOTEM_FALLBACK = {
 }
 
 local trackedTotems, localCooldowns = {}, {}
+-- Forever can protect both target auras and cooldown fields during combat.
+-- Only confirmed casts populate these fallbacks; they never assume that a
+-- spell landed merely because it was suggested.
+local flameShockTargets, flameShockFallbackUntil = {}, 0
+local callOfFlameRank
 local trackedWeapon, trackedWeaponUntil, trackedWeaponCastAt, trackedWeaponIdentity, trackedWeaponEnchantID
 local trackedWeaponObservation = {}
 local shockLockUntil, shockCastAt = 0, nil
@@ -308,6 +313,29 @@ end
 local function LearnedID(name)
     local ref = AL.rangeSpellRefs and AL.rangeSpellRefs[name]
     return ref and Number(ref.id)
+end
+local function RefreshCallOfFlameRank()
+    local native = SafeCall(C_Spell and C_Spell.GetSpellName, 16038)
+    local found, readable = 0, 0
+    for tab = 1, 3 do
+        for index = 1, 40 do
+            local talent, _, _, _, rank = SafeCall(GetTalentInfo, tab, index, false, false)
+            rank = Number(rank)
+            if SafeValue(talent) and type(talent) == "string" and rank then
+                readable = readable + 1
+                local canonical = (AL.englishNames and AL.englishNames[talent]) or talent
+                if canonical == "Call of Flame" or (SafeValue(native) and talent == native) then
+                    found = math.max(found, rank)
+                end
+            end
+        end
+    end
+    if readable > 0 then callOfFlameRank = math.max(0, math.min(3, found)); return true end
+    return false
+end
+local function FlameShockDuration()
+    if callOfFlameRank == nil then RefreshCallOfFlameRank() end
+    return 12 + 3 * (callOfFlameRank or 0)
 end
 local function TotemFallbackDuration(name)
 	if name == "Searing Totem" then
@@ -843,6 +871,15 @@ local function CooldownReady(name)
         if ready ~= nil then return ready end
         if GetTime() < localCD.ends then return false end
     end
+    -- Stormstrike's cooldown may become opaque in combat. Confirmed casts
+    -- are held by the six-second local record above; without such a record,
+    -- learned/range/resource gates remain authoritative so the spell is not
+    -- hidden for the rest of the encounter by a protected readiness value.
+    if name == "Stormstrike" then
+        local ready = ReadableCooldown(name)
+        if ready ~= nil then return ready end
+        return true
+    end
     return Bool((SafeCall(AL.IsReady, name))) == true
 end
 
@@ -1158,9 +1195,22 @@ local function LightningBolt(s, mana, moving, reason)
     end
 end
 
+local function FlameShockActive()
+    local now = GetTime()
+    local guid = SelectedTargetGUID()
+    if not guid then return flameShockFallbackUntil > now end
+    local record = flameShockTargets[guid]
+    if record and record.expires <= now then flameShockTargets[guid], record = nil, nil end
+    if record then return true end
+    if Bool((SafeCall(AL.HasDebuff, "target", "Flame Shock"))) == true then return true end
+    -- The GUID may become readable only after the confirmed cast. Keep the
+    -- current-target fallback until a real target-change event clears it.
+    return flameShockFallbackUntil > now
+end
+
 local function Damage(s, role, mana, targetHP, moving)
     local shock = ManaGate(mana,SettingNumber(s,"shockMinMana",25,0,100),false)
-    if Enabled(s,"flameshock") and not AL.HasDebuff("target","Flame Shock") then
+    if Enabled(s,"flameshock") and not FlameShockActive() then
         Offer("Flame Shock","Damage over time",{ shock,
             HealthGate("target",targetHP,SettingNumber(s,"flameShockMinTargetHP",35,0,100),false) })
     end
@@ -1230,6 +1280,7 @@ end
 
 function M.OnTargetChanged()
     taggedCurrentTarget = false
+    flameShockFallbackUntil = 0
     lastRotation, AL.rotationSecretVisual = nil, nil
 end
 
@@ -1254,6 +1305,21 @@ function M.OnCastResult(name, result, sent)
 	elseif name == "Chain Lightning" then
 		local _, ending = ReadableCooldown(name)
 		localCooldowns[name] = { at=now, ends=ending and ending > now+1.5 and ending or now+6 }
+    elseif name == "Stormstrike" then
+        local _, ending = ReadableCooldown(name)
+        localCooldowns[name] = { at=now, ends=ending and ending > now+1.5 and ending or now+6 }
+    end
+    if name == "Flame Shock" then
+        local expires = now + FlameShockDuration()
+        flameShockFallbackUntil = expires
+        local guid = SafeValue(sent) and type(sent) == "table" and sent.targetGUID or nil
+        if not (SafeValue(guid) and type(guid) == "string" and guid ~= "") then guid = SelectedTargetGUID() end
+        if guid then
+            for targetGUID, targetRecord in pairs(flameShockTargets) do
+                if targetRecord.expires <= now then flameShockTargets[targetGUID] = nil end
+            end
+            flameShockTargets[guid] = { at=now, expires=expires }
+        end
     end
     if WEAPON_ENCHANTS[name] then
         trackedWeapon, trackedWeaponUntil, trackedWeaponCastAt, trackedWeaponIdentity = name,
@@ -1328,11 +1394,13 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
         trackedLastSpell, trackedLastCost, eventManaPct, eventManaAt = nil, 0, nil, nil
         ClearTrackedWeapon(event == "PLAYER_DEAD")
         if event == "PLAYER_ENTERING_WORLD" then RestoreTrackedWeapon() end
-        trackedTotems, localCooldowns, curveFailures = {}, {}, {}
+        trackedTotems, localCooldowns, flameShockTargets, flameShockFallbackUntil, curveFailures = {}, {}, {}, 0, {}
+        callOfFlameRank = nil
         movementEventActive, curveCapabilities, visibilityCurves = nil, {}, {}
         shockLockUntil, shockCastAt, lastRotation, AL.rotationSecretVisual = 0, nil, nil, nil
         taggedByGUID, taggedCurrentTarget = {}, false
-    elseif event == "PLAYER_LOGIN" then RestoreTrackedWeapon()
+        if event == "PLAYER_ENTERING_WORLD" then RefreshCallOfFlameRank() end
+    elseif event == "PLAYER_LOGIN" then RestoreTrackedWeapon(); RefreshCallOfFlameRank()
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         if Number(unit) == 16 then
             local identity = MainHandIdentity()
@@ -1340,6 +1408,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
         end
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         if event == "PLAYER_REGEN_ENABLED" then taggedByGUID, taggedCurrentTarget = {}, false end
+        if event == "PLAYER_REGEN_ENABLED" then RefreshCallOfFlameRank() end
         M.RefreshManaCache()
     elseif SafeValue(unit) and unit == "player" and (not SafeValue(token) or token == nil or token == "MANA") then RefreshManaSensor() end
 end)
