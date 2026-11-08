@@ -19,6 +19,7 @@ do
     }
     local lightningShieldExpires
     local rankOneIconWarnings = setmetatable({}, { __mode = "k" })
+    local pvpFrostOpenedByGUID, pvpFrostOpenedCurrent = {}, false
 
     local function PublicNumber(value)
         if issecretvalue and issecretvalue(value) then return nil end
@@ -31,6 +32,90 @@ do
         if type(value) == "boolean" then return value end
         if value == 1 then return true end
         if value == 0 then return false end
+    end
+
+    local function PublicString(value)
+        if issecretvalue and issecretvalue(value) then return nil end
+        if type(value) == "string" and value ~= "" then return value end
+    end
+
+    -- A hostile player includes duel opponents and opposing-faction players.
+    -- No PvP flag is required, and protected unit facts fail closed so an NPC
+    -- can never enter the PvP opener path by accident.
+    local function HostilePlayerTarget(hostile)
+        if not hostile or type(UnitIsPlayer) ~= "function"
+            or type(UnitCanAttack) ~= "function" then return false end
+        local okPlayer, player = pcall(UnitIsPlayer, "target")
+        local okAttack, attackable = pcall(UnitCanAttack, "player", "target")
+        player = okPlayer and PublicBoolean(player) or nil
+        attackable = okAttack and PublicBoolean(attackable) or nil
+        return player == true and attackable == true
+    end
+
+    local function SelectedTargetGUID()
+        if type(UnitGUID) ~= "function" then return nil end
+        local ok, guid = pcall(UnitGUID, "target")
+        return ok and PublicString(guid) or nil
+    end
+
+    local function PvPFrostAlreadyOpened()
+        if pvpFrostOpenedCurrent then return true end
+        local guid = SelectedTargetGUID()
+        return guid and pvpFrostOpenedByGUID[guid] == true or false
+    end
+
+    local function MarkPvPFrostOpened(sent)
+        local guid = not (issecretvalue and issecretvalue(sent)) and type(sent) == "table"
+            and PublicString(sent.targetGUID) or nil
+        guid = guid or SelectedTargetGUID()
+        if guid then pvpFrostOpenedByGUID[guid] = true end
+        if not guid or guid == SelectedTargetGUID() then pvpFrostOpenedCurrent = true end
+    end
+
+    local function ResetPvPFrostTracking(clearAll)
+        pvpFrostOpenedCurrent = false
+        if clearAll then pvpFrostOpenedByGUID = {} end
+    end
+
+    -- Ghost Wolf is Shaman's only shapeshift form. Prefer the exact form spell
+    -- ID when the client exposes it, then safely use the active form index.
+    local function GhostWolfActive()
+        if type(GetShapeshiftForm) == "function" then
+            local ok, index = pcall(GetShapeshiftForm)
+            index = ok and PublicNumber(index) or nil
+            if index ~= nil then
+                if index <= 0 then return false end
+                if type(GetShapeshiftFormInfo) == "function" then
+                    local infoOK, _, active, _, spellID = pcall(GetShapeshiftFormInfo, index)
+                    active = infoOK and PublicBoolean(active) or nil
+                    spellID = infoOK and PublicNumber(spellID) or nil
+                    if active == false then return false end
+                    if spellID then
+                        local ref = root.rangeSpellRefs and root.rangeSpellRefs["Ghost Wolf"]
+                        local learnedID = type(ref) == "table" and PublicNumber(ref.id) or nil
+                        return spellID == 2645 or learnedID ~= nil and spellID == learnedID
+                    end
+                end
+                return true
+            end
+        end
+        if type(root.HasBuff) == "function" then
+            local ok, active = pcall(root.HasBuff, "player", "Ghost Wolf")
+            return ok and PublicBoolean(active) == true or false
+        end
+        return false
+    end
+
+    local function DamageRoleSelected(profile)
+        if type(root.GetRotationMode) ~= "function" then return true end
+        local ok, mode = pcall(root.GetRotationMode, profile, "SHAMAN")
+        if not ok or (issecretvalue and issecretvalue(mode)) then return false end
+        return mode ~= "HEAL"
+    end
+
+    local function ShouldExitGhostWolf(profile, hostile)
+        return type(profile) == "table" and profile.exitGhostWolfForCombat == true
+            and hostile == true and DamageRoleSelected(profile) and GhostWolfActive()
     end
 
     local function TargetBeyondTwentyYards()
@@ -256,6 +341,8 @@ local M = {
 		earthshock = true,
 		earthShockTag = false,
 		flameShockTag = false,
+			frostShockPvPOpener = false,
+			exitGhostWolfForCombat = false,
 		frostshock = true,
 		stormstrike = true,
 		lightningbolt = true,
@@ -1323,6 +1410,17 @@ local function Offer(name, reason, gates, preparation, showRange)
     return AddAction(name, reason, conditions)
 end
 
+local function FrostShockPvPOpener(s, hostile, mana)
+    if not Enabled(s, "frostShockPvPOpener") or not HostilePlayerTarget(hostile)
+        or PvPFrostAlreadyOpened() then return false end
+    -- This is independent of the low-health Frost Shock toggle. The Spells-tab
+    -- permission, learned rank, shared Shock cooldown, mana and range gates
+    -- still remain authoritative through Offer.
+    return Offer("Frost Shock", "PvP opener", {
+        ManaGate(mana, SettingNumber(s,"shockMinMana",25,0,100), false),
+    })
+end
+
 local function Heal(s, hp, mana, inCombat, moving)
     if not Enabled(s, "heal") or moving then return end
     local key = inCombat and "healHP" or "healOutOfCombatHP"
@@ -1442,6 +1540,9 @@ function M.NextSpell(s, inCombat, hostile)
     local hp, targetHP = HealthPercent("player"), hostile and HealthPercent("target") or nil
     if PlayerIsCastingOrChanneling() then AddAction(nil,"Casting")
     else
+        if ShouldExitGhostWolf(s, hostile) and Ok("Ghost Wolf") then
+            AddAction("Ghost Wolf", "Leave Ghost Wolf for combat")
+        end
         if inCombat and hostile and Bool((SafeCall(AL.TargetCasting))) == true then
             if Enabled(s,"rankOneEarthShockInterrupt") then
                 if RankOneIconReady(s) then Offer(RANK_ONE_EARTH_SHOCK,"Rank 1 interrupt") end
@@ -1456,6 +1557,7 @@ function M.NextSpell(s, inCombat, hostile)
                 Offer("Stoneclaw Totem","Defensive totem",{ HealthGate("player",hp,SettingNumber(s,"stoneclawHP",25,5,80),true) })
             end
         end
+        FrostShockPvPOpener(s,hostile,mana)
         Maintenance(s,role,inCombat,moving)
         -- Fire Nova is the first hostile damage check while AoE is active.
         -- This keeps Lightning Bolt as a true ranged fallback instead of
@@ -1505,10 +1607,17 @@ function M.CanTrackSuggestedSpell(name)
     if not lastRotation or GetTime()-lastRotation.at > 0.5 or lastRotation.visualCandidate then return false end
     local visual = AL.rotationSecretVisual
     if visual and GetTime()-visual.at <= 0.5 then return false end
+    if name == "Ghost Wolf" and lastRotation.baseReason == "Leave Ghost Wolf for combat" then return false end
     return name == lastRotation.baseSpell and Ok(name)
 end
 
+function M.IsSpellWatchdogExempt(name)
+    return name == "Ghost Wolf" and lastRotation
+        and lastRotation.baseReason == "Leave Ghost Wolf for combat" or false
+end
+
 function M.OnTargetChanged()
+    ResetPvPFrostTracking(false)
     taggedCurrentTarget = false
     flameShockFallbackUntil = 0
     ResetFireNovaSuggestion()
@@ -1522,12 +1631,13 @@ function M.OnCastResult(name, result, sent)
 	end
     if result ~= "UNIT_SPELLCAST_SUCCEEDED" or not name then return end
     local now = GetTime()
+	if name == "Frost Shock" then MarkPvPFrostOpened(sent) end
 	if name == "Fire Nova" then ResetFireNovaSuggestion(true) end
 	if name == "Lightning Shield" then lightningShieldExpires = now + 600 end
 	if name == "Searing Totem" or name == "Totemic Call" or name == "Call of the Elements" then
 		RecordFireTotemPlacement()
 	end
-	if name == "Earth Shock" or name == "Flame Shock" then
+	if name == "Earth Shock" or name == "Flame Shock" or name == "Frost Shock" then
         local guid = SafeValue(sent) and type(sent) == "table" and sent.targetGUID or nil
         if not (SafeValue(guid) and type(guid) == "string" and guid ~= "") then
             guid = SelectedTargetGUID()
@@ -1632,6 +1742,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
     if event == "PLAYER_STARTED_MOVING" then movementEventActive = true
     elseif event == "PLAYER_STOPPED_MOVING" then movementEventActive = false
     elseif event == "PLAYER_DEAD" or event == "PLAYER_ENTERING_WORLD" then
+		ResetPvPFrostTracking(true)
 		fireNovaState.placement = nil
 		ResetFireNovaSuggestion(true)
 		lightningShieldExpires = nil
@@ -1654,6 +1765,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
         end
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
 		if event == "PLAYER_REGEN_ENABLED" then ResetFireNovaSuggestion(true) end
+		if event == "PLAYER_REGEN_ENABLED" then ResetPvPFrostTracking(true) end
         if event == "PLAYER_REGEN_ENABLED" then taggedByGUID, taggedCurrentTarget = {}, false end
         if event == "PLAYER_REGEN_ENABLED" then RefreshCallOfFlameRank() end
         M.RefreshManaCache()
@@ -1816,6 +1928,8 @@ local M = {
 		searing = true,
 		interrupt = true,
 		rankOneEarthShockInterrupt = false,
+		frostShockPvPOpener = false,
+		exitGhostWolfForCombat = false,
 		flameshock = true,
 		earthshock = true,
 		frostshock = true,
@@ -2985,6 +3099,14 @@ local function Offer(name, reason, gates, preparation, showRange)
     return AddAction(name, reason, conditions)
 end
 
+local function FrostShockPvPOpener(s, hostile, mana)
+    if not Enabled(s, "frostShockPvPOpener") or not HostilePlayerTarget(hostile)
+        or PvPFrostAlreadyOpened() then return false end
+    return Offer("Frost Shock", "PvP opener", {
+        ManaGate(mana, SettingNumber(s,"shockMinMana",25,0,100), false),
+    })
+end
+
 local function Heal(s, hp, mana, inCombat, moving)
     if not Enabled(s, "heal") or moving then return end
     local key = inCombat and "healHP" or "healOutOfCombatHP"
@@ -3388,6 +3510,9 @@ function M.NextSpell(s, inCombat, hostile)
     local hp, targetHP = HealthPercent("player"), hostile and HealthPercent("target") or nil
     if PlayerIsCastingOrChanneling() then AddAction(nil,"Casting")
     else
+        if ShouldExitGhostWolf(s, hostile) and Ok("Ghost Wolf") then
+            AddAction("Ghost Wolf", "Leave Ghost Wolf for combat")
+        end
         if inCombat and hostile and Bool((SafeCall(AL.TargetCasting))) == true then
             if Enabled(s,"rankOneEarthShockInterrupt") then
                 if RankOneIconReady(s) then Offer(RANK_ONE_EARTH_SHOCK,"Rank 1 interrupt") end
@@ -3402,6 +3527,7 @@ function M.NextSpell(s, inCombat, hostile)
                 Offer("Stoneclaw Totem","Defensive totem",{ HealthGate("player",hp,SettingNumber(s,"stoneclawHP",25,5,80),true) })
             end
         end
+        FrostShockPvPOpener(s,hostile,mana)
         Maintenance(s,role,inCombat,moving)
         -- Resolve eligible Fire Nova before any ranged filler. If its mana
         -- condition is protected, the visual plan still keeps Nova first only
@@ -3447,10 +3573,17 @@ function M.CanTrackSuggestedSpell(name)
     if not lastRotation or GetTime()-lastRotation.at > 0.5 or lastRotation.visualCandidate then return false end
     local visual = AL.rotationSecretVisual
     if visual and GetTime()-visual.at <= 0.5 then return false end
+    if name == "Ghost Wolf" and lastRotation.baseReason == "Leave Ghost Wolf for combat" then return false end
     return name == lastRotation.baseSpell and Ok(name)
 end
 
+function M.IsSpellWatchdogExempt(name)
+    return name == "Ghost Wolf" and lastRotation
+        and lastRotation.baseReason == "Leave Ghost Wolf for combat" or false
+end
+
 function M.OnTargetChanged()
+    ResetPvPFrostTracking(false)
     ResetFireNovaSuggestion()
     lastRotation, AL.rotationSecretVisual, enh.flameBlocked, enh.flameFallbackUntil = nil, nil, nil, 0
 end
@@ -3462,6 +3595,7 @@ function M.OnCastResult(name, result, sent)
 	end
     if result ~= "UNIT_SPELLCAST_SUCCEEDED" or not name then return end
     local now = GetTime()
+	if name == "Frost Shock" then MarkPvPFrostOpened(sent) end
 	if name == "Fire Nova" then ResetFireNovaSuggestion(true) end
 	if name == "Lightning Shield" then lightningShieldExpires = now + 600 end
 	if name == "Searing Totem" or name == "Totemic Call" or name == "Call of the Elements" then
@@ -3601,6 +3735,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
     elseif event == "PLAYER_STARTED_MOVING" then movementEventActive = true
     elseif event == "PLAYER_STOPPED_MOVING" then movementEventActive = false
     elseif event == "PLAYER_DEAD" or event == "PLAYER_ENTERING_WORLD" then
+		ResetPvPFrostTracking(true)
 		fireNovaState.placement = nil
 		ResetFireNovaSuggestion(true)
 		lightningShieldExpires = nil
@@ -3625,6 +3760,7 @@ tracker:SetScript("OnEvent", function(_, event, unit, token)
         end
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
 		if event == "PLAYER_REGEN_ENABLED" then ResetFireNovaSuggestion(true) end
+		if event == "PLAYER_REGEN_ENABLED" then ResetPvPFrostTracking(true) end
         enh.shieldBlocked,enh.clearBlocked=nil,nil
         M.RefreshManaCache()
         if event == "PLAYER_REGEN_ENABLED" then RefreshEnhancementTalents() end
@@ -3782,6 +3918,7 @@ AL.RegisterRotation("SHAMAN", M)
         "SecretVisualPlan", "EvaluateVisualMasks", "ApplyVisualRow",
         "ApplySecretHealthVisibility", "SecretFinisherVisualState",
         "SecretHealVisualState", "CanTrackSuggestedSpell", "CanTrackSuggestedDebuff",
+        "IsSpellWatchdogExempt",
         "SelectedCurse", "ActiveCurse", "CurrentForm", "ManaPercent", "ManaGateState",
         "DecisionDebugState", "HealingState", "MindBlastState", "WandState",
         "GetUIState", "SoulShardCount", "DebugState",

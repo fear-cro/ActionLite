@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-AL.buildId = "1.1.7-20261107"
+AL.buildId = "1.1.7-20261107b"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -486,6 +486,18 @@ local function PublicSpellName(value)
 	return (AL.englishNames and AL.englishNames[value]) or value
 end
 
+-- A rotation may deliberately display a non-cast toggle (for example, the
+-- Ghost Wolf spell icon used to leave the form).  Such an action can complete
+-- without a normal START/SUCCEEDED event, so let the owning rotation keep it
+-- out of both watchdog paths without disabling checks for the spell globally.
+local function RotationWatchdogExempt(spell)
+	local rotation = AL.rotations and AL.rotations[AL.playerClass]
+	local check = rotation and rotation.IsSpellWatchdogExempt
+	if type(check) ~= "function" then return false end
+	local ok, exempt = pcall(check, spell)
+	return ok and exempt == true
+end
+
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 local function BlacklistTargetGUID()
 	if type(UnitGUID) ~= "function" then return nil end
@@ -661,6 +673,7 @@ end
 -- resets it instead of silently punishing a legitimate wait state.
 local function SpellDisplayWatchable(spell)
 	if not spell or UNWATCHED_ACTIONS[spell] then return false, "non-spell or auto-repeat action" end
+	if RotationWatchdogExempt(spell) then return false, "rotation-owned toggle action" end
 	if AL.IsSpellBlacklisted(spell) then return false, "already blacklisted" end
 	if AL.SafeBoolean(UnitAffectingCombat, "player") ~= true
 		or AL.SafeBoolean(UnitExists, "target") ~= true
@@ -737,7 +750,7 @@ local function BeginSpellAttempt(spell, castGUID)
 	-- already active. On-next-swing attacks can also remain queued for longer
 	-- than two seconds by design. Their dedicated timing modules own retry
 	-- protection, so neither case is evidence of an unreadable icon.
-	if not spell or UNWATCHED_ACTIONS[spell] then return end
+	if not spell or UNWATCHED_ACTIONS[spell] or RotationWatchdogExempt(spell) then return end
 	local now = GetTime and GetTime() or 0
 	-- Repeated failed key presses must not keep moving the two-second deadline.
 	if spellAttemptPending and spellAttemptPending.spell == spell
