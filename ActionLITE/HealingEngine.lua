@@ -150,43 +150,31 @@ local function PlayerAssignedGroupRole()
 end
 
 function Engine:IsGrouped()
-	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	-- "Grouped" means the Healing Rotation is actually eligible. A dungeon
-	-- alone is not enough: the player must have selected Heals and the client
-	-- must positively assign the player the HEALER group role.
+	-- "Grouped" means the party is eligible for the selected Heals mode.
 	local settings = self:GetSettings()
 	return settings and settings.enabled == true
 end
 
--- Healing Rotation is intentionally limited to five-player dungeon instances
--- for v1.1.5. Unknown instance state fails closed: Leveling remains active and
--- no raid/battleground/follower-raid unit can be selected accidentally.
--- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-function Engine:DungeonState()
-	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	-- Dungeon-only eligibility requires positive public proof that this is not a
-	-- raid. A missing or protected raid-state result must fail closed just like
-	-- protected instance type, group role, and roster data.
-	if type(IsInRaid) ~= "function" then return false, "raid state unavailable" end
+local function PartyContext(playerRole)
+	-- Party tokens cover at most four other players. Only enter the healing
+	-- path when public group and instance data rule out raids and PvP instances.
+	if type(IsInRaid) ~= "function" then return nil, "raid state unavailable" end
 	local inRaid = SafeBoolean(IsInRaid)
-	if inRaid == nil then return false, "raid state protected" end
-	if inRaid == true then return false, "raid group" end
-	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	-- The Healing Rotation never infers a healer from class, talents or selected
-	-- spells. The client's assigned group role must be publicly and positively
-	-- HEALER; NONE, DAMAGER, TANK and protected/unknown values all fail closed.
-	local playerRole = PlayerAssignedGroupRole()
-	if playerRole ~= "HEALER" then
-		return false, playerRole and ("player group role is " .. playerRole)
-			or "player healer role unavailable"
-	end
-	if type(IsInInstance) ~= "function" then return false, "instance API unavailable" end
+	if inRaid == nil then return nil, "raid state protected" end
+	if inRaid then return nil, "raid group" end
+	if type(IsInInstance) ~= "function" then return nil, "instance API unavailable" end
 	local ok, inside, instanceType = pcall(IsInInstance)
 	if not ok or IsSecret(inside) or IsSecret(instanceType) then
-		return false, "instance state protected"
+		return nil, "instance state protected"
 	end
-	if inside ~= true or instanceType ~= "party" then
-		return false, "not a five-player dungeon"
+	local dungeon = inside == true and instanceType == "party"
+	local openWorld = inside == false and instanceType == "none"
+	if not (dungeon or openWorld) then return nil, "unsupported party location" end
+	-- In the open world, selecting Heals is sufficient. Dungeon healing still
+	-- requires the game to assign the player the HEALER role.
+	if dungeon and playerRole ~= "HEALER" then
+		return nil, playerRole and ("player group role is " .. playerRole)
+			or "player healer role unavailable"
 	end
 	local count = 1
 	for index = 1, 4 do
@@ -195,11 +183,12 @@ function Engine:DungeonState()
 	if type(GetNumGroupMembers) == "function" then
 		local countOK, reported = pcall(GetNumGroupMembers)
 		reported = countOK and PublicNumber(reported) or nil
-		if reported and reported > 5 then return false, "group exceeds five players" end
 		if reported and reported > count then count = reported end
 	end
-	if count < 2 or count > 5 then return false, "five-player party unavailable" end
-	return true, "five-player dungeon"
+	if count > 5 then return nil, "group exceeds five players" end
+	if count < 2 then return nil, "party requires at least two players" end
+	if dungeon then return "dungeon", "five-player dungeon" end
+	return "open-world", "open-world party"
 end
 
 local function ClampPercent(value, fallback)
@@ -249,28 +238,19 @@ function Engine:GetSettings(profile)
 	local roleMode = SelectedRotationRole(profile)
 	local configured = roleMode == "HEAL"
 	local playerGroupRole = PlayerAssignedGroupRole()
-	local healerRole = playerGroupRole == "HEALER"
-	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	local dungeon, restriction = false, "Healing Rotation disabled"
-	if not configured then
-		restriction = "Heals role not selected"
-	else
-		dungeon, restriction = self:DungeonState()
-		if dungeon and not healerRole then
-			dungeon = false
-			restriction = playerGroupRole and ("player group role is " .. playerGroupRole)
-				or "player healer role unavailable"
-		end
-	end
+	local partyContext, restriction = nil, "Heals role not selected"
+	if configured then partyContext, restriction = PartyContext(playerGroupRole) end
+	local eligible = partyContext ~= nil
 	return {
 		configured = configured,
-		grouped = dungeon,
-		dungeon = dungeon,
-		enabled = configured and dungeon,
+		grouped = eligible,
+		dungeon = partyContext == "dungeon",
+		partyContext = partyContext,
+		enabled = eligible,
 		restriction = restriction,
 		roleMode = roleMode,
 		playerGroupRole = playerGroupRole or "UNKNOWN",
-		healerRole = healerRole,
+		healerRole = playerGroupRole == "HEALER",
 		castUnit = "focus",
 		initiate = initiate,
 		emergency = emergency,
@@ -329,8 +309,7 @@ end
 
 local function RosterUnits()
 	local units = {}
-	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	-- Dungeon-only: party tokens never include the player.
+	-- Party tokens never include the player.
 	for index = 4, 1, -1 do units[#units + 1] = "party" .. index end
 	units[#units + 1] = "player"
 	return units
@@ -727,7 +706,7 @@ function Engine:BuildPlan(baseSpell, baseReason)
 	if not self.SUPPORTED_CLASSES[AL.playerClass] or not settings.configured then return nil, settings end
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	if not settings.grouped then
-		return nil, settings, (settings.restriction or "Dungeon group unavailable")
+		return nil, settings, (settings.restriction or "Party unavailable")
 			.. "; Leveling Rotation active"
 	end
 	local casting = AL.CastingSpell and AL.CastingSpell()
@@ -782,7 +761,7 @@ function Engine:BuildPlan(baseSpell, baseReason)
 		manualTarget = manualUnit, healingCastUnit = "focus" }
 
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	-- A deliberately selected dungeon-party member is an explicit distress signal.
+	-- A deliberately selected party member is an explicit distress signal.
 	-- It bypasses health thresholds and every damage row until the user returns
 	-- to an enemy or clears the target.
 	if manualUnit then
@@ -1203,6 +1182,7 @@ function Engine:Update(baseSpell, baseReason)
 		grouped = settings and settings.grouped or false,
 		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 		dungeon = settings and settings.dungeon or false,
+		partyContext = settings and settings.partyContext or nil,
 		restriction = settings and settings.restriction or nil,
 		enabled = settings and settings.enabled or false,
 		-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5

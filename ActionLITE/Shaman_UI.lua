@@ -232,7 +232,7 @@ local function BuildShamanUI(page, ui)
 
 	local healingEngine = ui.Card(stack, "HEALING ROTATION", nil, { id="healing-engine", group="survival" })
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	ui.Help(healingEngine, "Select Heals in Rotation Role. The client must positively assign the Shaman the Healer role in a confirmed five-player dungeon. Automatic heals are expected to cast on focus; mouseover is reserved for manual healing overrides.")
+	ui.Help(healingEngine, "Select Heals in Rotation Role for open-world parties of 2-5 players. Dungeons also require WoW to assign you the Healer role. Use focus for healing macros, with mouseover as a manual override.")
 	Slider(healingEngine, "healingInitiateHP", "Initiate healing at HP", 5, 100, 80, " %")
 	Slider(healingEngine, "healingEmergencyHP", "Emergency healing", 5, 100, 30, " %")
 	Dropdown(healingEngine, "healingTotemEarth", "Call: Earth totem", {

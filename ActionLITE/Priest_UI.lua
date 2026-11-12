@@ -21,7 +21,7 @@ end
 
 AL.RegisterSimpleClassUI("PRIEST", {
 	title = { en = "PRIEST - LEVELING", fr = "PRETRE - PROGRESSION", pt = "SACERDOTE - PROGRESSÃO", es = "SACERDOTE - PROGRESIÓN", de = "PRIESTER - LEVELN", zh = "牧师 - 升级" },
-	subtitle = { en = "Leveling damage and dungeon healing - interface 0.33.0", fr = "Dégâts de progression et soins de donjon - interface 0.33.0", pt = "Dano de progressão e cura de masmorra - interface 0.33.0", es = "Daño de progresión y sanación de mazmorra - interfaz 0.33.0", de = "Level-Schaden und Dungeon-Heilung - Interface 0.33.0", zh = "升级伤害与地下城治疗 - 界面 0.33.0" },
+	subtitle = { en = "Leveling damage and party healing - interface 0.33.0", fr = "Dégâts de progression et soins de groupe - interface 0.33.0", pt = "Dano de progressão e cura em grupo - interface 0.33.0", es = "Daño de progresión y sanación de grupo - interfaz 0.33.0", de = "Level-Schaden und Gruppenheilung - Interface 0.33.0", zh = "升级伤害与队伍治疗 - 界面 0.33.0" },
 	aoeKey = "aoe",
 	cards = {
         {
@@ -37,7 +37,7 @@ AL.RegisterSimpleClassUI("PRIEST", {
 			id = "healing-engine", group = "survival",
 			controls = {
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-				{ type = "info", text = "Select Heals in Rotation Role. The client must positively assign the Priest the Healer role in a confirmed five-player dungeon. Automatic heals are expected to cast on focus; mouseover is reserved for manual healing overrides." },
+				{ type = "info", text = "Select Heals in Rotation Role for open-world parties of 2-5 players. Dungeons also require WoW to assign you the Healer role. Use focus for healing macros, with mouseover as a manual override." },
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
 				HealingSpecCheck("healingDiscipline", "Discipline Priest", "Penance", {

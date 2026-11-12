@@ -52,7 +52,7 @@ function AL.BuildRotationRoleCard(stack, ui, token)
 		DPS = { key = "roleDPS", label = "DPS", icon = "Interface\\Icons\\Ability_DualWield",
 			help = "Uses the learned-spell Leveling damage rotation. This is the default selection." },
 		HEAL = { key = "roleHeals", label = "Heals", icon = "Interface\\Icons\\Spell_Holy_Heal",
-			help = "Enables the five-player dungeon Healing Rotation only when the client positively assigns you the Healer role. Automatic heals are expected to cast on focus; mouseover remains a manual override." },
+			help = "Enables Healing Rotation in open-world parties of 2-5 players. Dungeons also require WoW to assign you the Healer role. Use focus for healing macros, with mouseover as a manual override." },
 		TANK = { key = "roleTank", label = "Tank", icon = "Interface\\Icons\\Ability_Defend",
 			help = "Uses the learned Tank priority and permits threat-specific actions such as taunts. It can be selected manually and is selected automatically only from a readable party Tank role." },
 	}

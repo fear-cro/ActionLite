@@ -5,7 +5,7 @@ World of Warcraft Forever rotation profiles and shared UI.
 ## Builds
 
 - **Current beta: v0.25**, in [`older-versions/ActionLITEv0.25/ActionLITE/`](older-versions/ActionLITEv0.25/ActionLITE/). It uses the original beta leveling rotations with the Warrior hotfixes.
-- **Current pre-launch build: 1.1.7**, in [`ActionLITE/`](ActionLITE/). It uses learned-spell Leveling Rotation, shared DPS/Heals/Tank controls, focus-based dungeon healing, selectable themes, and the latest Druid, Rogue, Shaman and spell-routing updates. The previous v1.1.6 source is archived in [`older-versions/ActionLITEv1.1.6/ActionLITE/`](older-versions/ActionLITEv1.1.6/ActionLITE/).
+- **Current pre-launch build: 1.1.7**, in [`ActionLITE/`](ActionLITE/). It uses learned-spell Leveling Rotation, shared DPS/Heals/Tank controls, focus-based party healing in the open world and dungeons, selectable themes, and the latest Druid, Rogue, Shaman and spell-routing updates. The previous v1.1.6 source is archived in [`older-versions/ActionLITEv1.1.6/ActionLITE/`](older-versions/ActionLITEv1.1.6/ActionLITE/).
 - **Archived Level 60 build: 1.0.25**, in [`older-versions/ActionLITEv1.0.25/ActionLITE/`](older-versions/ActionLITEv1.0.25/ActionLITE/).
 
 ## Installation

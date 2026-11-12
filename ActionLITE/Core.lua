@@ -1,6 +1,6 @@
 local ADDON, AL = ...
 -- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-AL.buildId = "1.1.7-20261107b"
+AL.buildId = "1.1.7-20261112-party-healing-git"
 
 AL.playerClass = select(2, UnitClass("player"))
 local trackedComboClass = AL.playerClass == "ROGUE" or AL.playerClass == "DRUID"
@@ -2990,7 +2990,7 @@ function AL.NextSpell()
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 	AL.PruneSpellAttempts()
 	local s = AL.S()
-	-- Role mode is the authoritative gate for DPS, dungeon healing and tank
+	-- Role mode is the authoritative gate for DPS, party healing and tank
 	-- threat behavior.  Normalizing here also keeps legacy Paladin/Warrior role
 	-- fields synchronized if an external button changed the shared selector.
 	if type(AL.GetRotationMode) == "function" then AL.GetRotationMode(s, AL.playerClass) end

@@ -51,12 +51,12 @@ AL.RegisterSimpleClassUI("DRUID", {
 			id = "healing-engine", group = "survival",
 			controls = {
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-				{ type = "info", text = "Select Heals in Rotation Role. The client must positively assign the Druid the Healer role in a confirmed five-player dungeon. Automatic heals are expected to cast on focus; mouseover is reserved for manual healing overrides." },
+				{ type = "info", text = "Select Heals in Rotation Role for open-world parties of 2-5 players. Dungeons also require WoW to assign you the Healer role. Use focus for healing macros, with mouseover as a manual override." },
 				{ type = "slider", key = "healingInitiateHP", label = "Initiate healing at HP", min = 5, max = 100, step = 5, default = 80, suffix = " %" },
 				{ type = "slider", key = "healingEmergencyHP", label = "Emergency healing", min = 5, max = 100, step = 5, default = 30, suffix = " %" },
 				-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
 				{ key = "healingWildGrowth", label = "Use Wild Growth for group healing", spell = "Wild Growth", half = false,
-				  tooltip = { "Protected group heal", "Requires two eligible injured dungeon-party members and more than 50% mana. The live learned spell supplies Naturalist's cast-time reduction." } },
+				  tooltip = { "Protected group heal", "Requires two eligible injured party members and more than 50% mana. The live learned spell supplies Naturalist's cast-time reduction." } },
 				{ type = "info", text = "Tank and healer thresholds use the selected values; known DPS members use each value minus 10 points. Tracks Regrowth and Rejuvenation, protects the five-second mana rule, and uses protected two-member health gates for Wild Growth. Swiftmend, Nature's Swiftness and Elune's Light remain emergency tools. Selecting a friendly group member requests immediate care; out of combat it can apply Mark of the Wild or top off above 80% mana." },
 			},
 		},

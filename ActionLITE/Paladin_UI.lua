@@ -214,7 +214,7 @@ local function BuildPaladinUI(page, ui)
 
 	local healingEngine = ui.Card(stack, "HEALING ROTATION", nil, { id="healing-engine", group="survival" })
 	-- Pre-launch Bluepost 03NOV2026 Hotfix v1.1.5
-	ui.Help(healingEngine, "Select Heals in Rotation Role. The client must positively assign the Paladin the Healer role in a confirmed five-player dungeon. Automatic heals are expected to cast on focus; mouseover is reserved for manual healing overrides.")
+	ui.Help(healingEngine, "Select Heals in Rotation Role for open-world parties of 2-5 players. Dungeons also require WoW to assign you the Healer role. Use focus for healing macros, with mouseover as a manual override.")
 	Slider(healingEngine, "healingInitiateHP", "Initiate healing at HP", 5, 100, 80, " %")
 	Slider(healingEngine, "healingEmergencyHP", "Emergency healing", 5, 100, 30, " %")
 	Dropdown(healingEngine, "healingAura", "Healing aura", {
@@ -291,7 +291,7 @@ local function BuildPaladinUI(page, ui)
 		SetBadge("mana", type(state.mana) == "number" and ("MANA " .. math.floor(state.mana + 0.5) .. "%") or "MANA ?",
 			type(state.mana) == "number" and theme.gold or (theme.warn or theme.gold))
 		SetBadge("spells", tostring(state.knownCount or 0) .. " " .. (AL.L and AL.L("SPELLS"):upper() or "SPELLS"), steel)
-		SetBadge("role", profile.healingEngine and "DUNGEON HEAL"
+		SetBadge("role", profile.healingEngine and "PARTY HEAL"
 			or state.role == "TANK" and "LEVELING TANK" or "LEVELING DPS",
 			state.role == "TANK" and (theme.warn or theme.gold) or theme.ok)
 		SetBadge("seal", "SEAL " .. ShortName(state.seal, "?"), state.seal and theme.gold or steel)
